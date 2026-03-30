@@ -27,3 +27,14 @@ pre > code.sourceCode > span:empty {
 code {
   font-size: 0.9em;
 }
+
+table {
+  table-layout: auto;
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th, td {
+  padding: 0.3em 0.5em;
+  vertical-align: top;
+}
