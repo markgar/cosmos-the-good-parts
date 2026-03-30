@@ -16,7 +16,7 @@ You can create up to 250 accounts per Azure subscription by default, increasable
 
 A **database** is essentially a namespace — a logical grouping of containers. Think of it as an organizational bucket. If you're coming from relational databases, it maps roughly to a database in SQL Server or a keyspace in Cassandra. There's no compute or storage directly associated with a database; it's just a grouping.
 
-Where databases *do* matter is **shared throughput**. You can provision throughput at the database level and share it across up to 25 containers within that database. This is useful when you have many small containers with similar workloads and don't want to pay for dedicated throughput on each one. We'll cover throughput modes in detail in Chapter 9. <!-- Source: resource-model.md, set-throughput.md -->
+Where databases *do* matter is **shared throughput**. You can provision throughput at the database level and share it across up to 25 containers within that database. This is useful when you have many small containers with similar workloads and don't want to pay for dedicated throughput on each one. We'll cover throughput modes in detail in Chapter 11. <!-- Source: resource-model.md, set-throughput.md -->
 
 ### Container
 
@@ -88,7 +88,7 @@ Here's what each property does:
 | `id` | String (user-defined or system-assigned) | Unique identifier within a logical partition. You set this. If you don't provide one, the SDK generates a GUID. Max length: 1,023 bytes. |
 | `_rid` | String (system-generated) | An internal, hierarchically encoded resource ID. Unique across the entire account. You'll rarely use this directly, but Cosmos DB uses it internally for addressing. |
 | `_self` | String (system-generated) | A self-link URI for the resource. A legacy from the REST API days — mostly irrelevant in modern SDK usage. |
-| `_etag` | String (system-generated) | An entity tag that changes every time the item is updated. Used for **optimistic concurrency control** — you pass the ETag with a write request, and the server rejects the write if the item has changed since you last read it. We'll cover this pattern in depth in Chapter 15. |
+| `_etag` | String (system-generated) | An entity tag that changes every time the item is updated. Used for **optimistic concurrency control** — you pass the ETag with a write request, and the server rejects the write if the item has changed since you last read it. We'll cover this pattern in depth in Chapter 16. |
 | `_ts` | Integer (system-generated) | The Unix timestamp (seconds since epoch) of the last modification. Useful for debugging and ordering, but don't rely on it for business logic — it's updated on writes, not on reads. |
 
 <!-- Source: resource-model.md (item system properties table) -->
@@ -100,7 +100,7 @@ A few practical notes:
 - **`_rid` is not the same as `id`.** The `_rid` is an internal routing identifier. Your application should never need to parse or construct one. Use `id` (the one you control) for all application logic.
 - **System properties count toward the 2 MB item size limit.** They're small, but they're there.
 
-There's also `_lsn` (log sequence number), which appears in change feed payloads but not on regular item reads. We'll encounter it in Chapter 14 when we cover the change feed. <!-- Source: resource-model.md -->
+There's also `_lsn` (log sequence number), which appears in change feed payloads but not on regular item reads. We'll encounter it in Chapter 15 when we cover the change feed. <!-- Source: resource-model.md -->
 
 ## Unique Key Constraints
 
@@ -158,7 +158,7 @@ These numbers come from the docs with automatic indexing turned off, so they rep
 Several factors determine how many RUs an operation consumes: <!-- Source: request-units.md -->
 
 - **Item size.** Larger items cost more to read and write. The relationship is roughly linear.
-- **Indexing.** By default, every property is indexed. More indexed properties means more RUs on writes. You can customize the indexing policy to exclude properties you never query on (Chapter 8).
+- **Indexing.** By default, every property is indexed. More indexed properties means more RUs on writes. You can customize the indexing policy to exclude properties you never query on (Chapter 9).
 - **Consistency level.** Strong and bounded staleness reads cost ~2x more than session or eventual.
 - **Query complexity.** A query that scans 10,000 items costs far more than one that uses an index to find 3. The number of predicates, cross-partition fan-out, and result set size all matter.
 - **Stored procedures and triggers.** They consume RUs proportional to the complexity of the operations they perform internally.
@@ -189,11 +189,11 @@ Cosmos DB offers three capacity modes, each with a different relationship betwee
 
 Provisioned throughput is allocated in increments of 100 RU/s, with a minimum of 400 RU/s for a container with manual throughput. Autoscale starts at a minimum max of 1,000 RU/s. The maximum for any single container or database is 1,000,000 RU/s, which can be raised further via a support request. <!-- Source: concepts-limits.md -->
 
-We'll go deep on capacity planning, cost optimization, and choosing between these modes in Chapter 9. For now, internalize the core idea: **everything you do in Cosmos DB has an RU cost, and that cost is how you plan capacity and budget.**
+We'll go deep on capacity planning, cost optimization, and choosing between these modes in Chapter 11. For now, internalize the core idea: **everything you do in Cosmos DB has an RU cost, and that cost is how you plan capacity and budget.**
 
 ## Automatic Indexing
 
-Cosmos DB indexes every property of every item in a container by default. Range indexes are created for all strings and numbers, so your queries work efficiently out of the box — no `CREATE INDEX` statements, no DBA reviewing query plans before production. When you insert an item, the index updates synchronously (in the default "consistent" indexing mode), so the item is immediately queryable. You can customize the indexing policy to include or exclude specific paths, and Chapter 8 covers indexing policies — including composite, spatial, and vector indexes — in full. <!-- Source: index-policy.md -->
+Cosmos DB indexes every property of every item in a container by default. Range indexes are created for all strings and numbers, so your queries work efficiently out of the box — no `CREATE INDEX` statements, no DBA reviewing query plans before production. When you insert an item, the index updates synchronously (in the default "consistent" indexing mode), so the item is immediately queryable. You can customize the indexing policy to include or exclude specific paths, and Chapter 9 covers indexing policies — including composite, spatial, and vector indexes — in full. <!-- Source: index-policy.md -->
 
 ## The Logical Partition: Cosmos DB's Unit of Scale
 
@@ -224,7 +224,7 @@ Every physical partition has at least **four replicas**, even for small containe
 
 If your account spans *N* Azure regions, there are at least *N* × 4 copies of all your data. A three-region account means at least 12 replicas of every partition. This is how Cosmos DB delivers its high-availability SLAs without you configuring anything — the redundancy is baked into the architecture. <!-- Source: global-distribution.md -->
 
-Replicas within a region are spread across fault domains (typically 10–20 per data center), so a rack failure or even a partial data center outage won't take down your data. We'll cover multi-region distribution, failover policies, and availability zone configuration in Chapter 11. <!-- Source: global-distribution.md -->
+Replicas within a region are spread across fault domains (typically 10–20 per data center), so a rack failure or even a partial data center outage won't take down your data. We'll cover multi-region distribution, failover policies, and availability zone configuration in Chapter 12. <!-- Source: global-distribution.md -->
 
 ## Service Limits and Quotas
 

@@ -64,19 +64,19 @@ New-AzCosmosDBAccount `
 
 <!-- Source: how-to-create-account.md -->
 
-Bicep and Terraform templates work too — any approach that lets you check your infrastructure into source control. We'll cover infrastructure-as-code patterns for Cosmos DB in Chapter 19.
+Bicep and Terraform templates work too — any approach that lets you check your infrastructure into source control. We'll cover infrastructure-as-code patterns for Cosmos DB in Chapter 20.
 
 ## Understanding Account-Level Settings and Free Tier
 
 Once your account exists, a handful of account-level settings shape how everything inside it behaves. You don't need to memorize all of them now, but you should know the important ones.
 
-**Default consistency level.** This controls the default consistency guarantee for reads across the account. It defaults to **Session**, which is the right choice for most applications. You can always override it per-request in your SDK code. We'll cover consistency in depth in Chapter 12.
+**Default consistency level.** This controls the default consistency guarantee for reads across the account. It defaults to **Session**, which is the right choice for most applications. You can always override it per-request in your SDK code. We'll cover consistency in depth in Chapter 13.
 
-**Geo-replication.** You can add or remove Azure regions at any time from the **Replicate data globally** blade. Adding a region replicates all your data there and gives your users lower-latency reads from the nearest region. We'll cover multi-region configuration in Chapter 11.
+**Geo-replication.** You can add or remove Azure regions at any time from the **Replicate data globally** blade. Adding a region replicates all your data there and gives your users lower-latency reads from the nearest region. We'll cover multi-region configuration in Chapter 12.
 
-**Multi-region writes.** Disabled by default. When enabled, every region can accept writes — not just reads. This unlocks the 99.999% read-and-write availability SLA but introduces conflict resolution complexity. Again, Chapter 11.
+**Multi-region writes.** Disabled by default. When enabled, every region can accept writes — not just reads. This unlocks the 99.999% read-and-write availability SLA but introduces conflict resolution complexity. Again, Chapter 12.
 
-**Networking.** By default, your account is accessible from all networks. You can restrict access to specific virtual networks, private endpoints, or IP ranges. Chapter 16 covers this in detail.
+**Networking.** By default, your account is accessible from all networks. You can restrict access to specific virtual networks, private endpoints, or IP ranges. Chapter 17 covers this in detail.
 
 ### Free Tier
 
@@ -91,7 +91,7 @@ The rules are simple:
 
 If you combine free tier with an Azure free account (which gives an additional 400 RU/s and 25 GB for the first 12 months), you get a combined 1,400 RU/s and 50 GB to start. After the Azure free account period expires, you keep the Cosmos DB free tier indefinitely. <!-- Source: free-tier.md -->
 
-For the full pricing picture — provisioned vs. serverless costs, autoscale economics, reserved capacity discounts — see Chapter 10.
+For the full pricing picture — provisioned vs. serverless costs, autoscale economics, reserved capacity discounts — see Chapter 11.
 
 ## Creating Databases and Containers
 
@@ -175,7 +175,7 @@ AccountEndpoint=https://<account-name>.documents.azure.com:443/;AccountKey=<your
 
 **Microsoft Entra ID (Azure AD) authentication.** The recommended approach for production. Instead of passing keys around, your application authenticates using an identity (managed identity, service principal, or user credential) and role-based access control (RBAC) governs what it can do. This is more secure because there are no long-lived secrets to rotate or leak.
 
-For getting started and local development, keys are convenient. For anything beyond that, Entra ID with RBAC is the right choice. We'll cover the security implications, key rotation strategies, and RBAC configuration in Chapter 16.
+For getting started and local development, keys are convenient. For anything beyond that, Entra ID with RBAC is the right choice. We'll cover the security implications, key rotation strategies, and RBAC configuration in Chapter 17.
 
 > **Gotcha:** Primary and secondary keys are account-wide. Anyone with a read-write key has full access to every database, every container, every item in the account. Treat them like root passwords. Don't check them into source control. Don't put them in client-side code.
 
@@ -561,7 +561,7 @@ Console.WriteLine($"RU charge: {response.RequestCharge}");
 
 A few things to note:
 
-- **`UpsertItemAsync`** is your friend for quickstarts and idempotent writes. It creates the item if it doesn't exist, or replaces it entirely if it does. For production code, you'll sometimes prefer `CreateItemAsync` (which throws if the item exists) or `ReplaceItemAsync` (which requires an ETag for concurrency control). We'll cover these patterns in Chapter 15.
+- **`UpsertItemAsync`** is your friend for quickstarts and idempotent writes. It creates the item if it doesn't exist, or replaces it entirely if it does. For production code, you'll sometimes prefer `CreateItemAsync` (which throws if the item exists) or `ReplaceItemAsync` (which requires an ETag for concurrency control). We'll cover these patterns in Chapter 16.
 - You **must pass the partition key** as a separate parameter. The SDK doesn't infer it from the item's JSON — you tell it explicitly.
 - The response includes the **RU charge** (`RequestCharge`). Get in the habit of checking this. It tells you exactly what that operation cost.
 
@@ -675,7 +675,7 @@ for item in items:
 
 <!-- Source: quickstart-python.md (adapted) -->
 
-Notice `enable_cross_partition_query=False`. Since we're filtering on the partition key (`category`), the query targets a single partition — no cross-partition fan-out needed. If you query without a partition key filter, you'd set this to `True` and accept the higher RU cost. Cross-partition queries are covered in Chapter 7.
+Notice `enable_cross_partition_query=False`. Since we're filtering on the partition key (`category`), the query targets a single partition — no cross-partition fan-out needed. If you query without a partition key filter, you'd set this to `True` and accept the higher RU cost. Cross-partition queries are covered in Chapter 8.
 
 ### Switching from the Emulator to the Cloud
 
@@ -691,7 +691,7 @@ endpoint = "https://my-cosmos-account.documents.azure.com:443/"
 key = "<your-actual-key>"
 ```
 
-That's it. No code changes, no SDK differences. The connection string is the only thing that varies between the emulator and the cloud service. In production, you'll use environment variables or Azure Key Vault to manage these values — not hardcoded strings. Chapter 16 covers secrets management.
+That's it. No code changes, no SDK differences. The connection string is the only thing that varies between the emulator and the cloud service. In production, you'll use environment variables or Azure Key Vault to manage these values — not hardcoded strings. Chapter 17 covers secrets management.
 
 ### What Just Happened?
 
@@ -702,6 +702,6 @@ In a few lines of code, you:
 3. Read it back with a point read.
 4. Queried it with SQL.
 
-Every interaction reported its RU cost. This feedback loop — write something, measure the cost, optimize — is how you'll work with Cosmos DB throughout this book. The SDK depth in Chapter 20 will cover connection management, retry policies, bulk operations, and the many other SDK features you'll need for production applications.
+Every interaction reported its RU cost. This feedback loop — write something, measure the cost, optimize — is how you'll work with Cosmos DB throughout this book. The SDK depth in Chapter 21 will cover connection management, retry policies, bulk operations, and the many other SDK features you'll need for production applications.
 
 Chapter 4 shifts focus to the data itself: how to think about documents, when to embed vs. reference, and the patterns that make or break a Cosmos DB data model.

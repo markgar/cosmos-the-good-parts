@@ -32,9 +32,9 @@ You can replicate your data to any Azure region in the world with a few clicks (
 
 What makes these SLAs unusual isn't just the numbers — it's the breadth. Cosmos DB's SLAs cover four dimensions simultaneously: **throughput, latency, availability, and consistency**. Most managed databases give you an uptime SLA and call it a day. Cosmos DB commits to all four in writing. <!-- Source: use-cases.md -->
 
-That "consistency" dimension is worth a quick mention. Most distributed databases offer two choices: strong consistency (slow, safe) or eventual consistency (fast, unpredictable). Cosmos DB offers five levels — Strong, Bounded Staleness, Session, Consistent Prefix, and Eventual — so you can dial in exactly the tradeoff your application needs. We'll cover consistency in depth in Chapter 12.
+That "consistency" dimension is worth a quick mention. Most distributed databases offer two choices: strong consistency (slow, safe) or eventual consistency (fast, unpredictable). Cosmos DB offers five levels — Strong, Bounded Staleness, Session, Consistent Prefix, and Eventual — so you can dial in exactly the tradeoff your application needs. We'll cover consistency in depth in Chapter 13.
 
-We'll dig into the mechanics of global distribution — region failover, conflict resolution policies, multi-region write topologies — in Chapter 11. For now, know that "turnkey" is accurate: the service handles the hard parts of geo-replication that would take an engineering team months to build correctly.
+We'll dig into the mechanics of global distribution — region failover, conflict resolution policies, multi-region write topologies — in Chapter 12. For now, know that "turnkey" is accurate: the service handles the hard parts of geo-replication that would take an engineering team months to build correctly.
 
 ### Multi-Model: One Database, Many Data Shapes
 
@@ -68,7 +68,7 @@ Cosmos DB is excellent at a specific class of problems. It's genuinely the wrong
 
 **Latency-sensitive workloads.** Real-time personalization engines, product recommendation APIs, session stores — any workload where single-digit millisecond response times aren't optional. As we covered above, that latency guarantee is SLA-backed and contractual. <!-- Source: overview.md -->
 
-**Highly elastic workloads.** A concert booking platform that sees 100x traffic spikes when tickets go on sale, then drops back to baseline. Cosmos DB's autoscale and serverless modes handle this without pre-provisioning for peak (we'll cover capacity modes in Chapter 10). <!-- Source: overview.md -->
+**Highly elastic workloads.** A concert booking platform that sees 100x traffic spikes when tickets go on sale, then drops back to baseline. Cosmos DB's autoscale and serverless modes handle this without pre-provisioning for peak (we'll cover capacity modes in Chapter 11). <!-- Source: overview.md -->
 
 **High-throughput ingestion.** IoT telemetry, device state logging, clickstream capture — workloads that push massive volumes of writes with relatively simple read patterns. Cosmos DB's partitioned write path scales horizontally to absorb these loads. <!-- Source: overview.md -->
 
@@ -80,7 +80,7 @@ Cosmos DB is excellent at a specific class of problems. It's genuinely the wrong
 
 **Analytical workloads (OLAP).** If you need interactive analytics, complex aggregations across your entire dataset, streaming analytics, or batch processing — Cosmos DB is the wrong tool. It's an operational (OLTP) database optimized for point reads and targeted queries, not full-table scans and star-schema joins. Microsoft's own guidance points you to **Microsoft Fabric** for analytical workloads.
 
-That said, Cosmos DB does offer a path to get your operational data into analytical systems without building ETL pipelines. **Fabric Mirroring** can replicate your data for analytics with zero ETL overhead. We'll cover that in Chapter 21. <!-- Source: overview.md -->
+That said, Cosmos DB does offer a path to get your operational data into analytical systems without building ETL pipelines. **Fabric Mirroring** can replicate your data for analytics with zero ETL overhead. We'll cover that in Chapter 22. <!-- Source: overview.md -->
 
 **Highly relational, join-heavy applications.** A white-label CRM, an ERP system, a banking ledger with dozens of interrelated tables and complex cross-entity joins — these are better served by **Azure SQL** or **Azure Database for MySQL**. Cosmos DB supports cross-document queries, but it's not optimized for the kind of multi-table joins that relational workloads depend on. If your first instinct is to draw an ER diagram with 30 tables and foreign keys everywhere, Cosmos DB will fight you. <!-- Source: overview.md -->
 
@@ -126,7 +126,7 @@ Microsoft eats its own cooking here, too. Cosmos DB is used extensively in Micro
 
 The newest dimension is **vector search**. Azure Cosmos DB for NoSQL offers integrated vector and hybrid similarity search powered by **DiskANN** — an algorithm developed by Microsoft Research that stores embeddings alongside your operational data. DiskANN isn't experimental; it's been used within Microsoft for years in web search, advertisements, and the Microsoft 365 and Windows copilot runtimes. <!-- Source: overview.md, gen-ai-why-cosmos-ai.md, vector-database.md -->
 
-In practice, this means you can store your documents, query them with SQL, *and* run similarity searches on vector embeddings — all in the same container, all at the same latency guarantees. No separate vector database to manage, no synchronization pipeline to build. We'll go deep on vector search and RAG patterns in Chapter 24.
+In practice, this means you can store your documents, query them with SQL, *and* run similarity searches on vector embeddings — all in the same container, all at the same latency guarantees. No separate vector database to manage, no synchronization pipeline to build. We'll go deep on vector search and RAG patterns in Chapter 25.
 
 This convergence — operational data, AI embeddings, and global distribution in a single service — is why Cosmos DB keeps showing up in AI reference architectures. It's not just a database that happens to support vectors. It's a database whose core strengths (low latency, elastic scale, global distribution) are exactly what AI applications need, with vector search layered on top.
 
