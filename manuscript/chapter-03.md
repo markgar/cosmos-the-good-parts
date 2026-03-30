@@ -171,6 +171,17 @@ container = database.create_container_if_not_exists(
 
 Both `CreateDatabaseIfNotExistsAsync` and `create_database_if_not_exists` are idempotent — they create the resource if it doesn't exist and return the existing one if it does. That's the method you want for application startup code, not raw `Create`, which throws if the resource already exists.
 
+### Should You Create Resources in Code or in CI/CD?
+
+The SDK makes it easy to create databases and containers from your application, but that doesn't mean you should. In production, most teams manage Cosmos DB resources through **infrastructure as code** (Bicep, Terraform, or ARM templates) deployed via a CI/CD pipeline. Here's why:
+
+- **Partition keys can't be changed.** If your app creates a container with the wrong partition key, you're stuck. IaC templates go through code review before they touch production.
+- **Throughput is money.** A bug in startup code that provisions 100,000 RU/s instead of 1,000 is an expensive mistake. IaC pipelines have approval gates.
+- **Indexing policies, TTL, and unique keys are set at creation.** Getting these wrong means recreating the container and migrating data. You want those decisions in version-controlled templates, not buried in application code.
+- **`CreateIfNotExistsAsync` has a cost.** It's a metadata read on every app startup. In a serverless or scale-out scenario with hundreds of instances, that adds up.
+
+That said, `CreateIfNotExistsAsync` is perfectly fine for **local development, integration tests, and emulator workflows** — anywhere you want the app to bootstrap itself without external tooling. Chapter 20 covers the full CI/CD story, including Bicep and Terraform templates for managing Cosmos DB resources across environments.
+
 ## Connection Strings, Endpoints, and Keys
 
 To connect your application to Cosmos DB, you need two pieces of information: the **account endpoint** and an **authentication credential**.
