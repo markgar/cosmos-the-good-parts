@@ -305,10 +305,13 @@ Cosmos DB has two built-in data-plane roles:
 
 <!-- Source: reference-data-plane-security.md -->
 
-| Role | ID | Grants |
-|------|-----|--------|
-| **Cosmos DB Built-in Data Reader** | `00000000-0000-0000-0000-000000000001` | Read items, execute queries, read change feed |
-| **Cosmos DB Built-in Data Contributor** | `00000000-0000-0000-0000-000000000002` | Full CRUD on containers and items |
+| Role | ID |
+|---|---|
+| **Built-in Data Reader** | `00000000-0000-0000-0000-000000000001` |
+| **Built-in Data Contributor** | `00000000-0000-0000-0000-000000000002` |
+
+- **Data Reader:** read items, execute queries, read change feed.
+- **Data Contributor:** full CRUD on containers and items.
 
 TaskHub's API needs to read and write data, so we assign the **Data Contributor** role to the app's managed identity. Here's the Azure CLI command:
 

@@ -25,13 +25,16 @@ Chapter 7 introduced the two SDK connection modes. Here's where the choice actua
 
 **Direct mode** opens TCP connections straight to the backend replica sets. Your client talks directly to the partition that holds your data, with no intermediary. Fewer hops means lower latency — it's that simple.
 
-| Characteristic | Gateway Mode | Direct Mode |
+| Characteristic | Gateway | Direct |
 |---|---|---|
-| **Protocol** | HTTPS | TCP (TLS-encrypted) |
-| **Network hops** | Client → Gateway → Partition | Client → Partition |
-| **SDK support** | All SDKs | .NET and Java only |
-| **Port requirements** | 443 | 10000–20000 (public endpoints), 0–65535 (private endpoints) |
-| **Best for** | Firewall-restricted environments, Azure Functions Consumption plan | Production workloads where latency matters |
+| **Protocol** | HTTPS | TCP (TLS) |
+| **Hops** | Client → GW → Partition | Client → Partition |
+| **SDK support** | All SDKs | .NET and Java |
+| **Ports** | 443 only | 10000–20000 range |
+
+- **Direct mode ports:** 10000–20000 for public endpoints; 0–65535 for private endpoints.
+- **Best for gateway:** firewall-restricted environments, Azure Functions Consumption plan.
+- **Best for direct:** production workloads where latency matters.
 
 <!-- Source: sdk-connection-modes.md -->
 
@@ -75,10 +78,12 @@ Chapter 9 covers indexing policy configuration in detail. Here we focus on the p
 
 There are two approaches:
 
-| Strategy | Indexing Policy Root | When to Use |
-|---|---|---|
-| **Include everything, exclude selectively** | `"includedPaths": [{"path": "/*"}]` | Most workloads. Exclude paths you know you'll never filter or sort on. |
-| **Exclude everything, include selectively** | `"excludedPaths": [{"path": "/*"}]` | Write-heavy workloads with known, narrow query patterns. Only index what you query. |
+| Strategy | Policy Root |
+|---|---|
+| **Include all, exclude selectively** | `"includedPaths": [{"path": "/*"}]` |
+| **Exclude all, include selectively** | `"excludedPaths": [{"path": "/*"}]` |
+
+Use **include-all** for most workloads — exclude only paths you never filter or sort on. Use **exclude-all** for write-heavy workloads with known, narrow query patterns — only index what you actually query.
 
 <!-- Source: index-policy.md -->
 
@@ -165,13 +170,15 @@ Smaller retrieved document size means fewer RUs consumed by the query's document
 
 Look at the query execution metrics to confirm your optimizations worked:
 
-| Metric | What It Tells You |
+| Metric | Meaning |
 |---|---|
-| `RetrievedDocumentCount` | How many documents the engine loaded — should be close to `OutputDocumentCount` |
-| `OutputDocumentCount` | How many documents made it into the result set |
-| `IndexHitRatio` | Whether the filter was served by the index (1.0 = fully indexed) |
-| `IndexLookupTime` | Time spent in index operations — should be low relative to total time |
-| `DocumentLoadTime` | Time spent loading documents from storage — high values mean too many documents retrieved |
+| `RetrievedDocumentCount` | Docs loaded by engine |
+| `OutputDocumentCount` | Docs in final result set |
+| `IndexHitRatio` | 1.0 = fully index-served |
+| `IndexLookupTime` | Time in index lookups |
+| `DocumentLoadTime` | Time loading from storage |
+
+`RetrievedDocumentCount` should be close to `OutputDocumentCount` — a large gap means your filter isn't fully index-served. High `DocumentLoadTime` confirms too many documents are being loaded. `IndexLookupTime` should be low relative to total execution time.
 
 <!-- Source: query-metrics.md -->
 
@@ -252,10 +259,13 @@ Before you launch, you need to estimate how many RU/s your workload requires. Gu
 
 The **Azure Cosmos DB Capacity Planner** at [cosmos.azure.com/capacitycalculator](https://cosmos.azure.com/capacitycalculator/) gives you an RU/s and cost estimate based on your workload profile. It has two modes: <!-- Source: estimate-ru-with-capacity-planner.md -->
 
-| Mode | Input | Best For |
-|---|---|---|
-| **Basic** | Item size, reads/sec, writes/sec, queries/sec, region count | Quick "is this affordable?" estimates |
-| **Advanced** | All of the above plus indexing policy, consistency level, peak vs. steady workload ratios, sample JSON documents | Pre-launch capacity planning for production |
+| Mode | Best For |
+|---|---|
+| **Basic** | Quick cost estimates |
+| **Advanced** | Production capacity planning |
+
+- **Basic inputs:** item size, reads/sec, writes/sec, queries/sec, region count.
+- **Advanced inputs:** all of the above plus indexing policy, consistency level, peak-vs-steady ratios, and sample JSON documents.
 
 <!-- Source: estimate-ru-with-capacity-planner.md -->
 
@@ -279,16 +289,23 @@ SDK fundamentals are covered in Chapter 7, and advanced patterns in Chapter 21. 
 
 ### .NET SDK v3
 
-| Practice | Why It Matters |
+| Practice | Why |
 |---|---|
-| **Use direct mode** (default) | Eliminates the gateway hop. Don't switch to gateway unless firewalls force it. |
-| **Singleton `CosmosClient`** | Each instance manages connection pools and caching. Creating multiple clients wastes resources and connections. |
-| **Enable server-side GC** | Set `gcServer = true`. Reduces garbage collection pauses under load. |
-| **Avoid blocking async calls** | Never use `Task.Wait()` or `Task.Result` — they cause thread pool starvation. Use `async`/`await` throughout. |
-| **Set `EnableContentResponseOnWrite = false`** | On write-heavy workloads, skip deserializing the response body. You already have the object you just wrote. |
-| **Remove `DefaultTraceListener`** | It causes high CPU and I/O overhead in production. SDK versions greater than 3.23.0 (i.e., 3.24.0+) remove it automatically. | <!-- Source: performance-tips-dotnet-sdk-v3.md -->
-| **Enable Accelerated Networking on VMs** | Bypasses the host virtual switch, reducing latency and CPU jitter. |
-| **Add `Newtonsoft.Json` ≥ 13.0.3 explicitly** | The SDK depends on it but doesn't manage the version. Use 13.0.3+ to avoid security vulnerabilities in 10.x. |
+| **Direct mode** (default) | Eliminates gateway hop |
+| **Singleton `CosmosClient`** | Manages pools and cache |
+| **Server-side GC** | Reduces GC pauses |
+| **Async-only calls** | Prevents thread starvation |
+| **No write response body** | Saves deserialization cost |
+| **Remove `DefaultTraceListener`** | High CPU/I/O in production |
+| **Accelerated Networking** | Lower latency on VMs |
+| **`Newtonsoft.Json` ≥ 13.0.3** | Avoids security vulns |
+
+- Don't switch to gateway unless firewalls force it. One `CosmosClient` per app — creating multiple wastes resources.
+- Set `gcServer = true`. Use `async`/`await` throughout — never `Task.Wait()` or `Task.Result`.
+- Set `EnableContentResponseOnWrite = false` on write-heavy paths to skip deserializing the response body.
+- `DefaultTraceListener` is auto-removed in SDK 3.24.0+. <!-- Source: performance-tips-dotnet-sdk-v3.md -->
+- Accelerated Networking bypasses the host virtual switch, reducing CPU jitter.
+- The SDK depends on `Newtonsoft.Json` but doesn't manage the version — use ≥ 13.0.3 to avoid security vulnerabilities.
 
 <!-- Source: performance-tips-dotnet-sdk-v3.md, best-practice-dotnet.md -->
 
@@ -305,15 +322,20 @@ await container.CreateItemAsync(order, new PartitionKey(order.CustomerId), optio
 
 ### Java SDK v4
 
-| Practice | Why It Matters |
+| Practice | Why |
 |---|---|
-| **Use direct mode** with `directMode()` | Already the default, but worth setting explicitly for clarity and to configure `DirectConnectionConfig`. | <!-- Source: tune-connection-configurations-java-sdk-v4.md -->
-| **Singleton `CosmosAsyncClient`** | Thread-safe, manages connections. One instance per application. |
-| **Use `CosmosAsyncClient` over `CosmosClient`** | The async API uses non-blocking I/O (Netty) and saturates throughput far better than the sync wrapper. |
-| **Provide the partition key in write calls** | Passing just the item forces the SDK to parse the document to extract the key, adding latency. |
-| **Don't block Netty event loop threads** | Offload CPU-intensive work to `Schedulers.parallel()`. Blocking Netty threads causes deadlocks. |
-| **Disable Netty logging in production** | It's verbose and steals CPU cycles. |
-| **Increase `nofile` limits on Linux** | Direct mode opens many TCP connections. Ensure the OS allows enough open file descriptors. |
+| **Direct mode** (`directMode()`) | Default; set explicitly |
+| **Singleton `CosmosAsyncClient`** | Thread-safe, one per app |
+| **Async over sync client** | Non-blocking I/O (Netty) |
+| **Pass partition key on writes** | Avoids doc parsing overhead |
+| **Don't block Netty threads** | Causes deadlocks |
+| **Disable Netty logging** | Verbose; steals CPU |
+| **Raise `nofile` on Linux** | Direct mode needs many FDs |
+
+- Set `directMode()` explicitly to configure `DirectConnectionConfig`. <!-- Source: tune-connection-configurations-java-sdk-v4.md -->
+- Prefer `CosmosAsyncClient` — its non-blocking I/O saturates throughput far better than the sync wrapper.
+- Passing just the item forces the SDK to parse the document to extract the partition key, adding latency.
+- Offload CPU-intensive work to `Schedulers.parallel()` to keep Netty event loop threads free.
 
 <!-- Source: performance-tips-java-sdk-v4.md -->
 
@@ -333,13 +355,15 @@ asyncContainer.createItem(order, new PartitionKey(order.getCustomerId()),
 
 ### Python SDK
 
-| Practice | Why It Matters |
+| Practice | Why |
 |---|---|
-| **Singleton `CosmosClient`** | Reuse for the lifetime of the application. |
-| **Set `preferred_locations`** | Ensures reads go to the nearest region and failover works correctly. |
-| **Increase `max_item_count` for queries** | Default page size is 100 items. Increasing it reduces round trips for large result sets. |
-| **Keep CPU under 70%** | The Python SDK uses gateway mode (no direct mode option), so CPU-bound environments hurt more. |
-| **Exclude unused indexing paths** | Write-heavy Python workloads benefit from the same indexing optimizations as any other SDK. |
+| **Singleton `CosmosClient`** | Reuse for app lifetime |
+| **Set `preferred_locations`** | Nearest region + failover |
+| **Raise `max_item_count`** | Default 100; reduce trips |
+| **Keep CPU under 70%** | Gateway-only; CPU-sensitive |
+| **Exclude unused index paths** | Cuts write RU cost |
+
+The Python SDK has no direct mode — it uses gateway mode exclusively, making CPU-bound environments more impactful on latency. Increase `max_item_count` beyond the default of 100 items to reduce round trips for large result sets.
 
 <!-- Source: best-practice-python.md, performance-tips-python-sdk.md -->
 
@@ -360,14 +384,16 @@ items = container.query_items(
 
 ### JavaScript/Node.js SDK
 
-| Practice | Why It Matters |
+| Practice | Why |
 |---|---|
-| **Singleton `CosmosClient`** | One instance for the app's lifetime. |
-| **Set `preferredLocations`** in `ConnectionPolicy` | Drives read routing and failover behavior. |
-| **Use Node.js `cluster` module under load** | Single-threaded Node.js can become the bottleneck before Cosmos DB does. |
-| **Increase page size** | Default is 100 items / 4 MB per page. Set a higher `maxItemCount` to reduce round trips. |
-| **Enable Accelerated Networking** | Same VM-level optimization as .NET/Java. |
-| **At least 4 cores and 8 GB RAM for production** | The SDK's HTTP overhead is real; don't starve it. |
+| **Singleton `CosmosClient`** | One instance per app |
+| **Set `preferredLocations`** | Read routing + failover |
+| **Use `cluster` module** | Node.js is single-threaded |
+| **Raise `maxItemCount`** | Default 100 items / 4 MB |
+| **Accelerated Networking** | Lower latency on VMs |
+| **≥ 4 cores, 8 GB RAM** | SDK HTTP overhead is real |
+
+Set `preferredLocations` in `ConnectionPolicy` to drive read routing and failover. Single-threaded Node.js can become the bottleneck before Cosmos DB does — use the `cluster` module under load. Set a higher `maxItemCount` to reduce round trips for large result sets.
 
 <!-- Source: best-practices-javascript.md -->
 
@@ -388,12 +414,14 @@ Chapter 4 made the case for embedding related data in a single container. But th
 
 **Multiple containers** — make sense when:
 
-| Scenario | Why Separate Containers Help |
+| Scenario | Why Split |
 |---|---|
-| **Wildly different indexing needs** | A write-heavy telemetry container needs minimal indexing; a product catalog needs full indexing. One policy can't serve both. |
-| **Different throughput profiles** | Your orders container needs 50,000 RU/s; your user profiles container needs 2,000 RU/s. Sharing throughput means the low-traffic container subsidizes the high-traffic one. |
-| **Different TTL requirements** | Telemetry data expires in 30 days; reference data lives forever. Separate containers with different TTL settings avoid polluting long-lived data with short-lived data. |
-| **Independent scaling** | When one entity type grows much faster than another, separate containers let you scale them independently. |
+| **Different indexing needs** | One policy can't serve both |
+| **Different throughput** | Avoid cross-subsidizing RU/s |
+| **Different TTL** | Separate expiry policies |
+| **Independent scaling** | Scale each entity type alone |
+
+For example, a write-heavy telemetry container needs minimal indexing while a product catalog needs full indexing. An orders container at 50,000 RU/s shouldn't share throughput with user profiles at 2,000 RU/s. Telemetry expiring in 30 days shouldn't share a container with permanent reference data.
 
 The cost of multiple containers is operational complexity and the inability to use transactional batches across them. Don't split containers for the sake of "organization" — split them when the performance or operational characteristics genuinely differ.
 
@@ -401,27 +429,35 @@ The cost of multiple containers is operational complexity and the inability to u
 
 Before you go live, walk through this list. Each item maps back to a chapter in this book where you can find the full details.
 
-| Category | Check | Reference |
+| Category | Check | Ref |
 |---|---|---|
-| **SDK** | Using the latest SDK version? | Ch 7 |
-| **SDK** | `CosmosClient` is a singleton? | Ch 7 |
-| **SDK** | Direct mode enabled? (.NET/Java) | This chapter |
-| **SDK** | Preferred regions configured? | Ch 7, Ch 21 |
-| **SDK** | `EnableContentResponseOnWrite = false` for write-heavy paths? (.NET) | This chapter |
-| **Data Model** | Documents are lean — no embedded blobs, no redundant properties? | Ch 4, this chapter |
-| **Partition Key** | High cardinality, even distribution, supports your primary access pattern? | Ch 5 |
-| **Indexing** | Unused paths excluded from indexing? | Ch 9, this chapter |
-| **Indexing** | Index metrics confirm no missing indexes for critical queries? | Ch 9 |
-| **Queries** | All frequent queries include the partition key filter? | Ch 8 |
-| **Queries** | Projections used instead of `SELECT *`? | This chapter |
-| **Throughput** | Capacity planner estimate validated with load testing? | This chapter |
-| **Throughput** | Autoscale configured if workload is variable? | Ch 11 |
-| **Monitoring** | Alerts set for 429 rate > 5%, P99 latency, and normalized RU consumption? | Ch 18 |
-| **Monitoring** | Diagnostic logs enabled for `CDBPartitionKeyRUConsumption`? | Ch 18, this chapter |
-| **Availability** | Multi-region replication enabled with service-managed failover? | Ch 12 |
-| **Availability** | Threshold-based availability strategy configured? (.NET/Java) | Ch 21 |
-| **Security** | Entra ID authentication enabled, local keys disabled? | Ch 17 |
-| **Backup** | Continuous backup (PITR) enabled with appropriate retention? | Ch 19 |
-| **Testing** | Integration tests run against the emulator in CI? | Ch 24 |
+| **SDK** | Latest version? | Ch 7 |
+| **SDK** | Singleton client? | Ch 7 |
+| **SDK** | Direct mode? (.NET/Java) | This ch |
+| **SDK** | Preferred regions set? | Ch 7, 21 |
+| **SDK** | No write response body? | This ch |
+| **Data Model** | Lean docs, no blobs? | Ch 4 |
+| **Partition Key** | High cardinality, even? | Ch 5 |
+| **Indexing** | Unused paths excluded? | Ch 9 |
+| **Indexing** | No missing indexes? | Ch 9 |
+| **Queries** | PK filter on queries? | Ch 8 |
+| **Queries** | Projections, not `SELECT *`? | This ch |
+| **Throughput** | Load-tested estimate? | This ch |
+| **Throughput** | Autoscale if variable? | Ch 11 |
+| **Monitoring** | 429/P99/RU alerts set? | Ch 18 |
+| **Monitoring** | Diagnostic logs on? | Ch 18 |
+| **Availability** | Multi-region + failover? | Ch 12 |
+| **Availability** | Availability strategy? | Ch 21 |
+| **Security** | Entra ID, no local keys? | Ch 17 |
+| **Backup** | Continuous backup (PITR)? | Ch 19 |
+| **Testing** | Emulator in CI? | Ch 24 |
+
+- **No write response body:** set `EnableContentResponseOnWrite = false` on write-heavy .NET paths.
+- **Lean docs:** no embedded blobs or redundant properties.
+- **Partition key:** high cardinality, even distribution, supports your primary access pattern.
+- **No missing indexes:** confirm via index metrics for critical queries.
+- **Monitoring alerts:** 429 rate > 5%, P99 latency, and normalized RU consumption. Enable `CDBPartitionKeyRUConsumption` diagnostic logs.
+- **Availability:** multi-region replication with service-managed failover. Threshold-based availability strategy for .NET/Java.
+- **Backup:** continuous backup with appropriate retention period.
 
 Performance tuning isn't a one-time event — it's a practice. The tools and techniques in this chapter give you a systematic approach to find and fix the bottlenecks that matter. In Chapter 28, we'll put everything together and build a production-ready application from scratch, applying these patterns in context.

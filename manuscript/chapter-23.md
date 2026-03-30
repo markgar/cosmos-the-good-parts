@@ -34,9 +34,9 @@ Where:
 
 | Variable | Meaning |
 |----------|---------|
-| **T** | Total vCores (or vCPUs) across all data-bearing replica set nodes |
-| **R** | Replication factor of your existing replica set(s) |
-| **C** | 600 RU/s per vCore for the NoSQL API |
+| **T** | Total vCores across replicas |
+| **R** | Replication factor |
+| **C** | 600 RU/s per vCore (NoSQL) |
 
 The formula accounts for the fact that Cosmos DB handles its own replication (with a 4× replication factor internally), so you divide out the replication you're already paying for in your source system. If you don't know your replication factor, use **R = 3** as a reasonable default. <!-- Source: convert-vcore-to-request-unit.md -->
 
@@ -184,10 +184,14 @@ DynamoDB is the most common source for AWS-to-Azure migrations. Microsoft docume
 | Table | Container |
 | Item | Document |
 | Partition key (HASH) | Partition key |
-| Sort key (RANGE) | Not required (use composite indexes for sorted queries) |
-| Read/Write Capacity Units | Request Units (flexible for both reads and writes) |
+| Sort key (RANGE) | Composite index |
+| Read/Write Capacity Units | Request Units (RU/s) |
 | Streams | Change feed |
-| Global Tables | Multi-region writes (configured at account level) |
+| Global Tables | Multi-region writes |
+
+- **Sort key → composite index:** Cosmos DB doesn't require a sort key. Use composite indexes for sorted queries.
+- **Capacity units → RUs:** A single RU currency covers both reads and writes.
+- **Global Tables → multi-region writes:** Configured at the account level.
 
 <!-- Source: dynamo-to-cosmos.md -->
 
@@ -234,8 +238,8 @@ HBase is the most architecturally different source you'll encounter. It's a wide
 | Namespace | Database |
 | Table | Container |
 | Row (RowKey) | Item |
-| Column Family | N/A (flattened into document properties) |
-| Version (Timestamp) | N/A (use change feed for change tracking) |
+| Column Family | Flattened into properties |
+| Version (Timestamp) | Use change feed instead |
 
 <!-- Source: migrate-hbase.md -->
 
@@ -243,11 +247,11 @@ HBase is the most architecturally different source you'll encounter. It's a wide
 
 **Migration tooling.** For HBase versions before 2.0, Azure Data Factory has a built-in HBase connector. For HBase 2.0+, use Apache Spark with the HBase Connector to read data into DataFrames, then write to Cosmos DB via the Spark connector. <!-- Source: migrate-hbase.md -->
 
-| Approach | HBase Version | Best For |
-|----------|--------------|----------|
+| Approach | Version | Best For |
+|----------|---------|----------|
 | Azure Data Factory | < 2.0 | Large datasets, low-code |
-| Apache Spark (HBase Connector + Cosmos DB Connector) | All versions | Complex transformations, HBase 2.0+ |
-| Custom tool with bulk executor library | All versions | Maximum flexibility |
+| Spark (HBase + Cosmos) | All | Complex transforms |
+| Custom bulk executor | All | Max flexibility |
 
 <!-- Source: migrate-hbase.md -->
 
@@ -411,8 +415,11 @@ Container copy supports two modes: <!-- Source: container-copy.md -->
 
 | Mode | Mechanism | Use When |
 |------|-----------|----------|
-| **Offline** | Uses the latest-version change feed to copy data. Source container should be quiesced (no writes). | Maintenance windows are acceptable. |
-| **Online** | Uses the all-versions-and-deletes change feed mode. Copies data and replicates incremental changes continuously. | Zero-downtime migration required. |
+| **Offline** | Latest-version change feed | Maintenance window OK |
+| **Online** | All-versions-and-deletes feed | Zero-downtime required |
+
+- **Offline:** Quiesce writes to the source container before starting the copy.
+- **Online:** Copies existing data, then continuously replicates incremental changes. Requires continuous backup and the all-versions-and-deletes change feed mode enabled on the source account. Doubles write RU cost on the source during copy.
 
 Online copy requires continuous backup and the "All version and delete change feed mode" preview feature enabled on the source account. It also charges **double RU/s on all writes** to the source account during the copy, because the system must preserve both previous and current versions of changes. <!-- Source: container-copy.md -->
 
@@ -453,18 +460,18 @@ Container copy jobs are the right tool for in-account reshaping. For cross-accou
 
 With all the tools covered, here's how to pick:
 
-| Scenario | Recommended Tool |
-|----------|-----------------|
-| Small dataset, dev/test, quick load from JSON/CSV/Parquet | `dmt` (Desktop Data Migration Tool) |
-| Relational source with simple one-to-few denormalization | Azure Data Factory (two-step pipeline) |
-| Any source with complex transformations, large datasets (100+ GB) | Azure Databricks with Spark connector |
-| DynamoDB offline migration | S3 export → ADF → Databricks → Cosmos DB |
-| DynamoDB online migration | DynamoDB Streams/Kinesis → custom processor → Cosmos DB |
-| Couchbase | ADF with Couchbase connector |
-| HBase < 2.0 | ADF with HBase connector |
-| HBase ≥ 2.0 | Spark with HBase Connector + Cosmos DB Connector |
-| Partition key or throughput model change within Cosmos DB | Container copy jobs |
-| Terabyte-scale migration (100+ TB) | Custom tool with bulk executor, ADLS staging |
+| Scenario | Tool |
+|----------|------|
+| Small dataset, dev/test | `dmt` |
+| Relational → simple denorm | ADF (two-step pipeline) |
+| Complex transforms, 100+ GB | Databricks + Spark |
+| DynamoDB offline | S3 → ADF → Databricks |
+| DynamoDB online | Streams/Kinesis → custom |
+| Couchbase | ADF + Couchbase connector |
+| HBase < 2.0 | ADF + HBase connector |
+| HBase ≥ 2.0 | Spark + HBase + Cosmos |
+| Re-partition within Cosmos | Container copy jobs |
+| 100+ TB scale | Custom bulk executor + ADLS |
 
 For the terabyte-scale scenario, Microsoft's guidance boils down to: <!-- Source: migrate.md -->
 

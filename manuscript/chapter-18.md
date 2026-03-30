@@ -25,15 +25,23 @@ To start collecting resource logs, navigate to your Cosmos DB account in the Azu
 
 The log categories you care about for the NoSQL API are:
 
-| Category | Log Analytics Table | What It Captures | Enable For |
-|----------|-------------------|-----------------|------------|
-| **DataPlaneRequests** | `CDBDataPlaneRequests` | Every data plane operation (reads, writes, queries) with RU charge, duration, status code, partition ID | Troubleshooting sessions — detailed but expensive at scale |
-| **QueryRuntimeStatistics** | `CDBQueryRuntimeStatistics` | Query text and execution statistics (requires full-text query to be enabled for unobfuscated SQL) | Identifying expensive queries by RU charge and text |
-| **PartitionKeyRUConsumption** | `CDBPartitionKeyRUConsumption` | RU consumption broken down by logical and physical partition — your weapon for finding hot partitions | Always-on for any workload where hot partitions are a risk |
-| **PartitionKeyStatistics** | `CDBPartitionKeyStatistics` | Storage consumption by logical partition key. Statistics are approximate (based on sub-sampling) and partition keys below 1 GB may not appear | Capacity planning — tracking large partition growth toward the 20 GB limit |
-| **ControlPlaneRequests** | `CDBControlPlaneRequests` | Account management operations: region changes, failovers, key rotations, throughput updates | Always-on — low volume, essential audit trail |
-| **DataPlaneRequests5M** | `CDBDataPlaneRequests5M` | Aggregated data plane logs in 5-minute intervals — up to 95% cheaper than per-request logs | Always-on for production — your cost-effective operational baseline |
-| **DataPlaneRequests15M** | `CDBDataPlaneRequests15M` | Same as above, aggregated to 15-minute intervals | Alternative to 5M when you need even lower ingestion costs |
+| Category | Table |
+|----------|-------|
+| **DataPlaneRequests** | `CDBDataPlaneRequests` |
+| **QueryRuntimeStatistics** | `CDBQueryRuntimeStatistics` |
+| **PartitionKeyRUConsumption** | `CDBPartitionKeyRUConsumption` |
+| **PartitionKeyStatistics** | `CDBPartitionKeyStatistics` |
+| **ControlPlaneRequests** | `CDBControlPlaneRequests` |
+| **DataPlaneRequests5M** | `CDBDataPlaneRequests5M` |
+| **DataPlaneRequests15M** | `CDBDataPlaneRequests15M` |
+
+- **DataPlaneRequests** — every data-plane operation (reads, writes, queries) with RU charge, duration, status code, and partition ID. Detailed but expensive at scale; best reserved for troubleshooting sessions.
+- **QueryRuntimeStatistics** — query text and execution stats. Requires full-text query logging for unobfuscated SQL. Use it to identify expensive queries by RU charge.
+- **PartitionKeyRUConsumption** — RU consumption by logical and physical partition. Your weapon for finding hot partitions. Enable always-on for workloads where hot partitions are a risk.
+- **PartitionKeyStatistics** — storage by logical partition key. Approximate (sub-sampled); keys below 1 GB may not appear. Use for capacity planning and tracking growth toward the 20 GB limit.
+- **ControlPlaneRequests** — account management ops: region changes, failovers, key rotations, throughput updates. Low volume; enable always-on as an essential audit trail.
+- **DataPlaneRequests5M** — aggregated data-plane logs in 5-minute intervals, up to 95% cheaper than per-request logs. Your cost-effective production baseline.
+- **DataPlaneRequests15M** — same as 5M but aggregated to 15-minute intervals. Use when you need even lower ingestion costs.
 
 <!-- Source: monitor-reference.md, monitor-resource-logs.md, monitor-aggregated-logs.md -->
 
@@ -125,16 +133,18 @@ This is a critical metric for globally distributed applications. If replication 
 
 Here's what belongs on your production monitoring dashboard:
 
-| Metric | Aggregation | Why |
-|--------|------------|-----|
-| Total Requests | Count, split by StatusCode | Overall traffic and error rates |
-| Total Requests (429 only) | Count, split by CollectionName | Throttling by container |
-| Normalized RU Consumption | Max, split by PartitionKeyRangeId | Hotspot detection |
-| Total Request Units | Sum, split by OperationType | Cost attribution |
-| Server Side Latency (Direct or Gateway) | Avg and Max | Performance baseline |
-| Data Usage | Total | Storage growth tracking |
-| Replication Latency (multi-region) | Max, split by TargetRegion | Geo-replication health |
+| Metric | Aggregation | Purpose |
+|--------|------------|---------|
+| Total Requests | Count by StatusCode | Traffic + error rates |
+| Total Requests (429) | Count by CollectionName | Throttling per container |
+| Normalized RU Consumption | Max by PartitionKeyRangeId | Hotspot detection |
+| Total Request Units | Sum by OperationType | Cost attribution |
+| Server Side Latency | Avg and Max | Performance baseline |
+| Data Usage | Total | Storage growth |
+| Replication Latency | Max by TargetRegion | Geo-replication health |
 | Service Availability | Avg | Uptime tracking |
+
+For server-side latency, use the Direct or Gateway variant that matches your connection mode. For multi-region accounts, split Replication Latency by TargetRegion to monitor each replica independently.
 
 ## Setting Up Alerts
 
@@ -152,16 +162,25 @@ Azure Monitor supports three types of alerts relevant to Cosmos DB:
 
 Here are the alerts every production Cosmos DB deployment should have:
 
-| Alert | Type | Condition | Why |
-|-------|------|-----------|-----|
-| **Throttling spike** | Metric | `TotalRequests` where StatusCode = 429, Count > 100 over 5 min | Detects sustained rate limiting beyond healthy SDK retry levels |
-| **Normalized RU saturation** | Metric | `NormalizedRUConsumption` Max > 90% for 15 min | Early warning before 429s become widespread |
-| **High server-side latency** | Metric | `ServerSideLatencyDirect` Avg > 10 ms for 5 min | SLA threshold for point operations — investigate if consistently breached |
-| **Replication lag** | Metric | `ReplicationLatency` Max > 1000 ms for 10 min | Geo-replication falling behind |
-| **Region failover** | Metric | `RegionFailover` Count > 0 | Detects automatic or manual failover events |
-| **Service availability drop** | Metric | `ServiceAvailability` Avg < 99.9% over 1 hour | Catches availability dips across any dimension |
-| **Key rotation** | Activity log | Event: Informational, Status: started | Notification when account keys are rotated — so you can update your apps |
-| **Logical partition approaching limit** | Log alert | KQL on `CDBPartitionKeyStatistics` where `SizeKb > 18874368` (18 GB) | Warns before a logical partition hits the 20 GB limit |
+| Alert | Condition |
+|-------|-----------|
+| **Throttling spike** | 429 count > 100 over 5 min |
+| **RU saturation** | Normalized RU max > 90%, 15 min |
+| **High latency** | Server latency avg > 10 ms, 5 min |
+| **Replication lag** | Replication max > 1000 ms, 10 min |
+| **Region failover** | Failover count > 0 |
+| **Availability drop** | Availability avg < 99.9%, 1 hr |
+| **Key rotation** | Activity log: key rotated |
+| **Partition near limit** | KQL: partition size > 18 GB |
+
+- **Throttling spike** (metric alert on `TotalRequests` where StatusCode = 429) — detects sustained rate limiting beyond what healthy SDK retries absorb.
+- **RU saturation** (metric alert on `NormalizedRUConsumption`) — early warning before 429s become widespread.
+- **High latency** (metric alert on `ServerSideLatencyDirect`) — SLA threshold for point operations; investigate if consistently breached.
+- **Replication lag** (metric alert on `ReplicationLatency`) — geo-replication falling behind.
+- **Region failover** (metric alert on `RegionFailover`) — detects automatic or manual failover events.
+- **Availability drop** (metric alert on `ServiceAvailability`) — catches dips across any dimension.
+- **Key rotation** (activity log alert, Event: Informational, Status: started) — notifies when account keys are rotated so you can update your apps.
+- **Partition near limit** (log alert, KQL on `CDBPartitionKeyStatistics` where `SizeKb > 18874368`) — warns before a logical partition hits the 20 GB limit.
 
 <!-- Source: monitor.md, create-alerts.md -->
 
@@ -346,18 +365,18 @@ Azure Monitor metrics and logs give you Cosmos DB-side observability. But in a m
 
 The .NET SDK (v3, version 3.36.0+) and Java SDK (v4, version 4.43.0+) emit OpenTelemetry-compatible traces that follow the OpenTelemetry database specification. Each Cosmos DB operation produces a span with attributes including the database name, container name, operation type, status code, RU charge, connection mode, and regions contacted. <!-- Source: sdk-observability.md -->
 
-| Trace Attribute | Description |
-|----------------|-------------|
+| Attribute | Description |
+|-----------|-------------|
 | `db.system` | Always `cosmosdb` |
 | `db.name` | Database name |
 | `db.cosmosdb.container` | Container name |
-| `db.operation` | Operation name (e.g., `CreateItemAsync`) |
+| `db.operation` | e.g., `CreateItemAsync` |
 | `db.cosmosdb.request_charge` | RUs consumed |
 | `db.cosmosdb.status_code` | HTTP status code |
 | `db.cosmosdb.sub_status_code` | Sub-status code |
 | `db.cosmosdb.connection_mode` | `direct` or `gateway` |
 | `db.cosmosdb.regions_contacted` | Regions involved |
-| `db.cosmosdb.client_id` | Unique client instance ID |
+| `db.cosmosdb.client_id` | Client instance ID |
 
 <!-- Source: sdk-observability.md -->
 

@@ -138,14 +138,14 @@ The cost of referencing is extra reads. To display "Customer Priya Kapoor and he
 
 Here's the cheat sheet. For every relationship in your model, ask these questions:
 
-| Question | If Yes → | If No → |
-|----------|----------|---------|
-| Is the child data always read with the parent? | Embed | Reference |
-| Is the child count bounded and small (say, < 20)? | Embed | Reference |
-| Does the child change independently of the parent? | Reference | Embed |
-| Could the child collection grow without bound? | Reference | Embed |
-| Is the child shared across multiple parents? | Reference | Embed |
-| Does the combined document stay well under 2 MB? | Embed is safe | Reference (or chunk) |
+| Question | Yes → | No → |
+|----------|-------|------|
+| Always read with parent? | Embed | Reference |
+| Count bounded & small (<20)? | Embed | Reference |
+| Changes independently? | Reference | Embed |
+| Can grow without bound? | Reference | Embed |
+| Shared across parents? | Reference | Embed |
+| Combined doc under 2 MB? | Embed | Ref. or chunk |
 
 When the answers conflict — the data is read together *and* grows without bound — you'll use a hybrid approach. Embed a summary or the N most recent items and reference the full collection. The docs call this a "hybrid data model," and it's the pragmatic middle ground for many real-world scenarios. <!-- Source: modeling-data.md -->
 

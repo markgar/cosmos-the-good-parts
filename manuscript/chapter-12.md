@@ -303,12 +303,14 @@ PPAF has specific requirements in the current preview:
 
 | Requirement | Detail |
 |-------------|--------|
-| **Account type** | Single-write region with at least one read region |
-| **API** | NoSQL API only |
-| **Consistency** | Strong, Session, Consistent Prefix, or Eventual (Bounded Staleness is not supported in preview) |
-| **Cloud** | Azure public cloud only (sovereign clouds not eligible during preview) |
-| **SDK** | .NET SDK v3.54.0+ or Java SDK v4.75.0+ |
-| **Backup** | In-Account Restore is not supported with PPAF enabled |
+| **Account type** | Single-write + ≥1 read region |
+| **API** | NoSQL only |
+| **Consistency** | All except Bounded Staleness |
+| **Cloud** | Azure public only |
+| **SDK** | .NET v3.54.0+ / Java v4.75.0+ |
+| **Backup** | No In-Account Restore |
+
+Bounded Staleness support is not available during preview. Sovereign clouds are also not eligible during preview.
 
 <!-- Source: how-to-configure-per-partition-automatic-failover.md -->
 
@@ -337,14 +339,14 @@ In Cosmos DB, both RPO and RTO depend on your consistency level and region confi
 
 <!-- Source: consistency-levels.md -->
 
-| Regions | Replication Mode | Consistency Level | RPO |
-|---------|-----------------|-------------------|-----|
-| 1 | Single or multi-write | Any | < 240 minutes |
-| >1 | Single write | Session, Consistent Prefix, Eventual | < 15 minutes |
-| >1 | Single write | Bounded Staleness | *K* versions or *T* seconds (whichever is configured) |
-| >1 | Single write | Strong | 0 |
-| >1 | Multi-write | Session, Consistent Prefix, Eventual | < 15 minutes |
-| >1 | Multi-write | Bounded Staleness | *K* versions or *T* seconds |
+| Config | Consistency | RPO |
+|--------|-------------|-----|
+| 1 region, any mode | Any | < 240 min |
+| >1, single write | Session / Prefix / Eventual | < 15 min |
+| >1, single write | Bounded Staleness | *K* versions or *T* sec |
+| >1, single write | Strong | 0 |
+| >1, multi-write | Session / Prefix / Eventual | < 15 min |
+| >1, multi-write | Bounded Staleness | *K* versions or *T* sec |
 
 > **Note:** Bounded Staleness with multi-write is technically supported but considered an anti-pattern — see Chapter 13 for details.
 
@@ -374,10 +376,10 @@ Cosmos DB is available across four distinct Azure cloud environments:
 
 | Cloud | Availability |
 |-------|-------------|
-| **Azure public** | Available globally |
-| **Microsoft Azure operated by 21Vianet** | China |
-| **Azure Government** | Four regions in the United States |
-| **Azure Government for DoD** | Two regions in the United States |
+| **Azure public** | Global |
+| **21Vianet** | China |
+| **Azure Government** | 4 US regions |
+| **Azure Gov for DoD** | 2 US regions |
 
 For applications with data residency or regulatory requirements — ITAR, FedRAMP High, IL5 — Azure Government and DoD regions keep your data within approved boundaries. You create Cosmos DB accounts in these regions the same way you would in public Azure, but the endpoints are different (e.g., `.documents.azure.us` for Azure Government).
 
@@ -395,12 +397,21 @@ For organizations with strict data residency requirements, Azure Policy can enfo
 
 Every multi-region Cosmos DB deployment is a point on a spectrum of complexity, cost, and resilience. Here's a decision framework:
 
-| Scenario | Configuration | Availability SLA | RPO | Relative Cost |
-|----------|--------------|-------------------|-----|---------------|
-| Dev/test, single-market app | Single region, AZ-enabled | 99.99% | < 240 min | 1× |
-| Production, one primary market, DR needed | Single write + 1 read region, AZ-enabled, service-managed failover | 99.99% writes, 99.999% reads | < 15 min (Session) | 2× |
-| Global reads, writes concentrated in one region | Single write + 2+ read regions, AZ-enabled | 99.99% writes, 99.999% reads | 0 (Strong) to < 15 min | 3×+ |
-| Global reads and writes, highest availability | Multi-write, 2+ regions, AZ-enabled | 99.999% reads and writes | < 15 min | 3×+ (with conflict overhead) |
+| Scenario | Configuration |
+|----------|---------------|
+| Dev/test, single market | 1 region, AZ-enabled |
+| Production with DR | 1 write + 1 read, AZ, auto-failover |
+| Global reads, local writes | 1 write + 2+ reads, AZ |
+| Global reads and writes | Multi-write, 2+ regions, AZ |
+
+| Scenario | SLA | RPO |
+|----------|-----|-----|
+| Dev/test | 99.99% | < 240 min |
+| Prod + DR | 99.99% W / 99.999% R | < 15 min |
+| Global reads | 99.99% W / 99.999% R | 0–15 min |
+| Global R+W | 99.999% R+W | < 15 min |
+
+Relative cost scales with region count: ~1× for single region, ~2× for two, 3×+ for three or more. Multi-write adds conflict resolution overhead.
 
 The right answer depends on your availability requirements, your budget, and where your users are. Most production applications land in the second or third row — single-write with multiple read regions gives you excellent availability, straightforward consistency, and no conflict resolution headaches. Multi-region writes is the right move when you genuinely need write availability during a regional outage or when write latency from distant regions is unacceptable.
 

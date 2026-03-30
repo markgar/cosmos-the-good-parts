@@ -26,10 +26,13 @@ The vector policy specifies four things for each vector path: <!-- Source: vecto
 
 | Setting | Purpose | Options |
 |---|---|---|
-| **`path`** | The JSON property that holds the vector | Any top-level property (e.g., `/contentVector`) |
-| **`dataType`** | Numeric type of vector elements | `float32`, `float16`, `int8`, `uint8` |
-| **`dimensions`** | Number of dimensions per vector | Default `1536`; max depends on index type |
-| **`distanceFunction`** | How similarity is measured | `cosine` (default), `dotproduct`, `euclidean` |
+| **`path`** | Property holding vector | e.g., `/contentVector` |
+| **`dataType`** | Element numeric type | `float32`, `float16`, `int8`, `uint8` |
+| **`dimensions`** | Dimensions per vector | Default 1536; max varies |
+| **`distanceFunction`** | Similarity measure | `cosine`, `dotproduct`, `euclidean` |
+
+- **`dimensions`**: Max is 505 for `flat` indexes, 4,096 for `quantizedFlat` and `diskANN`.
+- **`distanceFunction`**: Default is `cosine`.
 
 Here's a concrete vector policy for a container that stores product embeddings:
 
@@ -52,12 +55,12 @@ You can define multiple vector paths on the same container — one for text embe
 
 Your choice of data type is a storage-versus-precision tradeoff:
 
-| Type | Bytes per element | When to use |
+| Type | Bytes | Notes |
 |---|---|---|
-| **`float32`** | 4 | Default; matches most embedding model outputs directly |
-| **`float16`** | 2 | Cuts storage in half with minimal accuracy loss — good default for cost-conscious workloads |
-| **`int8`** | 1 | Quantized embeddings; best when your model outputs int8 natively |
-| **`uint8`** | 1 | Unsigned quantized embeddings |
+| **`float32`** | 4 | Default; most model outputs |
+| **`float16`** | 2 | Half storage, minimal loss |
+| **`int8`** | 1 | Native int8 models |
+| **`uint8`** | 1 | Unsigned quantized |
 
 <!-- Source: vector-search.md -->
 
@@ -67,11 +70,15 @@ Most embedding models output `float32` vectors. If you're looking to reduce stor
 
 The three distance functions measure similarity differently: <!-- Source: vector-search.md -->
 
-| Function | Range | Interpretation |
+| Function | Range | Similarity |
 |---|---|---|
-| **Cosine** | -1 to +1 | Higher = more similar. The default and the right choice for most text embeddings. |
-| **Dot product** | -∞ to +∞ | Higher = more similar. Use when your vectors are already normalized or your model is optimized for dot product. |
-| **Euclidean** | 0 to +∞ | Lower = more similar. Measures straight-line distance in vector space. |
+| **Cosine** | -1 to +1 | Higher = more similar |
+| **Dot product** | -∞ to +∞ | Higher = more similar |
+| **Euclidean** | 0 to +∞ | Lower = more similar |
+
+- **Cosine** is the default and right choice for most text embeddings — it handles unnormalized vectors gracefully.
+- **Dot product** works best when vectors are already normalized or the model is optimized for it.
+- **Euclidean** measures straight-line distance in vector space.
 
 For text embeddings from OpenAI or Azure OpenAI models, **cosine** is the standard choice. It's the default for a reason — it handles unnormalized vectors gracefully and aligns with how most embedding models are trained.
 
@@ -79,12 +86,12 @@ For text embeddings from OpenAI or Azure OpenAI models, **cosine** is the standa
 
 The `dimensions` setting must match the output of your embedding model. Here are common models and their dimensions:
 
-| Model | Default dimensions | Notes |
+| Model | Dims | Notes |
 |---|---|---|
-| OpenAI `text-embedding-3-large` | 3072 | Supports dimension reduction via API parameter |
-| OpenAI `text-embedding-3-small` | 1536 | Good balance of quality and cost |
-| OpenAI `text-embedding-ada-002` | 1536 | Legacy; still widely deployed |
-| Azure AI `text-embedding-3-large` | 3072 | Azure-hosted version of the OpenAI model |
+| OpenAI `text-embedding-3-large` | 3072 | Supports dimension reduction |
+| OpenAI `text-embedding-3-small` | 1536 | Good quality/cost balance |
+| OpenAI `text-embedding-ada-002` | 1536 | Legacy; widely deployed |
+| Azure AI `text-embedding-3-large` | 3072 | Azure-hosted OpenAI model |
 
 The newer `text-embedding-3-*` models let you request fewer dimensions at embedding time (e.g., 256 or 512), trading some accuracy for lower storage and faster queries. If you're cost-constrained, this is worth experimenting with.
 
@@ -92,11 +99,15 @@ The newer `text-embedding-3-*` models let you request fewer dimensions at embedd
 
 Storing vectors is only half the story — you also need to *index* them for fast retrieval. Cosmos DB offers three vector index types, each targeting a different scale. The full indexing policy configuration is covered in Chapter 9; here we focus on how each index type behaves during search. <!-- Source: vector-search.md -->
 
-| Index type | Search method | Max dimensions | Best for |
-|---|---|---|---|
-| **`flat`** | Brute-force exact search (kNN) | 505 | Small datasets; 100% recall guaranteed |
-| **`quantizedFlat`** | Brute-force over compressed vectors | 4,096 | Up to ~50K vectors per physical partition |
-| **`diskANN`** | Approximate nearest neighbor (ANN) | 4,096 | 50K+ vectors; lowest latency, highest throughput |
+| Index Type | Max Dims | Best For |
+|---|---|---|
+| **`flat`** | 505 | Small data; exact kNN |
+| **`quantizedFlat`** | 4,096 | Up to ~50K vectors/partition |
+| **`diskANN`** | 4,096 | 50K+ vectors; best perf |
+
+- **`flat`**: Brute-force exact search — guarantees 100% recall.
+- **`quantizedFlat`**: Brute-force over compressed (quantized) vectors.
+- **`diskANN`**: Approximate nearest neighbor (ANN) — lowest latency, highest throughput.
 
 <!-- Source: vector-search.md -->
 
@@ -241,12 +252,14 @@ Full-text search in Cosmos DB isn't just for traditional keyword queries — it'
 
 Cosmos DB's full-text search uses **BM25** (Best Matching 25) scoring with linguistic processing: stemming, tokenization, stop word removal, and case normalization. Four system functions give you control over text matching: <!-- Source: gen-ai-full-text-search.md -->
 
-| Function | Purpose | Used in |
+| Function | Purpose | Clause |
 |---|---|---|
-| `FullTextContains(path, phrase)` | Returns true if the property contains the given phrase | `WHERE` clause |
-| `FullTextContainsAll(path, term1, term2, ...)` | All terms must appear | `WHERE` clause |
-| `FullTextContainsAny(path, term1, term2, ...)` | At least one term must appear | `WHERE` clause |
-| `FullTextScore(path, term1, term2, ...)` | BM25 relevance score | `ORDER BY RANK` only |
+| `FullTextContains` | Property has phrase | `WHERE` |
+| `FullTextContainsAll` | All terms must appear | `WHERE` |
+| `FullTextContainsAny` | Any term must appear | `WHERE` |
+| `FullTextScore` | BM25 relevance score | `ORDER BY RANK` |
+
+All functions take a property path as the first argument, followed by one or more search terms — e.g., `FullTextContains(c.description, "wireless")`.
 
 <!-- Source: gen-ai-full-text-search.md -->
 
@@ -473,13 +486,13 @@ To get started, see the [CosmosAIGraph repository](https://aka.ms/cosmosaigraph)
 
 You don't have to build RAG plumbing from scratch. Cosmos DB has dedicated connectors for the major AI orchestration frameworks. <!-- Source: gen-ai-integrations.md -->
 
-| Framework | Languages | Cosmos DB connector |
+| Framework | Languages | Connector |
 |---|---|---|
-| **Semantic Kernel** | C#, Python, Java | Vector store connector (Python + .NET) |
-| **LangChain** | Python, JavaScript, Java | Vector store integration for all three languages |
-| **LangGraph** | Python | Checkpoint saver for stateful multi-agent workflows |
-| **LlamaIndex** | Python | Vector store connector |
-| **Spring AI** | Java | Vector store integration |
+| **Semantic Kernel** | C#, Python, Java | Vector store (Python + .NET) |
+| **LangChain** | Python, JS, Java | Vector store (all langs) |
+| **LangGraph** | Python | Checkpoint saver |
+| **LlamaIndex** | Python | Vector store |
+| **Spring AI** | Java | Vector store |
 
 ### Semantic Kernel
 
@@ -531,13 +544,13 @@ The **Model Context Protocol (MCP) Toolkit** for Cosmos DB ([AzureCosmosDB/MCPTo
 
 | Tool | Description |
 |---|---|
-| `list_databases` | Discover databases in the account |
-| `list_collections` | List containers within a database |
-| `get_recent_documents` | Retrieve the most recent 1–20 documents |
-| `find_document_by_id` | Point-read a specific document |
+| `list_databases` | List databases in account |
+| `list_collections` | List containers in database |
+| `get_recent_documents` | Fetch recent 1–20 docs |
+| `find_document_by_id` | Point-read by ID |
 | `text_search` | Full-text keyword search |
 | `vector_search` | Semantic similarity search |
-| `get_approximate_schema` | Sample documents to infer schema |
+| `get_approximate_schema` | Infer schema from samples |
 
 <!-- Source: gen-ai-model-context-protocol-toolkit.md -->
 

@@ -85,11 +85,13 @@ Here's what each property does:
 
 | Property | Type | Purpose |
 |----------|------|---------|
-| `id` | String (user-defined or system-assigned) | Unique identifier within a logical partition. You set this. If you don't provide one, the SDK generates a GUID. Max length: 1,023 bytes. |
-| `_rid` | String (system-generated) | An internal, hierarchically encoded resource ID. Unique across the entire account. You'll rarely use this directly, but Cosmos DB uses it internally for addressing. |
-| `_self` | String (system-generated) | A self-link URI for the resource. A legacy from the REST API days — mostly irrelevant in modern SDK usage. |
-| `_etag` | String (system-generated) | An entity tag that changes every time the item is updated. Used for **optimistic concurrency control** — you pass the ETag with a write request, and the server rejects the write if the item has changed since you last read it. We'll cover this pattern in depth in Chapter 16. |
-| `_ts` | Integer (system-generated) | The Unix timestamp (seconds since epoch) of the last modification. Useful for debugging and ordering, but don't rely on it for business logic — it's updated on writes, not on reads. |
+| `id` | String (user-set) | Unique within a logical partition. Max: 1,023 bytes. |
+| `_rid` | String (system) | Internal resource ID, unique across account. |
+| `_self` | String (system) | Legacy REST self-link URI. Rarely needed. |
+| `_etag` | String (system) | Changes on every update. For **optimistic concurrency**. |
+| `_ts` | Integer (system) | Unix timestamp (seconds) of last write. |
+
+You set `id` yourself; if you omit it, the SDK generates a GUID. The `_etag` is what you pass with a write to detect conflicts — the server rejects the write if the item changed since your last read. Chapter 16 covers this pattern in depth.
 
 <!-- Source: resource-model.md (item system properties table) -->
 
@@ -141,13 +143,15 @@ A **Request Unit** is Cosmos DB's abstraction for the cost of a database operati
 
 The baseline: **a point read of a single 1 KB item by its `id` and partition key costs 1 RU**. Everything else is measured relative to that. <!-- Source: request-units.md -->
 
-| Operation | Approximate Cost |
-|-----------|-----------------|
-| Point read, 1 KB item | 1 RU |
-| Point read, 100 KB item | 10 RUs |
-| Write (insert/replace/upsert), 1 KB item | 5 RUs |
-| Write, 100 KB item | 50 RUs |
-| Query (varies by complexity) | Depends on result set, predicates, indexes |
+| Operation | ~Cost |
+|-----------|-------|
+| Point read, 1 KB | 1 RU |
+| Point read, 100 KB | 10 RUs |
+| Write, 1 KB | 5 RUs |
+| Write, 100 KB | 50 RUs |
+| Query | Varies with complexity |
+
+"Write" covers insert, replace, and upsert. Query cost depends on result set size, predicates, and index usage.
 
 <!-- Source: key-value-store-cost.md -->
 
@@ -179,11 +183,15 @@ Every SDK surfaces `RequestCharge` on every response. Get in the habit of checki
 
 Cosmos DB offers three capacity modes, each with a different relationship between you and your RU budget:
 
-| Mode | How It Works | Best For |
-|------|-------------|----------|
-| **Provisioned (manual)** | You set a fixed RU/s value. Operations exceeding that budget get throttled (HTTP 429). Billed at the highest provisioned RU/s **per hour** — if you scale up mid-hour and back down, you pay for the peak. | Steady, predictable workloads |
-| **Autoscale** | You set a maximum RU/s. The service scales between 10% of that max and the full max based on demand. Billed at the highest RU/s reached **per hour**. | Variable traffic with predictable peaks |
-| **Serverless** | No provisioning. You pay per RU consumed. | Dev/test, low-traffic, or sporadic workloads |
+| Mode | Best For |
+|------|----------|
+| **Provisioned (manual)** | Steady, predictable workloads |
+| **Autoscale** | Variable traffic with peaks |
+| **Serverless** | Dev/test, low or sporadic traffic |
+
+- **Provisioned (manual):** You set a fixed RU/s value. Operations exceeding that budget get throttled (HTTP 429). Billed at the highest provisioned RU/s **per hour** — if you scale up mid-hour and back down, you pay for the peak.
+- **Autoscale:** You set a max RU/s. The service scales between 10% and 100% of that max based on demand. Billed at the highest RU/s reached **per hour**.
+- **Serverless:** No provisioning. You pay per RU consumed.
 
 <!-- Source: request-units.md -->
 
@@ -234,11 +242,13 @@ Every service has limits. Knowing them upfront prevents nasty surprises at 2 AM.
 
 | Resource | Limit |
 |----------|-------|
-| Maximum item size | 2 MB (UTF-8 length of JSON representation) |
-| Maximum `id` value length | 1,023 bytes |
-| Maximum partition key value length | 2,048 bytes (101 bytes without large partition keys enabled) |
-| Maximum nesting depth (objects/arrays) | 128 levels |
-| Maximum number of properties per item | No practical limit |
+| Max item size | 2 MB (UTF-8 JSON length) |
+| Max `id` length | 1,023 bytes |
+| Max partition key length | 2,048 bytes* |
+| Max nesting depth | 128 levels |
+| Max properties per item | No practical limit |
+
+*Without large partition keys enabled, the max is 101 bytes.
 
 <!-- Source: concepts-limits.md -->
 
@@ -246,13 +256,13 @@ Every service has limits. Knowing them upfront prevents nasty surprises at 2 AM.
 
 | Resource | Limit |
 |----------|-------|
-| Maximum databases and containers per account | 500 (total combined count) |
-| Maximum containers in a shared-throughput database | 25 |
-| Maximum stored procedures per container | 100 |
-| Maximum UDFs per container | 50 |
-| Maximum unique key constraints per container | 10 |
-| Maximum paths per unique key constraint | 16 |
-| Maximum database or container name length | 255 characters |
+| DBs + containers per account | 500 total |
+| Shared-throughput DB containers | 25 |
+| Stored procs per container | 100 |
+| UDFs per container | 50 |
+| Unique key constraints | 10 per container |
+| Paths per unique key | 16 |
+| DB / container name length | 255 chars |
 
 <!-- Source: concepts-limits.md -->
 
@@ -260,12 +270,14 @@ Every service has limits. Knowing them upfront prevents nasty surprises at 2 AM.
 
 | Resource | Limit |
 |----------|-------|
-| Maximum RU/s per container or database | 1,000,000 (increasable via support request) |
-| Maximum RU/s per physical partition | 10,000 |
-| Minimum RU/s per container (manual throughput) | 400 |
-| Minimum autoscale max RU/s per container | 1,000 |
-| Maximum storage per logical partition | 20 GB |
-| Maximum storage per physical partition | 50 GB |
+| Max RU/s per container or DB | 1,000,000* |
+| Max RU/s per physical partition | 10,000 |
+| Min RU/s (manual throughput) | 400 |
+| Min autoscale max RU/s | 1,000 |
+| Storage per logical partition | 20 GB |
+| Storage per physical partition | 50 GB |
+
+*Increasable via Azure support request.
 
 <!-- Source: concepts-limits.md -->
 
@@ -273,12 +285,12 @@ Every service has limits. Knowing them upfront prevents nasty surprises at 2 AM.
 
 | Resource | Limit |
 |----------|-------|
-| Maximum execution time for a single operation | 5 seconds |
-| Maximum request size | 2 MB |
-| Maximum response size (paginated query page) | 4 MB |
-| Maximum operations in a transactional batch | 100 |
-| Maximum SQL query length | 512 KB |
-| Maximum JOINs per query | 10 |
+| Max execution time (single op) | 5 seconds |
+| Max request size | 2 MB |
+| Max response page size | 4 MB |
+| Transactional batch ops | 100 |
+| Max SQL query length | 512 KB |
+| Max JOINs per query | 10 |
 
 <!-- Source: concepts-limits.md -->
 

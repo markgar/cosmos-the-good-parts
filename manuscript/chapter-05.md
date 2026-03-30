@@ -62,11 +62,11 @@ The best partition key aligns with your hottest read path. Ask yourself: *what p
 
 Here's the three-part test, summarized:
 
-| Criterion | What to Look For | Red Flag |
-|-----------|-----------------|----------|
-| High cardinality | Hundreds of thousands+ distinct values | Fewer than 100 distinct values |
-| Even distribution | No single value dominates writes or storage | One value >5% of total traffic or data |
-| Read alignment | Most queries include this property in `WHERE` | Most queries filter on a *different* property |
+| Criterion | Good Sign | Red Flag |
+|-----------|-----------|----------|
+| High cardinality | 100K+ distinct values | <100 distinct values |
+| Even distribution | No single value dominates | One value >5% of traffic |
+| Read alignment | Queries include it in `WHERE` | Queries filter on other prop |
 
 A property that passes all three is your partition key. When no single property qualifies, you'll need synthetic keys or hierarchical partition keys — both covered later in this chapter.
 
@@ -218,13 +218,15 @@ Under the hood, Cosmos DB tries to co-locate all items with the same first-level
 
 The routing behavior follows the key hierarchy from left to right:
 
-| Filter in Query | Routing Behavior |
-|----------------|-----------------|
-| `tenantId` + `userId` + `sessionId` | Single logical/physical partition — most efficient |
-| `tenantId` + `userId` | Targeted subset of physical partitions holding that tenant + user |
-| `tenantId` only | Targeted subset of physical partitions holding that tenant's data |
-| `userId` only (no `tenantId`) | Full fan-out to all physical partitions |
-| `sessionId` only | Full fan-out to all physical partitions |
+| Filter in Query | Routing |
+|----------------|---------|
+| `tenantId` + `userId` + `sessionId` | Single partition |
+| `tenantId` + `userId` | Targeted subset |
+| `tenantId` only | Targeted subset |
+| `userId` only (no `tenantId`) | Full fan-out |
+| `sessionId` only | Full fan-out |
+
+"Single partition" means the query is routed to exactly one physical partition — most efficient. "Targeted subset" routes only to the partitions holding matching data. "Full fan-out" hits every physical partition in the container.
 
 <!-- Source: hierarchical-partition-keys.md -->
 
@@ -280,13 +282,13 @@ A few things the docs bury that you should know up front:
 
 ### HPK vs. Synthetic Keys: When to Choose Which
 
-| Factor | Hierarchical Partition Keys | Synthetic Keys |
-|--------|---------------------------|----------------|
-| Prefix queries (e.g., by tenant only) | Targeted routing — no full fan-out | Full fan-out — partition key includes all components |
-| 20 GB logical partition limit | Overcome by the full key path | Overcome by including a differentiating component |
-| Application complexity | Low — SDK handles key building | Medium — you manage concatenation/hashing logic |
-| SDK requirements | Recent SDK versions required | Works with all SDK versions |
-| Query patterns | Must query from left to right in hierarchy | Must provide exact synthetic value |
+| Factor | HPK | Synthetic Keys |
+|--------|-----|----------------|
+| Prefix queries | Targeted routing | Full fan-out |
+| 20 GB limit | Overcome by full key path | Overcome by differentiator |
+| App complexity | Low (SDK handles it) | Medium (you build keys) |
+| SDK support | Recent versions required | All versions |
+| Query patterns | Left-to-right in hierarchy | Must match exact value |
 
 For most new workloads, HPK is the better choice when you need multi-property partitioning. Use synthetic keys when you're working with older SDKs, need backward compatibility, or when your key structure doesn't naturally form a hierarchy.
 
@@ -360,13 +362,19 @@ Theory is useful. Let's apply it.
 
 **Evaluating partition key candidates:**
 
-| Candidate | Cardinality | Write Distribution | Hot Read Path | 20 GB Risk | Verdict |
-|-----------|-------------|-------------------|---------------|------------|---------|
-| `/deviceId` | 50,000 ✅ | Good ✅ | Device queries ✅ | ~30 GB/year per device ❌ | Risk of hitting limit |
-| `/districtId` | 10 ❌ | Terrible — 10 hot partitions | District queries ✅ | Guaranteed ❌ | Don't do this |
-| `/timestamp` (month) | 12/year ❌ | All writes to one partition ❌ | Time queries ✅ | Guaranteed ❌ | Don't do this |
-| `/deviceId` + `/timestamp` (synthetic) | Millions ✅ | Excellent ✅ | Device queries ❌ (fan-out) | Safe ✅ | Works, but device queries are expensive |
-| `/deviceId` → `/timestamp` (HPK) | Millions ✅ | Excellent ✅ | Device queries ✅ (targeted) | Safe ✅ | **Best choice** |
+| Candidate | Verdict |
+|-----------|---------|
+| `/deviceId` | ⚠️ 20 GB limit risk |
+| `/districtId` | ❌ Only 10 partitions |
+| `/timestamp` (month) | ❌ All writes to one partition |
+| Synthetic: `/deviceId` + `/timestamp` | ⚠️ Works, but device reads fan out |
+| HPK: `/deviceId` → `/timestamp` | ✅ **Best choice** |
+
+- **`/deviceId`:** Good cardinality (50K) and write distribution, but each device accumulates ~30 GB/year — risking the 20 GB logical partition limit.
+- **`/districtId`:** Only 10 distinct values creates 10 hot partitions — terrible write distribution, guaranteed storage limit breach.
+- **`/timestamp` (month):** 12 values per year, all current writes funnel to one partition.
+- **Synthetic `/deviceId` + `/timestamp`:** Millions of unique values with excellent write distribution, but device-scoped queries require full fan-out since you can't query by prefix.
+- **HPK `/deviceId` → `/timestamp`:** Same cardinality and write distribution as synthetic, but device queries target only relevant partitions. Breaks the 20 GB-per-device limit.
 
 <!-- Source: design-partitioning-iot.md -->
 
@@ -420,11 +428,15 @@ What about district-level queries? Those are cross-partition by nature. For a re
 
 **Evaluating partition key candidates:**
 
-| Candidate | Cardinality | Write Distribution | Hot Read Path | Verdict |
-|-----------|-------------|-------------------|---------------|---------|
-| `/id` (product ID) | 2M ✅ | Perfect ✅ | Product detail ✅, category browsing ❌ | Good for point reads, bad for category queries |
-| `/categoryId` | 5,000 ✅ | Decent (popular categories skewed) ⚠️ | Category browsing ✅ | Risk if "electronics" has 500K products |
-| `/sellerId` | Thousands ✅ | Uneven (mega-sellers) ⚠️ | Seller dashboard ✅ | Same skew problem |
+| Candidate | Strength | Risk |
+|-----------|----------|------|
+| `/id` (product ID) | Point reads: ~1 RU each | Category queries fan out |
+| `/categoryId` | Category browsing aligned | Popular categories skew |
+| `/sellerId` | Seller dashboard aligned | Mega-seller skew |
+
+- **`/id`:** 2M cardinality with perfect write distribution. Every product detail load is a single-partition point read. But category browsing becomes cross-partition.
+- **`/categoryId`:** 5,000 categories gives decent cardinality, but popular categories (e.g., "electronics" with 500K products) create storage and throughput skew.
+- **`/sellerId`:** Thousands of sellers, but mega-sellers with large inventories cause the same uneven distribution problem.
 
 For an e-commerce catalog, the dominant access pattern is the product detail page — a point read by `id`. That makes `/id` a strong partition key choice. Every point read is a direct lookup: you know the product ID, and since it *is* the partition key, the read targets a single partition for ~1 RU.
 

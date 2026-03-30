@@ -43,11 +43,11 @@ The advantages over keys are substantial:
 
 | Concern | Account Keys | Entra ID |
 |---------|-------------|----------|
-| **Scope** | Full account access | Scoped to specific actions and resources |
-| **Auditability** | No identity attached | Every request tied to a specific principal |
-| **Expiry** | Never expires | Tokens expire and are automatically refreshed |
+| **Scope** | Full account access | Per-action, per-resource |
+| **Auditability** | No identity attached | Tied to a principal |
+| **Expiry** | Never expires | Auto-refreshing tokens |
 | **Rotation** | Manual, disruptive | No secrets to rotate |
-| **Conditional access** | Not supported | MFA, IP restrictions, risk-based policies |
+| **Conditional access** | Not supported | MFA, IP rules, risk policies |
 
 Here's what Entra ID authentication looks like in code. You'll use `DefaultAzureCredential` from the Azure Identity library, which automatically picks up managed identities in Azure, developer credentials locally, and service principal credentials in CI/CD:
 
@@ -145,12 +145,12 @@ Authentication tells Cosmos DB *who you are*. Authorization tells it *what you c
 
 Control plane roles are standard Azure RBAC roles. The ones you'll see most often for Cosmos DB:
 
-| Role | What It Does |
-|------|-------------|
-| **Cosmos DB Operator** | Manage accounts, databases, and containers — but *not* access data, keys, or connection strings |
-| **Cosmos DB Account Reader** | Read all account and resource metadata |
-| **DocumentDB Account Contributor** | Full management access including keys |
-| **Custom roles** | Whatever combination of `Microsoft.DocumentDb/*` actions you need |
+| Role | Scope |
+|------|-------|
+| **Cosmos DB Operator** | Manage infra; no data/key access |
+| **Cosmos DB Account Reader** | Read-only metadata |
+| **DocumentDB Account Contributor** | Full management incl. keys |
+| **Custom roles** | Any `Microsoft.DocumentDb/*` combo |
 
 <!-- Source: how-to-connect-role-based-access-control.md -->
 
@@ -160,10 +160,12 @@ The **Cosmos DB Operator** role is a good default for operations teams. It lets 
 
 Cosmos DB provides two built-in data plane roles: <!-- Source: reference-data-plane-security.md -->
 
-| Role | ID | Included Actions |
-|------|----|-----------------|
-| **Cosmos DB Built-in Data Reader** | `00000000-0000-0000-0000-000000000001` | `readMetadata`, `items/read`, `executeQuery`, `readChangeFeed` |
-| **Cosmos DB Built-in Data Contributor** | `00000000-0000-0000-0000-000000000002` | `readMetadata`, `containers/*`, `items/*` |
+| Role | Key Actions |
+|------|-------------|
+| **Built-in Data Reader** | Read, query, change feed |
+| **Built-in Data Contributor** | All container + item ops |
+
+The Data Reader role ID is `00000000-0000-0000-0000-000000000001` and includes `readMetadata`, `items/read`, `executeQuery`, and `readChangeFeed`. The Data Contributor role ID is `00000000-0000-0000-0000-000000000002` and includes `readMetadata`, `containers/*`, and `items/*`.
 
 The **Data Reader** can read items, execute queries, and read the change feed — but can't write or delete anything. The **Data Contributor** can do everything with data: create, read, update, delete items, execute stored procedures, manage conflicts, and read the change feed. Neither role can perform management operations like creating databases or modifying throughput. <!-- Source: reference-data-plane-security.md -->
 
@@ -197,13 +199,13 @@ Here's the full list of data actions you can combine: <!-- Source: reference-dat
 
 | Action | Description |
 |--------|------------|
-| `readMetadata` | Read account/resource metadata (required for SDK initialization) |
+| `readMetadata` | Read account/resource metadata |
 | `items/create` | Create new items |
-| `items/read` | Point-read items by ID and partition key |
+| `items/read` | Point-read by ID + partition key |
 | `items/replace` | Replace existing items |
 | `items/upsert` | Create or replace items |
 | `items/delete` | Delete items |
-| `items/unmask` | Bypass dynamic data masking (more on this later) |
+| `items/unmask` | Bypass data masking |
 | `executeQuery` | Execute NoSQL queries |
 | `readChangeFeed` | Read the change feed |
 | `executeStoredProcedure` | Execute stored procedures |
@@ -396,11 +398,14 @@ DDM is currently in **public preview** and carries no SLA. It requires Microsoft
 
 ### Masking Strategies
 
-| Strategy | Behavior | Example |
-|----------|----------|---------|
-| **Default** | Strings → `XXXX`, numbers → `0`, booleans → `false` | `Redmond` → `XXXX` |
-| **Custom String** | Mask a substring at a specified start position and length | `MaskSubstring(3,5)`: `Washington` → `WasXXXXXon` |
-| **Email** | Show first letter and domain ending, mask the rest | `alpha@microsoft.com` → `aXXXX@XXXXXXXXX.com` |
+| Strategy | Effect |
+|----------|--------|
+| **Default** | Strings→`XXXX`, nums→`0`, bools→`false` |
+| **Custom String** | Mask substring at given position |
+| **Email** | Show first char + domain suffix |
+
+- **Custom String** example: `MaskSubstring(3,5)` turns `Washington` into `WasXXXXXon`.
+- **Email** example: `alpha@microsoft.com` becomes `aXXXX@XXXXXXXXX.com`.
 
 <!-- Source: dynamic-data-masking.md -->
 
@@ -456,8 +461,8 @@ Two lock levels: <!-- Source: resource-locks.md -->
 
 | Level | Effect |
 |-------|--------|
-| **CanNotDelete** | Users can read and modify the resource, but can't delete it |
-| **ReadOnly** | Users can read the resource, but can't delete or update it |
+| **CanNotDelete** | Read + modify, but no delete |
+| **ReadOnly** | Read only — no delete or update |
 
 Locks apply to *management plane* operations only. A ReadOnly lock on a container prevents you from deleting or modifying the container's settings, but it doesn't prevent you from writing data to the container. Data operations go through the data plane, which locks don't affect. <!-- Source: resource-locks.md -->
 

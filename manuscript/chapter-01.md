@@ -96,13 +96,13 @@ It is *not* the old Azure DocumentDB that became Cosmos DB. It's a completely se
 
 Here's how they compare:
 
-| Characteristic | Azure Cosmos DB | Azure DocumentDB (vCore) |
+| Feature | Cosmos DB | DocumentDB (vCore) |
 |---|---|---|
 | **Availability SLA** | 99.999% (multi-region) | 99.995% |
-| **Scaling model** | Horizontal scale-out (per-region RU/s + serverless) | Vertical scale-up (provisioned vCores) |
-| **Global distribution** | Turnkey multi-region writes & automatic failover | Regional deployments + optional geo-replicas |
-| **Query focus** | Optimized for point reads & distributed queries | Advanced aggregation pipelines & complex joins |
-| **Cost model** | Variable RU-based or serverless consumption | Predictable compute + storage |
+| **Scaling** | Horizontal (RU/s + serverless) | Vertical (provisioned vCores) |
+| **Distribution** | Multi-region writes, auto-failover | Regional + optional geo-replicas |
+| **Query focus** | Point reads, distributed queries | Aggregation pipelines, joins |
+| **Cost model** | Variable RU-based / serverless | Predictable compute + storage |
 
 <!-- Source: overview.md comparison table -->
 

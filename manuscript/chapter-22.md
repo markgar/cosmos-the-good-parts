@@ -101,14 +101,16 @@ Your existing deployment continues to work. But don't build new workloads on it 
 
 **Fabric Mirroring** is the successor to Synapse Link, and it's the recommended path for running analytics over Cosmos DB operational data. It replicates your data continuously into **Microsoft Fabric OneLake** in near real time, stored in the open-source **Delta format**. This means your operational data is automatically available to every analytical engine in Fabric — Spark notebooks, serverless SQL (T-SQL), Power BI in DirectLake mode, and Copilot — without consuming a single RU. <!-- Source: analytics-and-business-intelligence-overview.md -->
 
-| Characteristic | Synapse Link (deprecated) | Fabric Mirroring |
+| Characteristic | Synapse Link | Fabric Mirroring |
 |---|---|---|
-| **Status** | No new projects; existing deployments supported | GA, actively developed |
-| **Destination** | Azure Synapse workspace | Microsoft Fabric OneLake (Delta format) |
-| **Query engines** | Synapse Spark, serverless SQL pool | Fabric Spark, T-SQL, Power BI DirectLake |
+| **Status** | Deprecated | GA, actively developed |
+| **Destination** | Synapse workspace | Fabric OneLake (Delta) |
+| **Query engines** | Spark, serverless SQL | Spark, T-SQL, DirectLake |
 | **RU impact** | Zero | Zero |
 | **Data format** | Proprietary column store | Open-source Delta Lake |
-| **Setup** | Account-level flag + per-container opt-in | Fabric workspace integration |
+| **Setup** | Account + container opt-in | Fabric workspace |
+
+Synapse Link is not accepting new projects but existing deployments remain supported.
 
 ### Migrating from Synapse Link to Fabric Mirroring
 
@@ -276,13 +278,15 @@ If your architecture centers on Apache Kafka, the **Kafka Connect Cosmos DB conn
 
 | Feature | V1 (Legacy) | V2 (Current) |
 |---|---|---|
-| **Source delivery semantics** | At-least-once (multi-task) / Exactly-once (single task) | Exactly-once |
-| **Sink delivery semantics** | Exactly-once | Exactly-once |
-| **Change feed implementation** | Change feed processor (lease container) | Pull model (Kafka offset topics) |
-| **Multi-container support** | One container per connector instance | Multiple containers per connector |
-| **Authentication** | Key-based only | Key-based + Entra ID (service principal) |
-| **Throughput control** | Not supported | Supported |
-| **Supported Kafka versions** | Older | 3.6.0+ |
+| **Source delivery** | At-least-once | Exactly-once |
+| **Sink delivery** | Exactly-once | Exactly-once |
+| **Change feed impl** | Processor (lease container) | Pull model (Kafka offsets) |
+| **Multi-container** | One per instance | Multiple per instance |
+| **Auth** | Key-based only | Key + Entra ID |
+| **Throughput control** | No | Yes |
+| **Min Kafka version** | Older | 3.6.0+ |
+
+V1's source connector achieved exactly-once only in single-task mode; multi-task mode was at-least-once.
 
 <!-- Source: kafka-connector-v2.md, kafka-connector.md, how-to-migrate-from-kafka-connector-v1-to-v2.md -->
 
@@ -451,18 +455,18 @@ With this many integration options, it helps to start from the problem rather th
 
 | I need to... | Use... |
 |---|---|
-| React to document changes in real time | Azure Functions trigger (Ch 15 + this chapter) |
-| Run analytics over operational data | Fabric Mirroring |
-| Stream changes to Kafka consumers | Kafka Connect V2 source connector |
-| Ingest from Kafka topics | Kafka Connect V2 sink connector |
-| Bulk import data from SQL/files | Azure Data Factory (Ch 23) |
-| Process streaming data with SQL-like transforms | Azure Stream Analytics |
-| Full-text search and faceted navigation | Azure AI Search indexer |
-| Batch/streaming Spark integration | Apache Spark OLTP connector |
-| Session state / distributed cache (.NET) | `Microsoft.Extensions.Caching.Cosmos` |
-| Spring Boot data access (Java) | Spring Data Azure Cosmos DB v5 |
-| Serverless frontend on Vercel | Vercel Marketplace integration |
-| Native Fabric database | Cosmos DB in Microsoft Fabric |
-| Write analytical results back to Cosmos DB | Reverse ETL via Spark + Delta |
+| React to changes in real time | Functions trigger (Ch 15) |
+| Analytics over operational data | Fabric Mirroring |
+| Stream changes to Kafka | Kafka V2 source connector |
+| Ingest from Kafka topics | Kafka V2 sink connector |
+| Bulk import from SQL/files | Azure Data Factory (Ch 23) |
+| Streaming SQL-like transforms | Stream Analytics |
+| Full-text search / faceting | Azure AI Search indexer |
+| Batch/streaming Spark | Spark OLTP connector |
+| .NET session state / cache | `Caching.Cosmos` package |
+| Spring Boot data access | Spring Data Cosmos DB v5 |
+| Serverless frontend (Vercel) | Vercel integration |
+| Native Fabric database | Cosmos DB in Fabric |
+| Write analytics back | Reverse ETL (Spark + Delta) |
 
 The Azure ecosystem around Cosmos DB is broad, but the good news is that most of these integrations are well-tested, first-party, and follow the same patterns: configure a connection, set a throughput budget, and let the managed service handle the hard parts. The work — as always with Cosmos DB — is in choosing the right partition key, managing your RU budget, and designing your data model to support the access patterns these integrations enable. Those foundational decisions, covered in Chapters 4, 5, and 10, are what make or break any integration you wire up here.

@@ -13,14 +13,16 @@ Every Cosmos DB journey starts with an account. The account is the top-level res
 3. Click **Create**, then choose **Azure Cosmos DB for NoSQL**.
 4. Fill in the **Basics** pane:
 
-| Setting | What to enter |
-|---------|--------------|
+| Setting | What to Enter |
+|---------|---------------|
 | **Subscription** | Your Azure subscription |
-| **Resource Group** | Create a new one or pick an existing one |
-| **Account Name** | A globally unique name (lowercase letters, numbers, hyphens; 3–44 characters). This becomes your endpoint: `https://<account-name>.documents.azure.com` |
-| **Location** | The Azure region closest to your users |
-| **Capacity mode** | **Provisioned throughput** or **Serverless** |
-| **Apply Free Tier Discount** | **Apply** (if available) |
+| **Resource Group** | New or existing |
+| **Account Name** | Globally unique; 3–44 chars* |
+| **Location** | Azure region nearest your users |
+| **Capacity mode** | Provisioned or Serverless |
+| **Free Tier Discount** | **Apply** (if available) |
+
+*Account name allows lowercase letters, numbers, and hyphens. It becomes your endpoint: `https://<account-name>.documents.azure.com`.
 
 <!-- Source: how-to-create-account.md, quickstart-portal.md -->
 
@@ -103,14 +105,18 @@ With your account ready, you need a database and at least one container before y
 2. Click **New Container**.
 3. Fill in the dialog:
 
-| Setting | Value | Notes |
-|---------|-------|-------|
-| **Database id** | `cosmicworks` | Select **Create new** |
-| **Share throughput across containers** | Your choice | Check this to provision RU/s at the database level, shared across up to 25 containers. Leave unchecked for dedicated container throughput. |
-| **Container id** | `products` | |
-| **Partition key** | `/category` | Choose carefully — this can't be changed later |
-| **Container throughput** | Autoscale or Manual | |
-| **Max RU/s** (if autoscale) | `1000` | Autoscale scales between 10% and 100% of this value |
+| Setting | Value |
+|---------|-------|
+| **Database id** | `cosmicworks` (Create new) |
+| **Share throughput** | Your choice* |
+| **Container id** | `products` |
+| **Partition key** | `/category`† |
+| **Container throughput** | Autoscale or Manual |
+| **Max RU/s** (autoscale) | `1000` |
+
+*Check this to provision RU/s at the database level, shared across up to 25 containers. Leave unchecked for dedicated container throughput.
+
+†Choose carefully — partition keys can't be changed after creation. Autoscale scales between 10% and 100% of the max RU/s value.
 
 <!-- Source: quickstart-portal.md, resource-model.md -->
 
@@ -291,11 +297,9 @@ After installation, the emulator starts automatically and opens a browser to the
 
 Every emulator instance uses the same well-known credentials by default:
 
-| Property | Value |
-|----------|-------|
-| **Endpoint** | `https://localhost:8081` |
-| **Key** | `C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==` |
-| **Connection string** | `AccountEndpoint=https://localhost:8081/;AccountKey=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==;` |
+- **Endpoint:** `https://localhost:8081`
+- **Key:** `C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==`
+- **Connection string:** `AccountEndpoint=https://localhost:8081/;AccountKey=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==;`
 
 <!-- Source: emulator.md -->
 
@@ -307,15 +311,19 @@ The Windows emulator executable (`Microsoft.Azure.Cosmos.Emulator.exe`) accepts 
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `/Port` | Port for the emulator gateway | `8081` |
-| `/Key` | Custom authorization key (base-64 encoded 64-byte vector) | Well-known key |
-| `/DataPath` | Path to store data files | `%LocalAppData%\CosmosDBEmulator` |
-| `/PartitionCount` | Maximum number of partitioned containers | `25` (max `250`) |
+| `/Port` | Gateway port | `8081` |
+| `/Key` | Custom auth key* | Well-known key |
+| `/DataPath` | Data file path | See note† |
+| `/PartitionCount` | Max partitioned containers | `25` (max `250`) |
 | `/Consistency` | Default consistency level | `Session` |
-| `/NoUI` | Don't show the emulator UI | — |
-| `/Shutdown` | Shut down the emulator | — |
+| `/NoUI` | Suppress emulator UI | — |
+| `/Shutdown` | Shut down emulator | — |
 | `/ResetDataPath` | Clear all emulator data | — |
-| `/AllowNetworkAccess` | Enable access over the network (requires `/Key`) | — |
+| `/AllowNetworkAccess` | Enable network access* | — |
+
+*`/Key` accepts a base-64 encoded 64-byte vector. `/AllowNetworkAccess` requires `/Key` to be set.
+
+†Default data path: `%LocalAppData%\CosmosDBEmulator`.
 
 <!-- Source: emulator-windows-arguments.md -->
 
@@ -409,16 +417,18 @@ keytool -cacerts -importcert -alias cosmos_emulator -file cosmos_emulator.cert
 
 The vNext emulator accepts configuration through command-line arguments or environment variables. Here are the key ones:
 
-| Argument | Env Variable | Default | Description |
-|----------|-------------|---------|-------------|
-| `--port` | `PORT` | `8081` | Gateway endpoint port |
-| `--protocol` | `PROTOCOL` | `http` | Protocol: `https`, `http`, or `https-insecure` |
-| `--enable-explorer` | `ENABLE_EXPLORER` | `true` | Enable/disable Data Explorer |
-| `--explorer-port` | `EXPLORER_PORT` | `1234` | Data Explorer port |
-| `--data-path` | `DATA_PATH` | `/data` | Directory for persistent data |
-| `--key-file` | `KEY_FILE` | Default key | Path to a custom authentication key file |
-| `--log-level` | `LOG_LEVEL` | `info` | Log verbosity: `quiet`, `error`, `warn`, `info`, `debug`, `trace` |
-| `--enable-otlp` | `ENABLE_OTLP_EXPORTER` | `false` | Enable OpenTelemetry OTLP exporter |
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--port` | `8081` | Gateway port |
+| `--protocol` | `http` | `https`, `http`, `https-insecure` |
+| `--enable-explorer` | `true` | Toggle Data Explorer |
+| `--explorer-port` | `1234` | Data Explorer port |
+| `--data-path` | `/data` | Persistent data directory |
+| `--key-file` | Default key | Custom auth key file path |
+| `--log-level` | `info` | `quiet` thru `trace` |
+| `--enable-otlp` | `false` | Enable OTLP exporter |
+
+Each argument has a corresponding environment variable: `PORT`, `PROTOCOL`, `ENABLE_EXPLORER`, `EXPLORER_PORT`, `DATA_PATH`, `KEY_FILE`, `LOG_LEVEL`, `ENABLE_OTLP_EXPORTER`.
 
 <!-- Source: emulator-linux.md -->
 
@@ -459,21 +469,25 @@ The emulator's [GitHub repository](https://github.com/AzureCosmosDB/cosmosdb-lin
 
 The emulator is a development tool, not a miniature Cosmos DB. Understanding its limitations saves you from debugging phantom issues that only exist locally.
 
-| Area | Cloud Service | Emulator (Windows) | Emulator (vNext / Docker) |
-|------|--------------|---------------------|---------------------------|
-| **APIs supported** | NoSQL, MongoDB, Cassandra, Gremlin, Table | All APIs (NoSQL is the default; others need flags) | NoSQL only (gateway mode) |
-| **Throughput modes** | Provisioned, Autoscale, Serverless | Provisioned only | Provisioned only |
-| **Consistency levels** | All five (Strong, Bounded Staleness, Session, Consistent Prefix, Eventual) | Session and Strong only (flags the level for testing, doesn't truly implement distributed consistency) | N/A (single node) |
-| **Geo-replication** | Multi-region, multi-region writes | Single instance only | Single instance only |
-| **Scaling** | Unlimited horizontal scale-out | Default: 25 fixed-size containers at 400 RU/s or 5 unlimited; 10 fixed-size recommended for stable performance. Max 250 fixed-size or 50 unlimited with `/PartitionCount`. | No published container limit (preview) | <!-- Source: emulator-windows-arguments.md -->
-| **Max `id` length** | 1,023 bytes | 254 characters | Not documented (preview) |
-| **Max JOINs per query** | 10 | 5 | Not documented (preview) |
-| **Stored procedures, triggers, UDFs** | Supported | Supported | **Not planned** |
-| **Change feed** | Supported | Supported | Supported |
-| **Batch / Bulk API** | Supported | Supported | Batch supported; .NET bulk not supported |
-| **Custom index policies** | Supported | Supported | Not yet implemented |
-| **Request Units reporting** | Accurate RU charges | Approximate | Not yet implemented |
-| **Data Explorer** | Full | NoSQL and MongoDB only | NoSQL only |
+| Feature | Windows Emu | vNext / Docker |
+|---------|-------------|----------------|
+| **APIs** | All (flags for non-NoSQL) | NoSQL only |
+| **Throughput** | Provisioned only | Provisioned only |
+| **Consistency** | Session + Strong only* | N/A (single node) |
+| **Geo-replication** | No | No |
+| **Scaling** | 25 containers default† | No published limit |
+| **Max `id` length** | 254 chars | Not documented |
+| **Max JOINs** | 5 | Not documented |
+| **Stored procs/UDFs** | Supported | **Not planned** |
+| **Change feed** | Supported | Supported |
+| **Batch / Bulk** | Supported | Batch only‡ |
+| **Index policies** | Supported | Not yet |
+| **RU reporting** | Approximate | Not yet |
+| **Data Explorer** | NoSQL + MongoDB | NoSQL only |
+
+The cloud service supports all listed features fully — this table shows only where the emulators diverge.
+
+*The Windows emulator flags the consistency level for testing but doesn't implement actual distributed consistency. †Default: 25 fixed-size containers at 400 RU/s or 5 unlimited; 10 fixed-size recommended for stability. Max 250 fixed-size or 50 unlimited via `/PartitionCount`. ‡.NET bulk operations not supported in vNext.
 
 <!-- Source: emulator.md, emulator-linux.md -->
 
