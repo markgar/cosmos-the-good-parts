@@ -151,7 +151,7 @@ The baseline: **a point read of a single 1 KB item by its `id` and partition key
 
 <!-- Source: key-value-store-cost.md -->
 
-These numbers come from the docs with automatic indexing turned off, so they represent the floor. With default indexing enabled (which indexes every property), write costs will be slightly higher — roughly 5.x RUs for a 1 KB insert depending on how many properties the item has. <!-- Source: key-value-store-cost.md --> Change the consistency level, and the numbers shift too: reads at **strong** or **bounded staleness** consistency cost roughly **2x** the RUs of the more relaxed levels (session, consistent prefix, eventual). <!-- Source: request-units.md -->
+These numbers come from the docs with automatic indexing turned off. In practice, with the default indexing policy enabled (which indexes every property), writes cost a bit more — a 1 KB insert typically lands between 5 and 7 RUs depending on how many properties the item has. The table above is still useful as a baseline; just know that your real numbers will be slightly higher on writes. <!-- Source: key-value-store-cost.md --> Change the consistency level, and the numbers shift too: reads at **strong** or **bounded staleness** consistency cost roughly **2x** the RUs of the more relaxed levels (session, consistent prefix, eventual). <!-- Source: request-units.md -->
 
 ### What Affects RU Cost?
 
