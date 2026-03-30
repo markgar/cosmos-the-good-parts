@@ -59,6 +59,32 @@ Here's a customer profile with embedded addresses:
 
 In a relational database, you'd have a `Customers` table and an `Addresses` table with a foreign key. Loading a customer's profile with their addresses would require a JOIN. Here, it's a single point read — provide the `id` and partition key, and you get everything back for roughly 1 RU (depending on document size).
 
+In your .NET code, this maps directly to a class with a nested list:
+
+```csharp
+public class Customer
+{
+    public string Id { get; set; }
+    public string Type { get; set; }
+    public string FirstName { get; set; }
+    public string LastName { get; set; }
+    public string Email { get; set; }
+    public List<Address> Addresses { get; set; }
+    public string LoyaltyTier { get; set; }
+}
+
+public class Address
+{
+    public string Label { get; set; }
+    public string Street { get; set; }
+    public string City { get; set; }
+    public string State { get; set; }
+    public string Zip { get; set; }
+}
+```
+
+One point read, one deserialized object, addresses included — no joins, no second query.
+
 <!-- Source: modeling-data.md -->
 
 That's the power of embedding. But it's not free — you're trading read simplicity for coupling. If addresses were shared across entities (say, a shipping address linked to both a customer and an order), embedding creates redundant copies that you'd need to update in multiple places.
