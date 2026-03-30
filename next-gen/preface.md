@@ -12,13 +12,13 @@ Nine parts, each building on the last:
 
 - **Part I: Foundations** (Ch 1–3) — What Cosmos DB is, core concepts, first working code.
 - **Part II: Data Modeling and Partitioning** (Ch 4–6) — Document design, partition keys, advanced patterns.
-- **Part III: Querying and Indexing** (Ch 7–8) — The query language and indexing policies.
-- **Part IV: Throughput, Scaling, and Cost** (Ch 9–10) — Request Units, capacity models, cost control.
-- **Part V: Global Distribution and Consistency** (Ch 11–12) — Multi-region replication and consistency levels.
-- **Part VI: Server-Side Programming and Event-Driven Patterns** (Ch 13–15) — Stored procedures, change feed, transactions.
-- **Part VII: Security, Monitoring, and Operations** (Ch 16–19) — Security, observability, backup, CI/CD.
-- **Part VIII: Integration and Ecosystem** (Ch 20–23) — SDKs, Azure integrations, migration, testing.
-- **Part IX: Advanced Topics** (Ch 24–27) — Vector search and AI, multi-tenancy, performance tuning, capstone.
+- **Part III: Working with Data** (Ch 7–9) — SDKs, the query language, and indexing policies.
+- **Part IV: Throughput, Scaling, and Cost** (Ch 10–11) — Request Units, capacity models, cost control.
+- **Part V: Global Distribution and Consistency** (Ch 12–13) — Multi-region replication and consistency levels.
+- **Part VI: Server-Side Programming and Event-Driven Patterns** (Ch 14–16) — Stored procedures, change feed, transactions.
+- **Part VII: Security, Monitoring, and Operations** (Ch 17–20) — Security, observability, backup, CI/CD.
+- **Part VIII: Integration and Ecosystem** (Ch 21–24) — Advanced SDK patterns, Azure integrations, migration, testing.
+- **Part IX: Advanced Topics** (Ch 25–28) — Vector search and AI, multi-tenancy, performance tuning, capstone.
 
 The **Appendices** are quick-reference tables: CLI commands, query syntax, consistency levels, pricing, and service limits.
 
