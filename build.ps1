@@ -17,7 +17,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$bookDir = $PSScriptRoot
+$rootDir = $PSScriptRoot
+$bookDir = Join-Path $rootDir "manuscript"
 
 # Ensure Pandoc is available
 $pandoc = Get-Command pandoc -ErrorAction SilentlyContinue
@@ -81,8 +82,8 @@ $pandocArgs = @(
     "--to", "epub3"
     "--toc"
     "--toc-depth=2"
-    "--css=epub.css"
-    "-o", (Join-Path $bookDir $Output)
+    "--css=$(Join-Path $bookDir 'epub.css')"
+    "-o", (Join-Path $rootDir $Output)
 )
 
 # Add cover image if it exists
@@ -99,7 +100,7 @@ Write-Host "`nBuilding epub..." -ForegroundColor Cyan
 & $pandoc @sources @pandocArgs
 
 if ($LASTEXITCODE -eq 0) {
-    $epub = Get-Item (Join-Path $bookDir $Output)
+    $epub = Get-Item (Join-Path $rootDir $Output)
     $sizeKB = [math]::Round($epub.Length / 1024)
     Write-Host "`nBuilt: $($epub.Name) ($sizeKB KB)" -ForegroundColor Green
 } else {
