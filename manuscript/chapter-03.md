@@ -701,7 +701,6 @@ query = "SELECT * FROM products p WHERE p.category = @category"
 items = container.query_items(
     query=query,
     parameters=[{"name": "@category", "value": "gear-surf-surfboards"}],
-    enable_cross_partition_query=False,
 )
 
 for item in items:
@@ -710,7 +709,7 @@ for item in items:
 
 <!-- Source: quickstart-python.md (adapted) -->
 
-Notice `enable_cross_partition_query=False`. Since we're filtering on the partition key (`category`), the query targets a single partition — no cross-partition fan-out needed. If you query without a partition key filter, you'd set this to `True` and accept the higher RU cost. Cross-partition queries are covered in Chapter 8.
+You may see `enable_cross_partition_query=True` in older examples — the early Python SDK required you to opt in to cross-partition queries explicitly. Current SDK versions handle this automatically, so you can omit it. The important lesson here is that filtering on the partition key (`category`) routes the query to a single partition, keeping RU costs low. Cross-partition queries are covered in Chapter 8.
 
 ### Switching from the Emulator to the Cloud
 
