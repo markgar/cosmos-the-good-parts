@@ -18,17 +18,20 @@ This matters because some other NoSQL stores *can* produce partial writes during
 
 Here's the operation-to-transaction mapping that matters:
 
-| Operation | Transaction Type | Scope |
-|-----------|-----------------|-------|
+| Operation | Type | Scope |
+|-----------|------|-------|
 | Insert (no trigger) | Single-item write | Automatic |
 | Replace (no trigger) | Single-item write | Automatic |
 | Upsert (no trigger) | Single-item write | Automatic |
 | Delete (no trigger) | Single-item write | Automatic |
 | Patch (no trigger) | Single-item write | Automatic |
-| Insert/Replace/Upsert/Delete *with* trigger | Multi-item (the trigger logic participates) | Automatic |
-| Stored procedure execution | Multi-item read/write | Explicit — you write the logic |
-| Transactional batch | Multi-item read/write | Explicit — you build the batch |
+| Write *with* trigger | Multi-item | Automatic |
+| Stored procedure | Multi-item read/write | Explicit |
+| Transactional batch | Multi-item read/write | Explicit |
 | Single-item read | Single-item read | Automatic |
+
+- **Write with trigger:** any insert, replace, upsert, or delete that fires a trigger — the trigger logic participates in the transaction.
+- **Explicit scope:** for stored procedures, you write the transactional logic; for batches, you build the operation set.
 
 <!-- Source: database-transactions-optimistic-concurrency.md -->
 
@@ -84,12 +87,12 @@ Stored procedures are the right choice when you need custom transactional logic 
 
 The docs highlight four advantages of transactional batch over stored procedures:
 
-| | Transactional Batch | Stored Procedure |
+| | Batch | Stored Procedure |
 |---|---|---|
-| **Language** | Your SDK's language (C#, Java, Python, Go) | JavaScript only |
-| **Code versioning** | Lives in your application code, flows through CI/CD | Deployed to the service separately |
-| **Performance** | Up to 30% lower latency than equivalent sproc operations | Higher overhead from JavaScript runtime |
-| **Serialization** | Custom serialization per operation | JSON via JavaScript runtime |
+| **Language** | Your SDK language | JavaScript only |
+| **Versioning** | In app code, via CI/CD | Deployed separately |
+| **Performance** | Up to 30% lower latency | Higher JS runtime overhead |
+| **Serialization** | Custom per operation | JSON via JS runtime |
 
 <!-- Source: transactional-batch.md -->
 
@@ -282,12 +285,14 @@ if (!response.IsSuccessStatusCode)
 
 Common failure causes:
 
-| Status Code | Meaning |
-|-------------|---------|
-| **404** | Item not found (read, replace, delete, or patch targeted a nonexistent item) |
-| **409** | Conflict (create tried to insert an item with an `id` that already exists) |
-| **412** | Precondition failed (ETag mismatch on a conditional operation) |
-| **413** | Payload too large (batch exceeds 2 MB) |
+| Status | Meaning |
+|--------|---------|
+| **404** | Item not found |
+| **409** | Conflict — duplicate `id` |
+| **412** | ETag mismatch |
+| **413** | Payload exceeds 2 MB |
+
+A 404 means a read, replace, delete, or patch targeted a nonexistent item. A 409 means a create tried to insert an item with an `id` that already exists. A 412 indicates a precondition failure on a conditional operation (ETag-based). A 413 means the batch payload exceeded the 2 MB limit.
 
 <!-- Source: transactional-batch.md -->
 
@@ -295,10 +300,10 @@ Common failure causes:
 
 | Constraint | Limit |
 |-----------|-------|
-| Maximum operations per batch | 100 |
-| Maximum payload size | 2 MB |
-| Maximum execution time | 5 seconds |
-| Partition key scope | All operations must share the same partition key |
+| Max operations per batch | 100 |
+| Max payload size | 2 MB |
+| Max execution time | 5 seconds |
+| Partition key scope | Single partition key |
 
 <!-- Source: transactional-batch.md -->
 
@@ -583,12 +588,12 @@ It breaks down when:
 
 Chapter 6 introduced the Patch API's conditional predicates — a server-side `WHERE` clause that rejects the update if the predicate doesn't match. There's overlap with ETag-based concurrency, but they solve different problems:
 
-| | ETag + If-Match | Patch Conditional Predicate |
+| | ETag + If-Match | Patch Predicate |
 |---|---|---|
-| **Checks** | "Has *anything* about this item changed since I read it?" | "Does this specific property have this specific value right now?" |
-| **Requires a prior read** | Yes — you need the ETag from the read | No — the predicate runs server-side |
-| **Granularity** | Entire item version | Specific field conditions |
-| **Use case** | Full read-modify-write cycles | Atomic field-level updates with preconditions |
+| **Checks** | Any change to item | Specific field value |
+| **Prior read?** | Yes — need the ETag | No — runs server-side |
+| **Granularity** | Entire item version | Specific fields |
+| **Best for** | Read-modify-write | Atomic field updates |
 
 If you're decrementing inventory, a conditional Patch (`FROM c WHERE c.inventory.quantity > 0` with an `Increment` of `-1`) is better than a read-modify-write with ETag checking. It's one round-trip instead of two, and there's no retry loop needed — the server handles the atomicity.
 

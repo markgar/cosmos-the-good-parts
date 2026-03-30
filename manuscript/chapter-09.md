@@ -122,9 +122,9 @@ The path notation has three special suffixes:
 
 | Suffix | Meaning | Example |
 |--------|---------|---------|
-| `/?` | A scalar value (string, number, boolean) | `/status/?` |
-| `/*` | Everything below this node | `/metadata/*` |
-| `/[]` | All elements in an array (collectively) | `/tags/[]/?` |
+| `/?` | Scalar (string, number, bool) | `/status/?` |
+| `/*` | All descendants | `/metadata/*` |
+| `/[]` | Array elements | `/tags/[]/?` |
 
 Some concrete mappings for a document like `{ "locations": [{ "country": "Germany", "city": "Berlin" }], "headquarters": { "country": "Belgium" } }`:
 
@@ -242,12 +242,14 @@ The property order in your composite index definition must match how your querie
 
 The composite index paths must match the `ORDER BY` clause in sequence and sort direction. The one exception: a composite index also supports the *exact opposite* sort order on all paths.
 
-| Composite Index | Query `ORDER BY` | Supported? |
-|----------------|------------------|------------|
-| `(name ASC, age ASC)` | `ORDER BY c.name ASC, c.age ASC` | ✅ Yes |
-| `(name ASC, age ASC)` | `ORDER BY c.name DESC, c.age DESC` | ✅ Yes (opposite on all) |
-| `(name ASC, age ASC)` | `ORDER BY c.age ASC, c.name ASC` | ❌ No (wrong sequence) |
-| `(name ASC, age ASC)` | `ORDER BY c.name ASC, c.age DESC` | ❌ No (mixed directions) |
+For composite index `(name ASC, age ASC)`:
+
+| `ORDER BY` Clause | Supported? |
+|---|---|
+| `c.name ASC, c.age ASC` | ✅ Direct match |
+| `c.name DESC, c.age DESC` | ✅ All-reversed match |
+| `c.age ASC, c.name ASC` | ❌ Wrong property order |
+| `c.name ASC, c.age DESC` | ❌ Mixed sort direction |
 
 <!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-policy.md -->
 
@@ -261,11 +263,13 @@ For queries that filter on multiple properties (at least one equality), the rule
 - **One range filter, last.** Each composite index optimizes at most one range filter (`>`, `<`, `>=`, `<=`, `!=`), and it must be the last property in the index.
 - **Sort order doesn't matter for filter-only queries.** The `ASC`/`DESC` order is irrelevant when no `ORDER BY` is involved.
 
-| Composite Index | Query | Supported? |
-|----------------|-------|------------|
-| `(name ASC, age ASC)` | `WHERE c.name = 'John' AND c.age > 18` | ✅ Yes |
-| `(age ASC, name ASC)` | `WHERE c.name = 'John' AND c.age > 18` | ❌ No (equality must come first) |
-| `(name ASC, age ASC)` | `WHERE c.name != 'John' AND c.age > 18` | ❌ No (name uses range, not equality) |
+| Index | `WHERE` Clause | OK? |
+|---|---|---|
+| `(name, age)` | `name = 'x' AND age > 18` | ✅ |
+| `(age, name)` | `name = 'x' AND age > 18` | ❌ |
+| `(name, age)` | `name != 'x' AND age > 18` | ❌ |
+
+Sort direction omitted — irrelevant for filter-only queries. Row 2 fails because the equality filter (`name =`) must precede the range filter in the index. Row 3 fails because `!=` is a range operator, making both filters range-based.
 
 <!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-policy.md -->
 
@@ -285,11 +289,13 @@ SELECT * FROM c WHERE c.name = 'John' ORDER BY c.name, c.timestamp
 
 The rule: filter properties appear first in the composite index, followed by `ORDER BY` properties. Equality filters before any range filter. The range filter (if any) goes last.
 
-| Composite Index | Query | Supported? |
-|----------------|-------|------------|
-| `(name ASC, timestamp ASC)` | `WHERE c.name = 'John' ORDER BY c.name ASC, c.timestamp ASC` | ✅ Yes |
-| `(name ASC, timestamp ASC)` | `WHERE c.name = 'John' ORDER BY c.timestamp ASC` | ❌ No |
-| `(age ASC, name ASC, timestamp ASC)` | `WHERE c.age = 18 AND c.name = 'John' ORDER BY c.age ASC, c.name ASC, c.timestamp ASC` | ✅ Yes |
+| Index (ASC) | Query Pattern | OK? |
+|---|---|---|
+| `(name, ts)` | Filter `name =`, sort `name, ts` | ✅ |
+| `(name, ts)` | Filter `name =`, sort `ts` only | ❌ |
+| `(age, name, ts)` | Filter `age =, name =`, sort all 3 | ✅ |
+
+In these examples, `ts` = `timestamp`. The filter property must appear in the `ORDER BY` clause for the composite index to apply.
 
 <!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-policy.md -->
 
@@ -314,11 +320,13 @@ This query benefits from a composite index on `(name ASC, age ASC, timestamp ASC
 
 <!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-policy.md -->
 
-| Composite Index | Query | Supported? |
-|----------------|-------|------------|
-| `(name ASC, timestamp ASC)` | `SELECT AVG(c.timestamp) FROM c WHERE c.name = 'John'` | ✅ Yes |
-| `(timestamp ASC, name ASC)` | `SELECT AVG(c.timestamp) FROM c WHERE c.name = 'John'` | ❌ No (filter property must come first) |
-| `(name ASC, age ASC, timestamp ASC)` | `SELECT AVG(c.timestamp) FROM c WHERE c.name = 'John' AND c.age = 25` | ✅ Yes |
+| Index (ASC) | Query Pattern | OK? |
+|---|---|---|
+| `(name, ts)` | `AVG(ts) WHERE name = 'x'` | ✅ |
+| `(ts, name)` | `AVG(ts) WHERE name = 'x'` | ❌ |
+| `(name, age, ts)` | `AVG(ts) WHERE name, age =` | ✅ |
+
+Here `ts` = `timestamp`. Row 2 fails because the filter property (`name`) must come before the aggregated property in the index.
 
 ### Tuple Indexes for Array Element Queries
 
@@ -521,11 +529,15 @@ Using `float16` instead of `float32` cuts vector storage by 50% with a minor acc
 
 You specify the vector index in the indexing policy's `vectorIndexes` section. Three types are available:
 
-| Index Type | Algorithm | Max Dimensions | Accuracy | Best For |
-|-----------|-----------|----------------|----------|----------|
-| **`flat`** | Brute-force kNN | 505 | 100% | Small datasets, exact results |
-| **`quantizedFlat`** | Brute-force with compression | 4,096 | Near-100% | ≤50K vectors per physical partition, filtered searches |
-| **`diskANN`** | DiskANN (ANN) | 4,096 | High (approximate) | >50K vectors per physical partition, production scale |
+| Index Type | Algorithm | Max Dims |
+|-----------|-----------|----------|
+| **`flat`** | Brute-force kNN | 505 |
+| **`quantizedFlat`** | Quantized brute-force | 4,096 |
+| **`diskANN`** | DiskANN (ANN) | 4,096 |
+
+- **`flat`** — 100% accuracy (exact results). Best for small datasets.
+- **`quantizedFlat`** — Near-100% accuracy. Best for ≤50K vectors per physical partition and filtered searches.
+- **`diskANN`** — High but approximate accuracy. Best for >50K vectors per physical partition at production scale.
 
 <!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-policy.md -->
 
@@ -609,9 +621,9 @@ Cosmos DB supports two indexing modes, and one deprecated one:
 
 | Mode | Behavior | Use When |
 |------|----------|----------|
-| **`consistent`** | Index updated synchronously on every write | Almost always — this is the default and the right choice |
-| **`none`** | No indexing at all | Bulk imports, pure key-value stores |
-| **`lazy`** *(deprecated)* | Index updated asynchronously at lower priority | Never — see below |
+| **`consistent`** | Sync on every write | Almost always (default) |
+| **`none`** | No indexing | Bulk imports, KV stores |
+| **`lazy`** *(deprecated)* | Async, lower priority | Never — see below |
 
 <!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-policy.md -->
 
@@ -750,13 +762,13 @@ Chapter 10 dives into the exact RU mechanics of reads and writes. Chapter 27 cov
 
 | Limit | Value |
 |-------|-------|
-| Maximum explicitly included paths per container | 1,500 |
-| Maximum explicitly excluded paths per container | 1,500 |
-| Maximum properties in a composite index | 8 |
-| Maximum composite index paths per container | 100 |
-| Maximum dimensions for `flat` vector index | 505 |
-| Maximum dimensions for `quantizedFlat` / `diskANN` | 4,096 |
-| Minimum vectors before quantization is accurate | 1,000 |
+| Included paths/container | 1,500 |
+| Excluded paths/container | 1,500 |
+| Props per composite index | 8 |
+| Composite indexes/container | 100 |
+| `flat` index max dimensions | 505 |
+| `quantizedFlat`/`diskANN` max dims | 4,096 |
+| Min vectors for quantization | 1,000 |
 
 <!-- Source: mslearn-docs/content/manage-your-account/enterprise-readiness/concepts-limits.md, mslearn-docs/content/build-ai-applications/use-vector-search/vector-search.md -->
 

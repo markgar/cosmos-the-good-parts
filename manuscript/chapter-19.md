@@ -33,9 +33,11 @@ The defaults (4-hour interval, two copies retained) are fine for many workloads,
 | Setting | Range | Default |
 |---------|-------|---------|
 | **Backup interval** | 1–24 hours | 4 hours |
-| **Backup retention** | 2× the backup interval (minimum) to 720 hours (maximum) | 8 hours (two copies × 4-hour interval) |
-| **Copies retained** | 2 (free), additional copies at extra cost | 2 |
-| **Storage redundancy** | Geo-redundant (GRS), zone-redundant (ZRS), or locally redundant (LRS) | GRS (where available) |
+| **Retention** | 2× interval to 720 hrs | 8 hours |
+| **Copies retained** | 2 (free) + extra at cost | 2 |
+| **Storage redundancy** | GRS, ZRS, or LRS | GRS |
+
+Retention must be at least twice the backup interval, up to a max of 720 hours. The default 8 hours reflects two copies at a 4-hour interval. Additional copies beyond the included two incur extra cost. Storage redundancy defaults to geo-redundant (GRS) where available; zone-redundant (ZRS) and locally redundant (LRS) are also options.
 
 You can change these settings at any time — during account creation or afterward — via the portal, CLI, or PowerShell. The configuration applies at the account level; every container in the account gets the same backup schedule.
 
@@ -150,12 +152,12 @@ Continuous backup comes in two tiers with meaningfully different cost profiles:
 
 <!-- Source: continuous-backup-restore-introduction.md -->
 
-| | **Continuous 7-Day** | **Continuous 30-Day** |
+| | **7-Day** | **30-Day** |
 |---|---|---|
-| **Retention window** | 7 days | 30 days |
-| **Backup storage cost** | Free | $0.20/GB × data size × number of regions (per month) |
+| **Retention** | 7 days | 30 days |
+| **Backup storage** | Free | $0.20/GB × regions/mo |
 | **Restore cost** | $0.15/GB per restore | $0.15/GB per restore |
-| **Default when tier not specified** | No | Yes |
+| **Default tier** | No | Yes |
 
 The 7-day tier is a compelling default for many applications. You get self-service PITR with no backup storage charges — you only pay when you actually perform a restore. For a 1 TB account across two regions on the 30-day tier, backup storage alone runs $400/month. That's a meaningful line item.
 
@@ -300,15 +302,16 @@ A few things to keep in mind:
 
 ## Periodic vs. Continuous: Which Should You Choose?
 
-| | **Periodic** | **Continuous 7-Day** | **Continuous 30-Day** |
-|---|---|---|---|
-| **Restore granularity** | Nearest backup snapshot | Any second within 7 days | Any second within 30 days |
-| **Restore method** | Support ticket (manual) | Self-service (portal/CLI/PS) | Self-service (portal/CLI/PS) |
-| **Restore target** | New account only | New account or same account | New account or same account |
-| **Backup storage cost** | Free (2 copies) | Free | $0.20/GB × regions/month |
-| **Restore cost** | None | $0.15/GB per restore | $0.15/GB per restore |
-| **Switchable** | → Continuous (one-way) | ↔ 30-day tier | ↔ 7-day tier |
-| **Migration back to periodic** | N/A | Not possible | Not possible |
+| | **Periodic** | **Continuous** |
+|---|---|---|
+| **Granularity** | Nearest snapshot | Any second in window |
+| **Restore method** | Support ticket | Self-service (portal/CLI) |
+| **Restore target** | New account only | New or same account |
+| **Backup cost** | Free (2 copies) | 7-day free; 30-day paid |
+| **Restore cost** | None | $0.15/GB |
+| **Migration** | → Continuous (one-way) | Can't revert to periodic |
+
+The 30-day continuous tier charges $0.20/GB × number of regions per month for backup storage. You can switch between the 7-day and 30-day tiers at any time, but switching from continuous back to periodic is not possible.
 
 For new production accounts, **continuous 7-day** is the sensible default. You get self-service PITR with no backup storage costs. Upgrade to 30-day if compliance demands it. Reserve periodic mode for non-critical environments where you want the absolute simplest (and cheapest) configuration and can tolerate filing a support ticket if something goes wrong.
 
@@ -365,11 +368,33 @@ The tradeoff: multi-write accounts can't use strong consistency, so RPO = 0 is n
 
 The RTO is effectively **near-zero** for applications with properly configured SDKs. Traffic routes to healthy regions automatically. Your application keeps running.
 
-| Configuration | RTO | RPO (Session/Consistent Prefix/Eventual) | RPO (Bounded Staleness) | RPO (Strong) | Automatic Failover? |
-|---|---|---|---|---|---|
-| **Single region** | Region recovery time | < 240 min | < 240 min | < 240 min | No |
-| **Multi-region, single write** | Minutes to ~1 hour | < 15 min | *K* & *T*¹ | 0 | Yes (with service-managed failover) |
-| **Multi-region, multi-write** | Near-zero | < 15 min | *K* & *T*¹ | N/A (strong not supported) | Yes (automatic) |
+**Single region:**
+
+| Metric | Value |
+|--------|-------|
+| RTO | Region recovery time |
+| RPO (all consistency levels) | < 240 min |
+| Auto failover | No |
+
+**Multi-region, single write:**
+
+| Metric | Value |
+|--------|-------|
+| RTO | Minutes to ~1 hour |
+| RPO (Session/CP/Eventual) | < 15 min |
+| RPO (Bounded Staleness) | *K* & *T*¹ |
+| RPO (Strong) | 0 |
+| Auto failover | Yes (service-managed) |
+
+**Multi-region, multi-write:**
+
+| Metric | Value |
+|--------|-------|
+| RTO | Near-zero |
+| RPO (Session/CP/Eventual) | < 15 min |
+| RPO (Bounded Staleness) | *K* & *T*¹ |
+| RPO (Strong) | N/A |
+| Auto failover | Yes (automatic) |
 
 ¹ *K* = the configured maximum version lag; *T* = the configured maximum time lag. For multi-region accounts the minimum is 100,000 operations or 300 seconds.
 
@@ -441,14 +466,16 @@ Treat these as infrastructure-as-code artifacts. Define them in Bicep, Terraform
 
 Map your business requirements to the technical capabilities:
 
-| Requirement | Recommended Configuration |
-|---|---|
-| RPO < 15 minutes, RTO < 1 hour | Multi-region, single write, service-managed failover, continuous backup |
-| RPO = 0 | Multi-region, single write, strong consistency |
+| Goal | Configuration |
+|------|---------------|
+| RPO < 15 min, RTO < 1 hr | Multi-region, auto failover |
+| RPO = 0 | Strong consistency |
 | RTO ≈ 0 | Multi-region write |
-| Self-service restore from accidental deletion | Continuous backup (either tier) |
-| 30-day restore window for compliance | Continuous 30-day tier |
-| Minimum cost, non-critical workload | Single region, periodic backup |
+| Self-service restore | Continuous backup |
+| 30-day restore window | Continuous 30-day tier |
+| Lowest cost | Single region, periodic |
+
+All RPO/RTO goals above assume multi-region deployment with continuous backup unless otherwise noted. The RPO < 15 min configuration uses single-write with service-managed failover. RPO = 0 requires single-write with strong consistency. The lowest-cost option suits non-critical workloads that can tolerate filing a support ticket for restores.
 
 ### 10. Don't Confuse Backup with DR
 

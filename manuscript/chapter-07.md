@@ -10,14 +10,23 @@ Azure Cosmos DB for NoSQL has official SDKs for six languages:
 
 <!-- Source: quickstart-dotnet.md, quickstart-python.md, quickstart-nodejs.md, quickstart-go.md, quickstart-rust.md -->
 
-| Language | Package | Install Command |
-|----------|---------|----------------|
-| **.NET** | `Microsoft.Azure.Cosmos` | `dotnet add package Microsoft.Azure.Cosmos` |
-| **Java** | `com.azure:azure-cosmos` | Maven/Gradle dependency |
-| **Python** | `azure-cosmos` | `pip install azure-cosmos` |
-| **JavaScript/Node.js** | `@azure/cosmos` | `npm install @azure/cosmos` |
-| **Go** | `azcosmos` | `go install github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos` |
-| **Rust** | `azure_data_cosmos` | `cargo add azure_data_cosmos` |
+| Language | Package |
+|----------|---------|
+| **.NET** | `Microsoft.Azure.Cosmos` |
+| **Java** | `com.azure:azure-cosmos` |
+| **Python** | `azure-cosmos` |
+| **JS/Node.js** | `@azure/cosmos` |
+| **Go** | `azcosmos` |
+| **Rust** | `azure_data_cosmos` |
+
+Install commands:
+
+- **.NET:** `dotnet add package Microsoft.Azure.Cosmos`
+- **Java:** Maven or Gradle dependency
+- **Python:** `pip install azure-cosmos`
+- **JS/Node.js:** `npm install @azure/cosmos`
+- **Go:** `go install github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos`
+- **Rust:** `cargo add azure_data_cosmos`
 
 > **Gotcha:** The Rust SDK is in **public preview** — no SLA, not recommended for production workloads. Everything else is GA. <!-- Source: quickstart-rust.md -->
 
@@ -31,11 +40,11 @@ Every SDK mirrors the Cosmos DB resource hierarchy you learned in Chapter 2: **a
 
 ### The Object Model
 
-| .NET | Python | JavaScript | Role |
-|------|--------|------------|------|
-| `CosmosClient` | `CosmosClient` | `CosmosClient` | Entry point. Connects to your account. |
-| `Database` | `DatabaseProxy` | `Database` | Reference to a database. |
-| `Container` | `ContainerProxy` | `Container` | Where you perform item operations. |
+| Role | .NET / JS | Python |
+|------|-----------|--------|
+| Account entry point | `CosmosClient` | `CosmosClient` |
+| Database reference | `Database` | `DatabaseProxy` |
+| Container (items) | `Container` | `ContainerProxy` |
 
 <!-- Source: how-to-dotnet-get-started.md, how-to-python-get-started.md, how-to-javascript-get-started.md -->
 
@@ -394,13 +403,15 @@ Direct mode is supported only in the **.NET** and **Java** SDKs. The .NET SDK v3
 
 ### When to Use Which
 
-| Scenario | Recommended Mode |
-|----------|-----------------|
-| **.NET or Java**, no firewall restrictions | **Direct** (default in .NET v3) |
+| Scenario | Mode |
+|----------|------|
+| .NET/Java, no firewall limits | **Direct** (default in .NET v3) |
 | Python, JavaScript, or Go | **Gateway** (only option) |
-| Corporate network with strict firewall rules | **Gateway** |
-| Azure Functions on Consumption plan | **Gateway** (limited socket connections) |
-| Lowest possible latency in .NET/Java | **Direct** |
+| Strict corporate firewall | **Gateway** |
+| Azure Functions (Consumption) | **Gateway** |
+| Lowest latency in .NET/Java | **Direct** |
+
+Azure Functions on the Consumption plan has limited outbound socket connections, making Gateway the safer choice.
 
 To switch modes in .NET:
 
@@ -481,16 +492,16 @@ Distributed systems fail in interesting ways. Network blips, brief partition mov
 
 ### What the SDK Retries Automatically
 
-| Status Code | Description | SDK Retries? | You Should Retry? |
-|-------------|-------------|:------------:|:-----------------:|
-| **408** | Request timeout | Yes (reads only)* | Yes |
-| **410** | Gone (transient) | Yes | Yes |
-| **429** | Too many requests (throttled) | Yes | Yes |
-| **449** | Concurrent write conflict (transient) | Yes | Yes |
-| **503** | Service unavailable | Yes (reads only)* | Yes |
-| **409** | Conflict (duplicate `id`) | No | No |
-| **412** | Precondition failed (ETag mismatch) | No | No |
-| **413** | Request entity too large (item > 2 MB) | No | No |
+| Code | Description | Retry Behavior |
+|------|-------------|----------------|
+| **408** | Request timeout | SDK retries reads* |
+| **410** | Gone (transient) | SDK retries all |
+| **429** | Throttled | SDK retries all |
+| **449** | Write conflict (transient) | SDK retries all |
+| **503** | Service unavailable | SDK retries reads* |
+| **409** | Conflict (duplicate `id`) | Don't retry |
+| **412** | ETag mismatch | Don't retry |
+| **413** | Item > 2 MB | Don't retry |
 
 <!-- Source: conceptual-resilient-sdk-applications.md -->
 

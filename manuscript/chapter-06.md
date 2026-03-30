@@ -136,24 +136,28 @@ TTL operates at two levels: the **container** and the **item**.
 
 **Container-level TTL** is set via the `DefaultTimeToLive` property and controls the baseline behavior:
 
-| `DefaultTimeToLive` value | Behavior |
+| `DefaultTimeToLive` | Behavior |
 |---|---|
-| Not set (null) | TTL is **disabled**. Items never expire. Item-level `ttl` properties are ignored. |
-| `-1` | TTL is **enabled** but items don't expire by default. Individual items *can* opt in to expiration by setting their own `ttl`. |
-| A positive integer *n* | TTL is **enabled**. All items expire *n* seconds after their last modification — unless they override with their own `ttl`. |
+| Not set (null) | TTL **disabled**; items never expire |
+| `-1` | TTL **enabled**; no default expiry |
+| Positive integer *n* | Items expire *n* sec after last write |
+
+- **Null:** Item-level `ttl` properties are ignored entirely.
+- **`-1`:** Items don't expire by default, but individual items *can* opt in by setting their own `ttl`.
+- **Positive *n*:** Items can still override with their own `ttl` value.
 
 <!-- Source: time-to-live.md -->
 
 **Item-level TTL** is set via a `ttl` property on individual items. It only takes effect when the container's `DefaultTimeToLive` is present and not null. When set, it overrides the container default for that specific item.
 
-| Container `DefaultTimeToLive` | Item `ttl` | What happens |
+| `DefaultTimeToLive` | Item `ttl` | Result |
 |---|---|---|
-| `1000` (seconds) | Not present | Item expires after 1,000 seconds |
-| `1000` | `-1` | Item **never** expires |
-| `1000` | `2000` | Item expires after 2,000 seconds |
-| `-1` | Not present | Item never expires |
-| `-1` | `2000` | Item expires after 2,000 seconds |
-| Null (not set) | `2000` | Item **never** expires (container TTL disabled; item `ttl` is ignored) |
+| `1000` (sec) | Not present | Expires after 1,000 sec |
+| `1000` | `-1` | **Never** expires |
+| `1000` | `2000` | Expires after 2,000 sec |
+| `-1` | Not present | Never expires |
+| `-1` | `2000` | Expires after 2,000 sec |
+| Null (not set) | `2000` | **Never** expires (TTL off) |
 
 <!-- Source: time-to-live.md -->
 
@@ -255,14 +259,18 @@ The Patch API supports six operations, inspired by (but not identical to) JSON P
 
 <!-- Source: partial-document-update.md -->
 
-| Operation | What it does | Behavior if target doesn't exist |
+| Operation | Description | If Target Missing |
 |---|---|---|
-| **Add** | Adds a new property, or inserts an element into an array at a given index. If the property already exists, replaces its value. | Creates the property |
-| **Set** | Similar to Add, but for arrays: updates the element at the specified index rather than inserting. | Creates the property (except for arrays) |
-| **Replace** | Updates the value of an existing property. Strict replace-only semantics. | **Errors** — the target must exist |
-| **Remove** | Deletes a property or array element. | **Errors** — the target must exist |
-| **Increment** | Increments a numeric field by a specified value (positive or negative). | Creates the field and sets it to the specified value |
-| **Move** | Removes a value from one location and adds it to another. | **Errors** if the source doesn't exist; creates the destination if needed |
+| **Add** | Insert property or array element | Creates it |
+| **Set** | Like Add; updates array index | Creates it (not arrays) |
+| **Replace** | Overwrite existing value only | **Errors** |
+| **Remove** | Delete property or element | **Errors** |
+| **Increment** | Adjust numeric field by +/- *n* | Creates at *n* |
+| **Move** | Relocate value to new path | **Errors** (source) |
+
+- **Add** replaces the value if the property already exists. For arrays, it *inserts* at the given index.
+- **Set** differs from Add only for arrays: it *updates* the element at the given index rather than inserting.
+- **Move** errors if the source path is missing but creates the destination if needed.
 
 <!-- Source: partial-document-update.md -->
 
@@ -418,14 +426,14 @@ A few constraints to know:
 
 ### When to Use Patch vs. Replace
 
-| Scenario | Use Patch | Use Replace |
+| Scenario | Patch | Replace |
 |---|---|---|
-| Changing 1–2 fields on a large document | ✅ | ❌ Wasteful |
-| Incrementing a counter | ✅ Server-side atomic | ❌ Race condition risk |
-| Conditional update based on current state | ✅ With filter predicate | ❌ Requires read + ETag check |
-| Rewriting most fields on a small document | ❌ Overhead of specifying each op | ✅ Simpler |
-| Restructuring the document shape | ❌ May exceed 10-operation limit | ✅ One call |
-| Multi-region writes with concurrent changes | ✅ Path-level conflict resolution | ❌ Document-level LWW |
+| Update 1–2 fields, large doc | ✅ | ❌ Wasteful |
+| Increment a counter | ✅ Atomic server-side | ❌ Race condition |
+| Conditional update on state | ✅ Filter predicate | ❌ Read + ETag |
+| Rewrite most fields, small doc | ❌ Too many ops | ✅ Simpler |
+| Restructure doc shape | ❌ May hit 10-op limit | ✅ One call |
+| Multi-region concurrent writes | ✅ Path-level conflicts | ❌ Doc-level LWW |
 
 For SDK-specific Patch API syntax in Java, Python, and Node.js, see Chapter 7.
 

@@ -8,12 +8,21 @@ This chapter is the canonical home for tenant isolation, throughput sharing, and
 
 Multi-tenancy in Cosmos DB lives on a spectrum. At one end, every tenant gets their own account. At the other, all tenants share a single container, separated only by partition key values. In between, you've got container-per-tenant and database-per-tenant designs. Each point on the spectrum trades isolation for density.
 
-| Model | Isolation Level | Cost Efficiency | Management Overhead | Tenant Limit |
-|---|---|---|---|---|
-| **Account-per-tenant** | Highest (physical) | Lowest | Highest — one account per customer | ~250 per subscription (up to 1,000 via support request) |
-| **Database-per-tenant** | High (logical + throughput) | Moderate | Moderate | Up to 500 databases and containers combined per account |
-| **Container-per-tenant** | Moderate (dedicated throughput) | Moderate | Moderate | Up to 500 databases and containers combined per account |
-| **Shared container (partition key per tenant)** | Logical only | Highest | Lowest | Unlimited tenants |
+| Model | Isolation | Cost |
+|---|---|---|
+| **Account-per-tenant** | Highest (physical) | Lowest |
+| **Database-per-tenant** | High (logical) | Moderate |
+| **Container-per-tenant** | Moderate | Moderate |
+| **Shared container (HPK)** | Logical only | Highest |
+
+| Model | Mgmt Overhead | Tenant Limit |
+|---|---|---|
+| **Account-per-tenant** | Highest | ~250/sub (1K w/ support) |
+| **Database-per-tenant** | Moderate | 500 combined/account |
+| **Container-per-tenant** | Moderate | 500 combined/account |
+| **Shared container (HPK)** | Lowest | Unlimited |
+
+The 500 limit counts databases and containers combined per account. Account-per-tenant carries the highest management overhead — one account per customer. The ~250 account-per-subscription limit can be raised to 1,000 via support request.
 
 <!-- Source: concepts-limits.md (250 accounts/subscription, 500 databases+containers/account) -->
 <!-- Source: nosql-multi-tenancy-vector-search.md -->
@@ -227,11 +236,13 @@ With shared throughput at the database level, you provision RU/s once and let up
 
 The key limitation: there are no per-container throughput guarantees. If one tenant's container monopolizes the shared throughput, others get throttled. You can mitigate this by combining shared and dedicated throughput — giving your largest tenants dedicated containers while keeping smaller ones on shared throughput. <!-- Source: set-throughput.md -->
 
-| Throughput Model | Per-Tenant Guarantee | Cost Efficiency | Max Containers Sharing |
-|---|---|---|---|
-| **Dedicated (container-level)** | Yes — SLA-backed | Lower (pay for idle) | N/A |
-| **Shared (database-level)** | No | Higher (pool unused RU/s) | 25 shared + additional dedicated |
-| **Autoscale (either level)** | Scales to demand | Moderate (floor of 10% of max) | Same limits |
+| Model | Guarantee | Cost |
+|---|---|---|
+| **Dedicated** (container) | Yes, SLA-backed | Lower (pay for idle) |
+| **Shared** (database) | No | Higher (pool unused) |
+| **Autoscale** (either) | Scales to demand | Moderate (10% floor) |
+
+With shared throughput, up to 25 containers share the pool; additional dedicated containers can coexist alongside. Autoscale follows the same container limits.
 
 <!-- Source: set-throughput.md -->
 
@@ -337,10 +348,12 @@ The default limits for pools:
 
 | Limit | Value |
 |---|---|
-| Max database accounts per fleetspace | 1,000 |
-| Max pool RU/s | 1,000,000 RU/s |
-| Max pool RU/s per physical partition | 5,000 RU/s |
-| Max total RU/s per physical partition (dedicated + pool) | 10,000 RU/s |
+| Accounts per fleetspace | 1,000 |
+| Pool RU/s max | 1,000,000 |
+| Pool RU/s per partition | 5,000 |
+| Total RU/s per partition | 10,000 |
+
+The total RU/s per partition limit (10,000) combines both dedicated and pool throughput on a single physical partition.
 
 <!-- Source: fleet.md, fleet-pools.md -->
 
@@ -479,13 +492,15 @@ You can't manage what you can't measure. In a shared container, enable diagnosti
 
 There's no universal right answer, but here's a decision framework:
 
-| If you have... | Consider... |
+| Scenario | Model |
 |---|---|
-| < 50 large tenants with strict isolation SLAs | Account-per-tenant with Fleets |
-| 50–500 tenants with moderate isolation needs | Container-per-tenant or database-per-tenant |
-| 500+ tenants, mostly small, some large | Shared container with HPK; dedicated containers for outliers |
-| AI/vector search workloads with tenant isolation | Shared container + sharded DiskANN |
-| Regulatory/CMK/geo-replication per tenant | Account-per-tenant (only model with per-tenant account-level features) |
+| < 50 tenants, strict SLAs | Account-per-tenant + Fleets |
+| 50–500, moderate isolation | Container or DB per tenant |
+| 500+, mostly small | Shared container + HPK |
+| AI/vector + tenant isolation | Shared + sharded DiskANN |
+| Regulatory/CMK/geo needs | Account-per-tenant |
+
+For 500+ tenant scenarios, graduate large outliers to dedicated containers. Account-per-tenant is the only model with per-tenant account-level features like CMK and independent geo-replication.
 
 The hybrid approach — shared container for the long tail, dedicated resources for your biggest customers — is what most production SaaS platforms end up building. Cosmos DB supports it natively. Start with the shared-container model and HPK, instrument your monitoring from day one, and graduate individual tenants to dedicated throughput or dedicated accounts as their requirements demand it.
 

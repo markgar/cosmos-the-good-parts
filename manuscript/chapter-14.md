@@ -42,16 +42,16 @@ Server-side programming in Cosmos DB isn't a general-purpose compute layer. It's
 
 <!-- Source: stored-procedures-triggers-udfs.md -->
 
-| Use Case | Server-Side JavaScript? | Better Alternative |
-|----------|:-----------------------:|-------------------|
-| Multi-item ACID writes (same partition) | ✅ Yes | Transactional batch (Ch 16) |
-| Reduce round trips for read-then-write | ✅ Yes | — |
-| Pre-write validation / enrichment | ✅ Yes (pre-trigger) | Application middleware |
-| Custom calculation in queries | ✅ Yes (UDF) | Client-side post-processing |
-| Cross-partition operations | ❌ No | Client-side SDK |
-| Read-heavy batch operations | ❌ No | SDK queries (Ch 8) |
-| Long-running computation | ❌ No | Azure Functions / client-side |
-| Operations needing npm modules | ❌ No | Client-side SDK |
+| Use Case | Server-Side? | Alternative |
+|----------|:------------:|-------------|
+| Multi-item ACID (same partition) | ✅ | Transactional batch (Ch 16) |
+| Reduce round trips (read→write) | ✅ | — |
+| Pre-write validation | ✅ (pre-trigger) | App middleware |
+| Custom calc in queries | ✅ (UDF) | Client post-processing |
+| Cross-partition ops | ❌ | Client SDK |
+| Read-heavy batches | ❌ | SDK queries (Ch 8) |
+| Long-running compute | ❌ | Functions / client |
+| Needs npm modules | ❌ | Client SDK |
 
 ## Stored Procedures
 
@@ -709,16 +709,16 @@ If your post-trigger logic is about reacting to writes — updating materialized
 
 Post-triggers are the better choice when the atomicity guarantee is essential: the reaction *must* succeed or the write must roll back.
 
-| Factor | Server-Side JavaScript | Client-Side Alternative |
-|--------|:---------------------:|:-----------------------:|
-| Network round trips | Single trip | Multiple trips (or bulk) |
-| ACID transactions | ✅ Implicit | Transactional batch only (Ch 16) |
-| Debugging | `console.log` only | Full debugger support |
-| Module imports | ❌ Not supported | Full ecosystem |
-| Execution timeout | 5 seconds | No limit |
-| Partition scope | Single partition | Any |
-| Pre-compilation | ✅ Byte code cached | N/A |
-| Replica execution | Primary only | Any replica for reads |
+| Factor | Server-Side | Client-Side |
+|--------|:-----------:|:-----------:|
+| Network trips | Single | Multiple (or bulk) |
+| ACID transactions | ✅ Implicit | Batch only (Ch 16) |
+| Debugging | `console.log` | Full debugger |
+| Module imports | ❌ | Full ecosystem |
+| Timeout | 5 sec | No limit |
+| Partition scope | Single | Any |
+| Pre-compilation | ✅ Cached | N/A |
+| Replica | Primary only | Any for reads |
 
 Server-side JavaScript in Cosmos DB is a precision tool. It solves a narrow set of problems — multi-item transactions, pre-write validation, custom query logic — and solves them well. The key is knowing which problems fit and which are better handled client-side or through the change feed. When you need atomic multi-item operations within a partition, it's indispensable. When you don't, the client SDK gives you more flexibility, better debugging, and no 5-second clock ticking in the background.
 

@@ -243,12 +243,12 @@ resource "azurerm_cosmosdb_sql_container" "orders" {
 
 | Consideration | Bicep | Terraform |
 |---|---|---|
-| **Azure-only shop** | Natural fit — first-class Azure support, same-day API versions | Works, but you're adding a tool just for Azure |
-| **Multi-cloud** | Not applicable | Terraform's whole reason for existing |
-| **State management** | None needed — ARM is the state store | Requires a remote state backend (Azure Blob, Terraform Cloud, etc.) |
-| **New Cosmos DB features** | Available immediately via API version bumps | Depends on `azurerm` provider release cycle — may lag weeks or months |
-| **Team familiarity** | Lower barrier for Azure-centric teams | Lower barrier for teams already using Terraform elsewhere |
-| **Drift detection** | `what-if` deployments | `terraform plan` |
+| **Azure-only** | Native fit, same-day APIs | Extra tool for Azure |
+| **Multi-cloud** | N/A | Core strength |
+| **State mgmt** | None — ARM is state | Remote backend required |
+| **New features** | Immediate via API version | Lags provider releases |
+| **Team fit** | Azure-centric teams | Teams already on TF |
+| **Drift detection** | `what-if` | `terraform plan` |
 
 Neither is wrong. Pick the one your team already knows. If you're starting fresh on Azure with no Terraform investment, Bicep has less moving parts. If you're already running Terraform for everything else, adding Cosmos DB resources to your existing modules is the obvious play.
 
@@ -562,11 +562,13 @@ infra/
 
 A typical pipeline has three stages, each gated:
 
-| Stage | Trigger | Cosmos DB Actions | Gate |
-|---|---|---|---|
-| **Dev** | Push to `main` | Deploy template with `dev` params, run smoke tests | Automatic on test pass |
-| **Staging** | Dev stage passes | Deploy template with `staging` params, run full integration suite | Manual approval |
-| **Production** | Manual approval | Deploy template with `prod` params, monitor index transformation progress | N/A |
+| Stage | Trigger | Gate |
+|-------|---------|------|
+| **Dev** | Push to `main` | Auto on test pass |
+| **Staging** | Dev stage passes | Manual approval |
+| **Production** | Manual approval | N/A |
+
+Each stage deploys the same template with environment-specific parameters (`dev`, `staging`, `prod`). Dev runs smoke tests, staging runs the full integration suite, and production monitors index transformation progress after deployment.
 
 The critical principle: **the same template artifact** flows through all three stages. You don't have separate templates for dev and prod — that's how configuration drift starts. The only differences are parameter values.
 
@@ -574,17 +576,17 @@ The critical principle: **the same template artifact** flows through all three s
 
 Not everything in your Cosmos DB setup should change between environments. Here's a practical breakdown:
 
-| Configuration | Same across envs? | Notes |
+| Configuration | Same? | Notes |
 |---|---|---|
-| Partition key paths | ✅ Yes | Must be identical — your app logic depends on it |
-| Indexing policy | ✅ Yes | Queries are the same regardless of environment |
-| Unique key constraints | ✅ Yes | Data integrity rules don't change per environment |
-| Container names | ✅ Yes | Application code references these |
-| Account name | ❌ No | Must be globally unique per environment |
-| Throughput (RU/s) | ❌ No | Dev needs 1,000; prod needs 40,000 |
-| Regions and zone redundancy | ❌ No | Dev is single-region; prod is multi-region |
-| Consistency level | Usually ✅ | Unless you're testing consistency-specific behavior in staging |
-| Network restrictions | ❌ No | Dev allows your VPN; prod locks down to specific VNets |
+| Partition key paths | ✅ | App logic depends on it |
+| Indexing policy | ✅ | Queries don't change |
+| Unique key constraints | ✅ | Integrity rules are fixed |
+| Container names | ✅ | Referenced in app code |
+| Account name | ❌ | Must be globally unique |
+| Throughput (RU/s) | ❌ | Dev: 1K; prod: 40K |
+| Regions / zone redundancy | ❌ | Dev: single; prod: multi |
+| Consistency level | Usually ✅ | Unless testing specific behavior |
+| Network restrictions | ❌ | Dev: VPN; prod: locked VNets |
 
 ### Protecting Production
 

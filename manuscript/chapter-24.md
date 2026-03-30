@@ -12,11 +12,13 @@ The fastest way to waste time writing Cosmos DB tests is to test the wrong thing
 
 **End-to-end tests** verify the full pipeline — a write hits Cosmos DB, the change feed fires, a downstream consumer processes the event, and the result lands where it should. These are the most expensive to maintain, so keep them focused on critical paths.
 
-| Test type | What it proves | Infrastructure needed | Speed | When to run |
-|-----------|---------------|----------------------|-------|-------------|
-| **Unit** | Your business logic, transforms, retry decisions | None (mocks only) | Milliseconds | Every build |
-| **Integration** | Queries, indexing, partition behavior, SDK wiring | Emulator or test account | Seconds | CI pipeline |
-| **End-to-end** | Full pipeline (write → change feed → consumer) | Emulator + consumer runtime | Seconds to minutes | CI pipeline (nightly or per-PR) |
+| Test Type | Proves | Infra Needed |
+|-----------|--------|--------------|
+| **Unit** | Logic, transforms, retries | None (mocks only) |
+| **Integration** | Queries, indexing, SDK | Emulator or test account |
+| **End-to-end** | Write → feed → consumer | Emulator + consumer |
+
+Unit tests run in milliseconds (every build). Integration tests take seconds (CI pipeline). End-to-end tests need seconds to minutes — run them nightly or per-PR.
 
 Don't unit-test the Cosmos DB SDK itself. You didn't write it, and Microsoft already tested it. Your unit tests should verify what *you* do with the data that comes back from the SDK.
 
@@ -217,17 +219,20 @@ Chapter 3 covers emulator installation and configuration in detail. This section
 
 Two emulators exist, and the choice affects your test setup.
 
-| Aspect | Windows (local) emulator | vNext Docker emulator (preview) |
-|--------|--------------------------|----------------------------------|
+| Aspect | Windows Emulator | vNext Docker (preview) |
+|--------|-----------------|----------------------|
 | **Platform** | Windows only | Any OS with Docker |
-| **Image** | MSI installer | `mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview` |
-| **API support** | NoSQL, MongoDB, Cassandra, Gremlin, Table | NoSQL only (gateway mode) |
-| **Stored procedures / triggers / UDFs** | Supported | Not planned |
-| **Custom index policies** | Supported | Not yet implemented |
-| **RU reporting** | Approximate | Not yet implemented |
-| **Change feed** | Supported | Supported |
-| **CI-friendly** | Requires Windows runners | Runs on any Linux/Docker CI runner |
-| **Default protocol** | HTTPS | HTTP (must pass `--protocol https` for .NET/Java SDKs) |
+| **APIs** | NoSQL + 4 others | NoSQL only (gateway) |
+| **Stored procs / UDFs** | Yes | Not planned |
+| **Custom index policies** | Yes | Not yet |
+| **RU reporting** | Approximate | Not yet |
+| **Change feed** | Yes | Yes |
+| **CI-friendly** | Needs Windows runner | Any Docker runner |
+| **Default protocol** | HTTPS | HTTP |
+
+- **Windows emulator:** Installed via MSI. Supports NoSQL, MongoDB, Cassandra, Gremlin, and Table APIs.
+- **Docker image:** `mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview`
+- **Docker protocol note:** Pass `--protocol https` when using .NET or Java SDKs.
 
 <!-- Source: emulator.md, emulator-linux.md -->
 

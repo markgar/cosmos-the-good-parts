@@ -30,13 +30,13 @@ You can provision throughput at two levels: on a specific container (dedicated) 
 
 The catch with shared throughput is that you get **no per-container guarantees**. If one container in the pool suddenly attracts heavy traffic, it can starve the others. The throughput each container actually gets depends on its partition key distribution, the number of containers, and the real-time workload across all of them.
 
-| Aspect | Container-level (Dedicated) | Database-level (Shared) |
-|--------|----------------------------|------------------------|
-| **RU/s guarantee** | SLA-backed for the container | No per-container guarantee |
-| **Minimum (manual)** | 400 RU/s | 400 RU/s for the database |
-| **Minimum (autoscale)** | 1,000 max RU/s | 1,000 max RU/s for the database |
-| **Max containers** | No limit | 25 sharing throughput |
-| **Best for** | Predictable, high-traffic containers | Many small, similar-traffic containers |
+| Aspect | Dedicated | Shared |
+|--------|-----------|--------|
+| **RU/s guarantee** | SLA-backed | None per container |
+| **Min (manual)** | 400 RU/s | 400 RU/s for DB |
+| **Min (autoscale)** | 1,000 max RU/s | 1,000 max RU/s for DB |
+| **Max containers** | No limit | 25 |
+| **Best for** | High-traffic | Many small containers |
 
 > **Gotcha:** You can't convert a container from dedicated to shared throughput (or vice versa) after creation. You'd need to create a new container with the desired throughput model and copy the data. Plan before you provision. <!-- Source: set-throughput.md -->
 
@@ -78,23 +78,23 @@ But you're only billed for the **highest RU/s the system scaled to in each hour*
 
 Let's make the math concrete. Suppose you provision 30,000 RU/s and look at three representative hours:
 
-| Hour | Utilization | Billed RU/s (Autoscale) | Manual Cost (30,000 RU/s) | Autoscale Cost |
-|------|-------------|------------------------|--------------------------|----------------|
-| 1 | 6% | 3,000 (minimum) | $2.40 | $0.36 |
-| 2 | 100% | 30,000 | $2.40 | $3.60 |
-| 3 | 11% | 3,300 | $2.40 | $0.40 |
-| **Total** | | | **$7.20** | **$4.36** (39% savings) |
+| Hour (Util.) | Manual | Autoscale |
+|--------------|--------|-----------|
+| 1 (6%, 3K RU/s) | $2.40 | $0.36 |
+| 2 (100%, 30K RU/s) | $2.40 | $3.60 |
+| 3 (11%, 3.3K RU/s) | $2.40 | $0.40 |
+| **Total** | **$7.20** | **$4.36** |
 
 <!-- Source: how-to-choose-offer.md -->
 
 In this variable workload, autoscale saves 39%. Now flip the scenario to a steady workload averaging 88% utilization:
 
-| Hour | Utilization | Billed RU/s (Autoscale) | Manual Cost (30,000 RU/s) | Autoscale Cost |
-|------|-------------|------------------------|--------------------------|----------------|
-| 1 | 72% | 21,600 | $2.40 | $2.59 |
-| 2 | 93% | 28,000 | $2.40 | $3.36 |
-| 3 | 100% | 30,000 | $2.40 | $3.60 |
-| **Total** | | | **$7.20** | **$9.55** |
+| Hour (Util.) | Manual | Autoscale |
+|--------------|--------|-----------|
+| 1 (72%, 21.6K RU/s) | $2.40 | $2.59 |
+| 2 (93%, 28K RU/s) | $2.40 | $3.36 |
+| 3 (100%, 30K RU/s) | $2.40 | $3.60 |
+| **Total** | **$7.20** | **$9.55** |
 
 <!-- Source: how-to-choose-offer.md -->
 
@@ -145,10 +145,12 @@ Serverless is the right choice for:
 
 The crossover point between serverless and provisioned depends on total monthly RU consumption. At low volumes, serverless is dramatically cheaper. As volume grows, the per-RU cost eventually exceeds what you'd pay with provisioned throughput:
 
-| Scenario | Max RU/s | Monthly RUs | Provisioned Cost | Serverless Cost |
-|----------|----------|-------------|-----------------|-----------------|
-| Low traffic | 500 | 20M | $29.20 | $5.00 |
-| Moderate traffic | 500 | 250M | $29.20 | $62.50 |
+| Scenario | Provisioned | Serverless |
+|--------------|-------------|------------|
+| Low (20M RU/mo) | $29.20 | $5.00 |
+| Moderate (250M RU/mo) | $29.20 | $62.50 |
+
+Both scenarios assume max 500 RU/s.
 
 <!-- Source: throughput-serverless.md -->
 
@@ -305,15 +307,23 @@ Within provisioned throughput, you can switch between **manual and autoscale** f
 
 Here's the decision framework, distilled:
 
-| Factor | Manual Provisioned | Autoscale | Serverless |
-|--------|-------------------|-----------|------------|
-| **Traffic pattern** | Steady, predictable | Variable, spiky | Sporadic, long idle periods |
-| **Utilization** | >66% of provisioned capacity | <66% of max, or unpredictable | Low total volume |
-| **Regions** | Multiple | Multiple | Single only |
-| **Throughput SLA** | Yes | Yes | No (SLO only) |
-| **Billing** | Fixed per hour | Highest scaled RU/s per hour | Per RU consumed |
-| **Global distribution** | Full support | Full support | Not available |
-| **Best for** | High-volume production | Variable production | Dev/test, prototypes, lightweight apps |
+| Factor | Manual | Autoscale |
+|--------|--------|-----------|
+| **Traffic** | Steady | Variable, spiky |
+| **Utilization** | >66% of provisioned | <66%, unpredictable |
+| **Regions** | Multiple | Multiple |
+| **Throughput SLA** | Yes | Yes |
+| **Billing** | Fixed per hour | Peak RU/s per hour |
+| **Best for** | High-volume prod | Variable prod |
+
+| Factor | Serverless |
+|--------|------------|
+| **Traffic** | Sporadic, long idle |
+| **Utilization** | Low total volume |
+| **Regions** | Single only |
+| **Throughput SLA** | No (SLO only) |
+| **Billing** | Per RU consumed |
+| **Best for** | Dev/test, prototypes |
 
 Use this table as a quick reference. For the step-by-step decision tree that puts these tradeoffs into action, jump to [Putting It All Together](#putting-it-all-together) at the end of the chapter.
 
@@ -392,11 +402,11 @@ Both caches share the same capacity and use **Least Recently Used (LRU) eviction
 
 To use the integrated cache, you provision a dedicated gateway cluster. Choose a SKU and node count:
 
-| SKU | vCPU | Memory | ~Cache Size (50% of memory) |
-|-----|------|--------|---------------------------|
-| D4s | 4 | 16 GB | ~8 GB |
-| D8s | 8 | 32 GB | ~16 GB |
-| D16s | 16 | 64 GB | ~32 GB |
+| SKU | Memory | ~Cache Size |
+|-----|--------|-------------|
+| D4s (4 vCPU) | 16 GB | ~8 GB |
+| D8s (8 vCPU) | 32 GB | ~16 GB |
+| D16s (16 vCPU) | 64 GB | ~32 GB |
 
 <!-- Source: dedicated-gateway.md -->
 

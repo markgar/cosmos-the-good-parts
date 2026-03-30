@@ -118,10 +118,10 @@ Bulk mode gets you the raw throughput, but the surrounding configuration determi
 The SDK offers two connectivity modes: **Direct** (TCP) and **Gateway** (HTTPS). Direct mode talks TCP straight to backend replicas, skipping the gateway hop entirely. It's the default in both the .NET V3 and Java V4 SDKs, and it's the right choice for almost all production workloads.
 <!-- Source: sdk-connection-modes.md -->
 
-| Mode | Protocol | SDKs | Best for |
-|------|----------|------|----------|
-| **Direct** | TCP (TLS) | .NET, Java | Low-latency production workloads |
-| **Gateway** | HTTPS | All SDKs | Restrictive firewalls, Azure Functions Consumption plan, integrated cache |
+| Mode | SDKs | Best for |
+|------|------|----------|
+| **Direct** (TCP/TLS) | .NET, Java | Low-latency production |
+| **Gateway** (HTTPS) | All SDKs | Firewalls, Functions, cache |
 
 <!-- Source: sdk-connection-modes.md -->
 
@@ -138,13 +138,19 @@ In Direct mode, the SDK opens TCP connections to each replica in every physical 
 
 Here are the key configuration knobs for the .NET SDK:
 
-| Setting | Default | Guidance |
-|---------|---------|----------|
-| `MaxRequestsPerTcpConnection` | 30 | Higher values (up to 50–100) for high-parallelism workloads; lower values (8–16) for latency-sensitive workloads |
-| `MaxTcpConnectionsPerEndpoint` | 65,535 | Rarely needs changing |
-| `IdleTcpConnectionTimeout` | Indefinite | Set to 20 min–24 hours for sparse workloads to avoid ephemeral port exhaustion |
-| `OpenTcpConnectionTimeout` | 5 seconds | Reduce to 1 second for faster connection failure detection |
-| `PortReuseMode` | `ReuseUnicastPort` | Set to `PrivatePortPool` for sparse connection patterns |
+| Setting | Default |
+|---------|---------|
+| `MaxRequestsPerTcpConnection` | 30 |
+| `MaxTcpConnectionsPerEndpoint` | 65,535 |
+| `IdleTcpConnectionTimeout` | Indefinite |
+| `OpenTcpConnectionTimeout` | 5 seconds |
+| `PortReuseMode` | `ReuseUnicastPort` |
+
+- **`MaxRequestsPerTcpConnection`**: Raise to 50–100 for high parallelism; lower to 8–16 for latency-sensitive work.
+- **`MaxTcpConnectionsPerEndpoint`**: Rarely needs changing.
+- **`IdleTcpConnectionTimeout`**: Set to 20 min–24 hrs for sparse workloads to avoid ephemeral port exhaustion.
+- **`OpenTcpConnectionTimeout`**: Reduce to 1 s for faster failure detection.
+- **`PortReuseMode`**: Use `PrivatePortPool` for sparse connection patterns.
 
 <!-- Source: tune-connection-configurations-net-sdk-v3.md -->
 
@@ -167,9 +173,9 @@ Setting **preferred regions** tells the SDK which Azure regions to prioritize fo
 
 | Account Type | Reads Route To | Writes Route To |
 |-------------|----------------|-----------------|
-| Single write region, preferred regions set | First preferred region | Primary (write) region |
-| Multi-region writes, preferred regions set | First preferred region | First preferred region |
-| Any account, **no** preferred regions set | Primary region | Primary region |
+| Single-write, regions set | First preferred region | Primary (write) region |
+| Multi-write, regions set | First preferred region | First preferred region |
+| No preferred regions set | Primary region | Primary region |
 
 <!-- Source: troubleshoot-sdk-availability.md -->
 
@@ -217,13 +223,18 @@ This bears repeating even though Chapter 7 covered it: **use a single `CosmosCli
 
 | Tip | Why it matters |
 |-----|---------------|
-| **Use async/await exclusively** (.NET) | Blocking calls (`Task.Result`, `Task.Wait`) starve the thread pool and tank throughput |
-| **Avoid `.block()` in reactive chains** (Java) | Same principle — blocking defeats the async pipeline |
-| **Enable server-side GC** (.NET) | Set `gcServer` to `true` in your runtime config to reduce GC pauses under load |
-| **Enable Accelerated Networking** (Azure VMs) | Bypasses the host virtual switch, reducing latency and CPU jitter |
-| **Cache database/container references** | `ReadDatabaseAsync` and `ReadContainerAsync` are metadata calls that consume system RUs — do them once at startup, not per request |
-| **Run in the same Azure region** | Cross-region round-trips add 50+ ms of latency |
-| **Use at least 4-core, 8 GB VMs** | Undersized machines throttle the client before the service |
+| **Use async/await** (.NET) | Blocking starves thread pool |
+| **Avoid `.block()`** (Java) | Don't block reactive chains |
+| **Server-side GC** (.NET) | Reduces GC pauses under load |
+| **Accelerated Networking** | Bypasses host virtual switch |
+| **Cache DB/container refs** | Metadata calls consume RUs |
+| **Same Azure region** | Cross-region adds 50+ ms |
+| **Min 4-core, 8 GB VMs** | Undersized VMs bottleneck |
+
+- **Async/await**: Blocking calls (`Task.Result`, `Task.Wait` in .NET, `.block()` in Java) starve the thread pool and tank throughput.
+- **Server-side GC**: Set `gcServer` to `true` in your .NET runtime config.
+- **Accelerated Networking**: Reduces latency and CPU jitter on Azure VMs.
+- **Cache refs**: `ReadDatabaseAsync` and `ReadContainerAsync` are metadata calls — do them once at startup, not per request.
 
 <!-- Source: best-practice-dotnet.md, best-practice-java.md, best-practices-javascript.md, performance-tips-dotnet-sdk-v3.md -->
 
@@ -292,15 +303,15 @@ Be aware that EF Core generates a Cosmos DB SQL query from your LINQ expression.
 
 EF Core is an abstraction, and abstractions hide things — sometimes things you need. Here's what you give up:
 
-| Capability | Raw SDK | EF Core Provider |
-|-----------|---------|-----------------|
-| Cross-partition queries | Full support | Limited |
-| Bulk operations | `AllowBulkExecution` | Not supported |
-| Partial document update (patch) | `PatchItemAsync` | Not supported |
-| Stored procedures, triggers, UDFs | Full support | Not supported |
-| Change feed | Full support | Not supported |
-| Hierarchical partition keys | Full support | Limited |
-| Transactional batch | Full support | Limited |
+| Capability | Raw SDK | EF Core |
+|-----------|---------|---------|
+| Cross-partition queries | Full | Limited |
+| Bulk operations | `AllowBulkExecution` | No |
+| Partial update (patch) | `PatchItemAsync` | No |
+| Stored procs / triggers / UDFs | Full | No |
+| Change feed | Full | No |
+| Hierarchical partition keys | Full | Limited |
+| Transactional batch | Full | Limited |
 
 If your workload involves bulk data loading, change feed processing, or fine-grained patch operations, you'll need the raw SDK for those paths. Many teams use a hybrid approach: EF Core for straightforward CRUD in their API layer, and the SDK directly for background jobs, migrations, and advanced operations.
 
@@ -313,11 +324,13 @@ You can't optimize what you can't see. The .NET and Java SDKs ship with built-in
 
 Distributed tracing support is available in these SDK versions:
 
-| SDK | Minimum Version | Default State |
-|-----|----------------|---------------|
-| .NET V3 (stable) | 3.36.0 | **Off** — set `DisableDistributedTracing = false` |
-| .NET V3 (preview) | 3.33.0-preview | **On** by default |
-| Java V4 | 4.43.0 | On by default |
+| SDK | Min Version | Default |
+|-----|------------|---------|
+| .NET V3 (stable) | 3.36.0 | Off |
+| .NET V3 (preview) | 3.33.0-preview | On |
+| Java V4 | 4.43.0 | On |
+
+In .NET stable, you must explicitly enable tracing by setting `DisableDistributedTracing = false`.
 
 <!-- Source: sdk-observability.md -->
 
@@ -351,18 +364,20 @@ using var traceProvider = Sdk.CreateTracerProviderBuilder()
 
 Every Cosmos DB span carries a set of attributes that follow the OpenTelemetry database semantic conventions, plus Cosmos-specific extensions:
 
-| Attribute | Type | Description |
-|-----------|------|-------------|
-| `db.system` | string | Always `cosmosdb` |
-| `db.name` | string | Database name |
-| `db.operation` | string | e.g., `CreateItemAsync` |
-| `db.cosmosdb.container` | string | Container name |
-| `db.cosmosdb.connection_mode` | string | `direct` or `gateway` |
-| `db.cosmosdb.status_code` | int | HTTP status code |
-| `db.cosmosdb.sub_status_code` | int | Cosmos DB sub-status |
-| `db.cosmosdb.request_charge` | double | RUs consumed |
-| `db.cosmosdb.regions_contacted` | string | Regions touched |
-| `db.cosmosdb.client_id` | string | Unique client instance ID |
+| Attribute | Value |
+|-----------|-------|
+| `db.system` | Always `cosmosdb` |
+| `db.name` | Database name |
+| `db.operation` | e.g., `CreateItemAsync` |
+| `db.cosmosdb.container` | Container name |
+| `db.cosmosdb.connection_mode` | `direct` or `gateway` |
+| `db.cosmosdb.status_code` | HTTP status code |
+| `db.cosmosdb.sub_status_code` | Sub-status code |
+| `db.cosmosdb.request_charge` | RUs consumed |
+| `db.cosmosdb.regions_contacted` | Regions touched |
+| `db.cosmosdb.client_id` | Client instance ID |
+
+All attributes are strings except `status_code` and `sub_status_code` (int) and `request_charge` (double).
 
 <!-- Source: sdk-observability.md -->
 
@@ -387,10 +402,10 @@ CosmosClientTelemetryOptions = new CosmosClientTelemetryOptions
 
 The defaults are 1 second for point operations and 3 seconds for non-point operations. Failed requests always emit diagnostics regardless of latency.
 
-| Log Level | What you get |
-|-----------|-------------|
-| `Error` | Logs for errors only |
-| `Warning` | Errors + high-latency requests exceeding thresholds |
+| Level | Output |
+|-------|--------|
+| `Error` | Errors only |
+| `Warning` | Errors + slow requests |
 | `Information` | Same as Warning |
 
 <!-- Source: sdk-observability.md -->
@@ -502,21 +517,26 @@ Your application will encounter errors when talking to Cosmos DB. Network blips,
 The SDKs have built-in retry logic for several error classes. Before you layer on your own retry policies, understand what's already handled:
 <!-- Source: conceptual-resilient-sdk-applications.md -->
 
-| Status Code | Description | SDK Retries? | You Should Retry? |
-|-------------|-------------|:------------:|:-----------------:|
-| 400 | Bad request | No | No |
-| 401 | Not authorized | No | No |
-| 403 | Forbidden | No | Situational |
-| 404 | Not found | No | No |
-| 408 | Request timeout | **Yes** | Yes |
-| 409 | Conflict | No | No |
-| 410 | Gone (transient) | **Yes** | Yes |
-| 412 | Precondition failure (ETag mismatch) | No | No — re-read and retry |
-| 413 | Entity too large | No | No |
-| 429 | Too many requests (throttled) | **Yes** | Yes |
-| 449 | Retry with (concurrency) | **Yes** | Yes |
-| 500 | Internal server error | No | No — contact support |
-| 503 | Service unavailable | **Yes** | Yes |
+| Code | Description | Retry Behavior |
+|------|------------|----------------|
+| 400 | Bad request | None |
+| 401 | Not authorized | None |
+| 403 | Forbidden | You: situational |
+| 404 | Not found | None |
+| 408 | Timeout | SDK auto + you |
+| 409 | Conflict | None |
+| 410 | Gone (transient) | SDK auto + you |
+| 412 | ETag mismatch | Re-read, then retry |
+| 413 | Entity too large | None |
+| 429 | Throttled | SDK auto + you |
+| 449 | Retry with | SDK auto + you |
+| 500 | Internal error | None — contact support |
+| 503 | Service unavailable | SDK auto + you |
+
+- **SDK auto + you**: The SDK retries automatically, but you should add your own retry logic too.
+- **403**: Retry only in specific scenarios (e.g., key rotation in progress).
+- **412**: Re-read the document to get the current ETag, then retry with the updated value.
+- **500**: Don't retry — file a support ticket.
 
 <!-- Source: conceptual-resilient-sdk-applications.md -->
 
@@ -623,11 +643,13 @@ The lifecycle:
 
 In .NET, PPCB is controlled through environment variables:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AZURE_COSMOS_CIRCUIT_BREAKER_ENABLED` | `false` | Enable/disable PPCB |
-| `AZURE_COSMOS_PPCB_CONSECUTIVE_FAILURE_COUNT_FOR_READS` | `10` | Read failures before failover |
-| `AZURE_COSMOS_PPCB_CONSECUTIVE_FAILURE_COUNT_FOR_WRITES` | `5` | Write failures before failover |
+| Setting | Default |
+|---------|---------|
+| Enable PPCB | `false` |
+| Read failure threshold | `10` |
+| Write failure threshold | `5` |
+
+These are controlled via environment variables: `AZURE_COSMOS_CIRCUIT_BREAKER_ENABLED`, `AZURE_COSMOS_PPCB_CONSECUTIVE_FAILURE_COUNT_FOR_READS`, and `AZURE_COSMOS_PPCB_CONSECUTIVE_FAILURE_COUNT_FOR_WRITES`.
 
 <!-- Source: performance-tips-dotnet-sdk-v3.md -->
 
@@ -648,10 +670,13 @@ The Python SDK also supports PPCB through environment variables (`AZURE_COSMOS_E
 
 **PPCB vs. hedging: when to use which?**
 
-| Strategy | Cost Impact | Best For | Handles |
-|----------|------------|----------|---------|
-| Threshold-based hedging | Extra RUs (parallel requests) | Read-heavy, latency-sensitive | Slow regions, tail latency |
-| Partition-level circuit breaker | No extra RUs | Write-heavy or mixed | Unhealthy partitions, transient failures |
+| Strategy | Best for |
+|----------|----------|
+| Threshold-based hedging | Read-heavy, latency-sensitive |
+| PPCB | Write-heavy or mixed |
+
+- **Hedging** sends parallel requests, costing extra RUs. It handles slow regions and tail latency.
+- **PPCB** adds no extra RU cost. It handles unhealthy partitions and transient failures.
 
 You can use both together. PPCB handles sustained partition-level issues without extra cost, while hedging covers the transient latency spikes that PPCB might be too slow to catch.
 <!-- Source: performance-tips-dotnet-sdk-v3.md, performance-tips-java-sdk-v4.md -->

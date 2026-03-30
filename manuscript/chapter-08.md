@@ -329,10 +329,10 @@ For small offsets or one-off exploratory queries in the Data Explorer, `OFFSET/L
 
 <!-- Source: performance-tips-query-sdk.md -->
 
-| Strategy | Best For | RU Cost Pattern |
-|----------|----------|-----------------|
-| **Continuation tokens** | Production API pagination, large result sets | Constant per page |
-| **OFFSET/LIMIT** | Data Explorer, small offsets, ad-hoc queries | Grows with offset |
+| Strategy | Best For | RU Pattern |
+|----------|----------|------------|
+| **Continuation tokens** | Production pagination | Constant per page |
+| **OFFSET/LIMIT** | Ad-hoc, small offsets | Grows with offset |
 
 ## Joins and Self-Joins Across Arrays
 
@@ -456,19 +456,21 @@ Cosmos DB ships with a rich library of built-in functions. These are server-side
 
 ### String Functions
 
-| Function | Description | Index Usage |
-|----------|-------------|-------------|
-| `CONTAINS(str, substr)` | True if `str` contains `substr` | ⚠️ Full index scan (cost scales with cardinality) |
-| `STARTSWITH(str, prefix)` | True if `str` starts with `prefix` | ✅ Precise scan |
-| `ENDSWITH(str, suffix)` | True if `str` ends with `suffix` | ⚠️ Full index scan (cost scales with cardinality) |
-| `UPPER(str)`, `LOWER(str)` | Case conversion | ❌ Full scan — loads every document |
-| `LEFT(str, n)`, `RIGHT(str, n)` | Substring from start/end | Partial |
-| `LENGTH(str)` | Character count | ❌ |
-| `CONCAT(str1, str2, ...)` | Concatenation | N/A (projection) |
-| `REPLACE(str, find, replace)` | String replacement | N/A (projection) |
-| `TRIM(str)` | Remove leading/trailing whitespace | N/A (projection) |
-| `RegexMatch(str, pattern)` | Regular expression matching | ⚠️ Full index scan (cost scales with cardinality) |
-| `StringEquals(str1, str2)` | Equality (supports case-insensitive) | ✅ Uses index |
+| Function | Description | Index |
+|----------|-------------|-------|
+| `CONTAINS(str, substr)` | Substring match | ⚠️ Full scan* |
+| `STARTSWITH(str, prefix)` | Prefix match | ✅ Precise |
+| `ENDSWITH(str, suffix)` | Suffix match | ⚠️ Full scan* |
+| `UPPER` / `LOWER` | Case conversion | ❌ Loads all docs |
+| `LEFT` / `RIGHT` | Substring extract | Partial |
+| `LENGTH(str)` | Char count | ❌ |
+| `CONCAT(str1, ...)` | Concatenation | N/A (projection) |
+| `REPLACE(str, find, repl)` | String replacement | N/A (projection) |
+| `TRIM(str)` | Trim whitespace | N/A (projection) |
+| `RegexMatch(str, pattern)` | Regex matching | ⚠️ Full scan* |
+| `StringEquals(str1, str2)` | Equality (+/- case) | ✅ Uses index |
+
+*Full scan = full index scan; cost scales with data cardinality. "Loads all docs" = bypasses the index entirely, loading every document.
 
 <!-- Source: troubleshoot-query-performance.md -->
 
@@ -507,15 +509,15 @@ Cosmos DB provides functions for working with dates as ISO 8601 strings or Unix 
 
 | Function | Returns |
 |----------|---------|
-| `GetCurrentDateTime()` | Current UTC date/time as ISO string |
-| `GetCurrentTimestamp()` | Current UTC as Unix milliseconds |
-| `GetCurrentTicks()` | Current UTC as 100-nanosecond ticks |
-| `DateTimeAdd(unit, amount, dateStr)` | Date arithmetic |
-| `DateTimeDiff(unit, start, end)` | Difference between two dates |
-| `DateTimePart(unit, dateStr)` | Extract year, month, day, etc. |
-| `DateTimeToTimestamp(dateStr)` | Convert ISO string to Unix timestamp |
-| `TimestampToDateTime(ts)` | Convert Unix timestamp to ISO string |
-| `DateTimeBin(dateStr, unit, binSize)` | Bin datetime into intervals |
+| `GetCurrentDateTime()` | UTC as ISO 8601 string |
+| `GetCurrentTimestamp()` | UTC as Unix ms |
+| `GetCurrentTicks()` | UTC as 100ns ticks |
+| `DateTimeAdd(unit, n, date)` | Date +/- offset |
+| `DateTimeDiff(unit, a, b)` | Diff between two dates |
+| `DateTimePart(unit, date)` | Year, month, day, etc. |
+| `DateTimeToTimestamp(date)` | ISO string to Unix ts |
+| `TimestampToDateTime(ts)` | Unix ts to ISO string |
+| `DateTimeBin(date, unit, n)` | Binned to interval |
 
 > **Gotcha:** `GetCurrentDateTime()` and its siblings are evaluated at query execution time, not from the index. Don't use them in `WHERE` clauses — calculate the target timestamp in your application code and pass it as a parameter instead. This lets the query use the index.
 
@@ -527,11 +529,11 @@ These power geospatial queries (covered in more detail later this chapter):
 
 | Function | Description |
 |----------|-------------|
-| `ST_DISTANCE(geom1, geom2)` | Distance in meters between two geometries |
-| `ST_WITHIN(geom1, geom2)` | True if `geom1` is inside `geom2` |
-| `ST_INTERSECTS(geom1, geom2)` | True if geometries overlap |
-| `ST_ISVALID(geom)` | True if GeoJSON is valid |
-| `ST_ISVALIDDETAILED(geom)` | Validity info with reason |
+| `ST_DISTANCE(geom1, geom2)` | Distance in meters |
+| `ST_WITHIN(geom1, geom2)` | Is geom1 inside geom2? |
+| `ST_INTERSECTS(geom1, geom2)` | Do geometries overlap? |
+| `ST_ISVALID(geom)` | Is GeoJSON valid? |
+| `ST_ISVALIDDETAILED(geom)` | Validity + error detail |
 
 <!-- Source: how-to-geospatial-index-query.md, index-overview.md -->
 
@@ -688,8 +690,8 @@ Each physical partition charges a minimum of about **2.5 RUs** just to check its
 
 As your container grows, you get more physical partitions (one per ~10,000 RU/s or ~50 GB of data). A container provisioned at 100,000 RU/s has at least 10 physical partitions; one storing 500 GB might have 10 or more. The base cost of cross-partition queries scales linearly with partition count.
 
-| Physical Partitions | Minimum Cross-Partition Query Cost |
-|--------------------|------------------------------------|
+| Partitions | Min Cross-Partition Cost |
+|------------|--------------------------|
 | 3 | ~7.5 RUs |
 | 10 | ~25 RUs |
 | 50 | ~125 RUs |
@@ -809,13 +811,13 @@ Spatial queries require a **spatial index** on the location property. The defaul
 
 Without a spatial index, `ST_DISTANCE` and `ST_WITHIN` still work — they just scan every document, which is expensive on large containers.
 
-| Spatial Function | Description | Requires Spatial Index |
-|-----------------|-------------|----------------------|
-| `ST_DISTANCE` | Distance between geometries (meters) | Recommended |
-| `ST_WITHIN` | Is geometry A inside geometry B? | Recommended |
-| `ST_INTERSECTS` | Do geometries overlap? | Recommended |
-| `ST_ISVALID` | Is the GeoJSON well-formed? | No |
-| `ST_ISVALIDDETAILED` | Validity with error details | No |
+| Function | Description | Index Needed? |
+|----------|-------------|---------------|
+| `ST_DISTANCE` | Distance in meters | Recommended |
+| `ST_WITHIN` | Point-in-polygon test | Recommended |
+| `ST_INTERSECTS` | Overlap test | Recommended |
+| `ST_ISVALID` | GeoJSON validation | No |
+| `ST_ISVALIDDETAILED` | Validity + error detail | No |
 
 ## Query Advisor: Built-in Optimization Recommendations
 
@@ -895,15 +897,15 @@ When a query is slow or expensive, you need to understand *where* the time and R
 
 ### The Key Metrics
 
-| Metric | What It Tells You |
-|--------|-------------------|
-| `TotalTime` | Total server-side execution time |
-| `RetrievedDocumentCount` | Documents the engine loaded from storage |
-| `OutputDocumentCount` | Documents in the final result set |
-| `IndexLookupTime` | Time spent in the index |
-| `DocumentLoadTime` | Time spent loading documents from storage |
-| `RuntimeExecutionTime` | Time spent evaluating filters and functions |
-| `IndexHitRatio` | Ratio of matched to loaded documents [0, 1] |
+| Metric | Meaning |
+|--------|---------|
+| `TotalTime` | Server-side execution time |
+| `RetrievedDocumentCount` | Docs loaded from storage |
+| `OutputDocumentCount` | Docs in final result set |
+| `IndexLookupTime` | Time in index lookups |
+| `DocumentLoadTime` | Time loading docs |
+| `RuntimeExecutionTime` | Time in filters/functions |
+| `IndexHitRatio` | Matched / loaded [0-1] |
 
 <!-- Source: query-metrics.md -->
 

@@ -51,13 +51,19 @@ Queries occupy a wide cost spectrum. A targeted single-partition query that retu
 
 The factors that drive query cost:
 
-| Factor | Impact on RU Cost |
-|--------|-------------------|
-| **Number of partitions touched** | Cross-partition queries fan out to every physical partition. Each partition incurs its own RU cost. More partitions = higher cost. |
-| **Documents scanned vs. returned** | If the query scans 10,000 documents to return 10, you pay for scanning all 10,000. The **index hit ratio** tells you how efficiently the index narrowed down candidates. |
-| **Result set size** | Returning 100 KB of data costs more than returning 1 KB, because the service must read and serialize more bytes. |
-| **Query complexity** | Aggregations (`COUNT`, `SUM`, `AVG`), `ORDER BY` across partitions, `DISTINCT`, and joins all add compute overhead. |
-| **Number of round trips** | Large result sets are paginated. Each page is a separate server round trip with its own RU charge. The total cost is the sum across all pages. |
+| Factor | RU Impact |
+|--------|-----------|
+| **Partitions touched** | More partitions = higher cost |
+| **Docs scanned vs. returned** | Pay for all scanned docs |
+| **Result set size** | Larger results cost more |
+| **Query complexity** | Aggregates, sorts, joins add cost |
+| **Round trips (pages)** | Each page charges separately |
+
+- **Partitions:** Cross-partition queries fan out to every physical partition, each incurring its own RU cost.
+- **Scanned docs:** If the query scans 10,000 documents to return 10, you pay for all 10,000. The **index hit ratio** tells you how efficiently the index narrowed candidates.
+- **Result size:** The service reads and serializes more bytes for larger payloads — 100 KB costs more than 1 KB.
+- **Complexity:** Aggregations (`COUNT`, `SUM`, `AVG`), cross-partition `ORDER BY`, `DISTINCT`, and joins all add compute overhead.
+- **Pagination:** Large result sets are paginated. Each page is a separate round trip with its own RU charge; total cost is the sum across all pages.
 
 <!-- Source: mslearn-docs/content/throughput-(request-units)/request-units.md, query-metrics.md -->
 
@@ -133,13 +139,13 @@ Total RU/s = Σ (operations per second × RU cost per operation)
 
 For example, an e-commerce product catalog service might have this profile at peak:
 
-| Operation | Volume (ops/sec) | RU Cost Each | Total RU/s |
-|-----------|----------------:|-------------:|-----------:|
-| Point reads (product by ID) | 500 | 2 | 1,000 |
-| Single-partition queries (products by category) | 50 | 8 | 400 |
-| Cross-partition search queries | 10 | 45 | 450 |
-| Product upserts | 20 | 12 | 240 |
-| **Total** | | | **2,090** |
+| Operation | Ops/sec x RU | RU/s |
+|-----------|-------------:|-----:|
+| Point reads (by ID) | 500 x 2 | 1,000 |
+| Single-partition queries | 50 x 8 | 400 |
+| Cross-partition search | 10 x 45 | 450 |
+| Product upserts | 20 x 12 | 240 |
+| **Total** | | **2,090** |
 
 You'd provision at least 2,100 RU/s to handle this peak — or use autoscale if traffic is variable. Chapter 11 walks through the capacity models and how to choose between manual provisioned throughput, autoscale, and serverless.
 
@@ -240,15 +246,15 @@ Patch operations are limited to **10 operations per call**. Chapter 6 covers the
 
 ### Quick Reference: RU Optimization Tactics
 
-| Tactic | RU Impact | Effort |
-|--------|-----------|--------|
-| Replace queries with point reads | High — often 2–5x cheaper | Low |
-| Add partition key to query WHERE clause | High — eliminates fan-out overhead | Low |
-| Use projections (SELECT specific fields) | Medium — proportional to document size | Low |
-| Exclude unused paths from indexing policy | Medium — reduces every write | Low to Medium |
-| Use Patch API instead of read-modify-write | Medium — eliminates the read operation | Low |
-| Add composite indexes for ORDER BY queries | Medium — avoids expensive sort operations | Medium |
-| Reduce document size (trim unused properties) | Medium — affects both reads and writes linearly | Medium to High |
+| Tactic | Impact | Effort |
+|--------|--------|--------|
+| Use point reads over queries | High (2-5x cheaper) | Low |
+| Add partition key to WHERE | High (no fan-out) | Low |
+| Project specific fields only | Medium | Low |
+| Exclude unused index paths | Medium (every write) | Low-Med |
+| Patch instead of read-modify-write | Medium (skip the read) | Low |
+| Add composite indexes | Medium (skip sorts) | Medium |
+| Trim document size | Medium (reads + writes) | Med-High |
 
 ## Priority-Based Execution
 

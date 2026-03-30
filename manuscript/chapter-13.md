@@ -12,13 +12,15 @@ Think of consistency as a dial, not a switch. At one extreme, **strong consisten
 
 Here's the spectrum from strongest to weakest:
 
-| Consistency Level | Guarantee | Write Latency | RU Cost (Reads) |
-|---|---|---|---|
-| **Strong** | Linearizable — always the latest committed write | Highest (multi-region: 2×RTT + 10ms) | 2× |
-| **Bounded Staleness** | Reads lag by at most *K* versions or *T* seconds | < 10ms at p99 | 2× |
-| **Session** | Read-your-writes within a client session | < 10ms at p99 | 1× |
-| **Consistent Prefix** | No out-of-order reads, but can lag | < 10ms at p99 | 1× |
-| **Eventual** | No ordering guarantees, lowest latency | < 10ms at p99 | 1× |
+| Level | Guarantee | Read RU Cost |
+|---|---|---|
+| **Strong** | Linearizable — latest write | 2× |
+| **Bounded Staleness** | Lag ≤ *K* versions or *T* sec | 2× |
+| **Session** | Read-your-writes per session | 1× |
+| **Consistent Prefix** | No out-of-order reads | 1× |
+| **Eventual** | No ordering guarantees | 1× |
+
+Write latency is < 10ms at p99 for all levels except Strong in multi-region configurations, where it's 2×RTT + 10ms due to global majority quorum.
 
 Every step down the ladder trades some freshness for better performance. The rest of this chapter explains exactly what each level guarantees, what it doesn't, and when to use it.
 
@@ -81,10 +83,10 @@ If you set K = 100,000 and T = 300 seconds, you're saying: "Reads in secondary r
 
 The minimums depend on your account topology:
 
-| Account Type | Minimum K | Minimum T |
+| Account Type | Min *K* | Min *T* |
 |---|---|---|
-| Single-region | 10 write operations | 5 seconds |
-| Multi-region | 100,000 write operations | 300 seconds (5 minutes) |
+| Single-region | 10 writes | 5 sec |
+| Multi-region | 100,000 writes | 300 sec (5 min) |
 
 <!-- Source: consistency-levels.md -->
 
@@ -219,13 +221,19 @@ The five levels aren't equally popular. In practice, the decision tree is simple
 
 Here's a decision table:
 
-| Scenario | Recommended Level | Why |
-|---|---|---|
-| User reads their own data (profiles, carts, orders) | **Session** | Read-your-writes at low cost |
-| Financial ledger, inventory, legal record | **Strong** | Zero staleness required |
-| Global dashboard, max 5 min delay acceptable | **Bounded Staleness** | Controlled lag ceiling |
-| Event processing pipeline with ordered transactions | **Consistent Prefix** | No out-of-order batch reads |
-| Like counts, view counters, telemetry | **Eventual** | Staleness is harmless |
+| Scenario | Level |
+|---|---|
+| User reads own data (profiles, carts) | **Session** |
+| Financial ledger, inventory | **Strong** |
+| Global dashboard, ≤5 min lag OK | **Bounded Staleness** |
+| Ordered event pipeline | **Consistent Prefix** |
+| Like counts, telemetry | **Eventual** |
+
+- **Session** gives read-your-writes at 1× RU cost — the sweet spot for most user-facing reads.
+- **Strong** guarantees zero staleness for data that can't tolerate lag.
+- **Bounded Staleness** lets you set an explicit lag ceiling across regions.
+- **Consistent Prefix** prevents out-of-order batch reads without the cost of staleness bounds.
+- **Eventual** is cheapest; use it when staleness is harmless.
 
 ## Consistency and Its Impact on RU Cost and Latency
 
@@ -237,13 +245,15 @@ The fundamental split: **strong and bounded staleness reads cost 2× the RUs** o
 
 <!-- Source: consistency-levels.md, request-units.md -->
 
-| Consistency Level | Quorum Reads | Quorum Writes | Read RU Multiplier |
-|---|---|---|---|
-| **Strong** | Local Minority (2 replicas) | Global Majority | 2× |
-| **Bounded Staleness** | Local Minority (2 replicas) | Local Majority | 2× |
-| **Session** | Single Replica (session token) | Local Majority | 1× |
-| **Consistent Prefix** | Single Replica | Local Majority | 1× |
-| **Eventual** | Single Replica | Local Majority | 1× |
+| Level | Reads | Read RU |
+|---|---|---|
+| **Strong** | Local Minority (2 replicas) | 2× |
+| **Bounded Staleness** | Local Minority (2 replicas) | 2× |
+| **Session** | Single Replica (token) | 1× |
+| **Consistent Prefix** | Single Replica | 1× |
+| **Eventual** | Single Replica | 1× |
+
+All levels use Local Majority quorum for writes, except Strong which requires Global Majority.
 
 <!-- Source: consistency-levels.md -->
 
@@ -339,14 +349,14 @@ Your consistency level directly impacts your **Recovery Point Objective (RPO)** 
 
 <!-- Source: consistency-levels.md -->
 
-| Regions | Replication Mode | Consistency Level | RPO |
-|---|---|---|---|
-| 1 | Single or multiple write | Any | < 240 minutes |
-| >1 | Single write | Session, Consistent Prefix, Eventual | < 15 minutes |
-| >1 | Single write | Bounded Staleness | *K* versions & *T* seconds |
-| >1 | Single write | Strong | 0 |
-| >1 | Multiple write | Session, Consistent Prefix, Eventual | < 15 minutes |
-| >1 | Multiple write | Bounded Staleness | *K* & *T* |
+| Config | Consistency | RPO |
+|---|---|---|
+| 1 region, any mode | Any | < 240 min |
+| >1, single write | Session / Prefix / Eventual | < 15 min |
+| >1, single write | Bounded Staleness | *K* versions & *T* sec |
+| >1, single write | Strong | 0 |
+| >1, multi-write | Session / Prefix / Eventual | < 15 min |
+| >1, multi-write | Bounded Staleness | *K* & *T* |
 
 Only strong consistency with a single-region write account gives you zero RPO — no data loss during a regional outage. Every other combination can lose some recent writes. Chapter 19 covers disaster recovery planning in depth; keep this table in mind when choosing your consistency level for mission-critical workloads.
 

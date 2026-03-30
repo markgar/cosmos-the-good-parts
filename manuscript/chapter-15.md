@@ -97,14 +97,14 @@ Here's what a delete record looks like:
 
 ### Choosing Between Modes
 
-| Consideration | Latest Version | All Versions and Deletes |
+| Consideration | Latest Version | All Versions + Deletes |
 |---|---|---|
-| **Captures deletes** | No (soft-delete workaround) | Yes |
-| **Intermediate changes** | Only latest version | All versions preserved |
-| **Retention** | Unlimited (life of the container) | Continuous backup retention period |
-| **Starting point** | Beginning, point in time, now, checkpoint | Now or checkpoint only |
-| **Prerequisites** | None | Continuous backups enabled |
-| **Azure Functions trigger** | Supported | Not supported |
+| **Captures deletes** | No (soft-delete) | Yes |
+| **Intermediate changes** | Latest only | All preserved |
+| **Retention** | Unlimited | Backup retention period |
+| **Start from** | Beginning / time / now | Now or checkpoint only |
+| **Prerequisites** | None | Continuous backups |
+| **Functions trigger** | Supported | Not supported |
 | **Status** | GA | Preview |
 <!-- Source: change-feed-modes.md -->
 
@@ -175,10 +175,12 @@ The change feed processor has four components:
 
 | Component | Role |
 |---|---|
-| **Monitored container** | The container whose changes you're consuming |
-| **Lease container** | Stores processing state — one lease document per physical partition range |
-| **Compute instance** | The host running your processor (a VM, a pod, an App Service instance) |
-| **Delegate** | Your code — a function that receives each batch of changes |
+| **Monitored container** | Source of changes |
+| **Lease container** | Stores processing state |
+| **Compute instance** | Host running your processor |
+| **Delegate** | Your change-handling code |
+
+The lease container holds one document per physical partition range. The compute instance can be a VM, pod, App Service, or any host running your application.
 <!-- Source: change-feed-processor.md -->
 
 Here's a production-realistic C# example:
@@ -225,11 +227,11 @@ The processor distributes work automatically. Each physical partition range in t
 
 Three lease timing parameters let you tune the processor's behavior:
 
-| Parameter | Default | What It Controls |
+| Parameter | Default | Controls |
 |---|---|---|
-| **Lease Acquire** | 17 seconds | How often hosts check for unowned leases |
-| **Lease Expiration** | 60 seconds | How long before a dead host's leases are reassigned |
-| **Lease Renewal** | 13 seconds | How often an active host renews its lease |
+| **Lease Acquire** | 17 sec | Check interval for unowned leases |
+| **Lease Expiration** | 60 sec | Dead-host lease reassignment |
+| **Lease Renewal** | 13 sec | Active host renewal interval |
 <!-- Source: change-feed-processor.md -->
 
 Lowering these values speeds up recovery from failures but increases RU consumption on the lease container. The defaults are reasonable for most workloads.
@@ -344,13 +346,13 @@ foreach (FeedRange range in ranges)
 ```
 <!-- Source: change-feed-pull-model.md -->
 
-| Feature | Change Feed Processor | Pull Model |
+| Feature | Processor | Pull Model |
 |---|---|---|
-| **Progress tracking** | Automatic (lease container) | Manual (continuation tokens) |
-| **Parallelization** | Automatic across instances | Manual via FeedRange |
-| **Error handling** | Automatic retry (at-least-once) | You handle it |
-| **Partition key filtering** | Not supported | Supported |
-| **Polling** | Automatic (configurable interval) | Manual |
+| **Progress tracking** | Auto (lease container) | Manual (tokens) |
+| **Parallelization** | Auto across instances | Manual via FeedRange |
+| **Error handling** | Auto retry | You handle it |
+| **PK filtering** | Not supported | Supported |
+| **Polling** | Auto (configurable) | Manual |
 <!-- Source: change-feed-pull-model.md -->
 
 **Continuation tokens in latest version mode never expire** as long as the container exists. In all versions and deletes mode, tokens are valid only within the continuous backup retention window.
@@ -399,10 +401,10 @@ The Spark connector supports both latest version and all versions and deletes mo
 
 | Scenario | Best Fit |
 |---|---|
-| Serverless, reactive processing with minimal infrastructure | **Azure Functions trigger** |
-| Long-running service with automatic scaling and fault tolerance | **Change feed processor** |
-| One-time migration or targeted partition key reads | **Pull model** |
-| Large-scale ETL, joins with other datasets, Spark pipelines | **Spark connector** |
+| Serverless, reactive | **Azure Functions trigger** |
+| Long-running, auto-scaling | **Change feed processor** |
+| One-time or PK-filtered reads | **Pull model** |
+| Large ETL, joins, Spark | **Spark connector** |
 
 ## Common Change Feed Patterns
 
