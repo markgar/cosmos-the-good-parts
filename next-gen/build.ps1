@@ -71,7 +71,10 @@ foreach ($f in $backMatter) {
 
 # Pandoc arguments
 $pandocArgs = @(
+    "--from", "markdown"
+    "--to", "epub3"
     "--toc"
+    "--toc-depth=2"
     "--css=epub.css"
     "-o", (Join-Path $bookDir $Output)
 )
@@ -82,7 +85,7 @@ if (Test-Path $cover) {
     $pandocArgs += "--epub-cover-image=$cover"
     Write-Host "Cover image: cover.png" -ForegroundColor Green
 } else {
-    Write-Host "No cover image found (cover.png) — building without cover" -ForegroundColor Yellow
+    Write-Host "No cover image found (cover.png) -- building without cover" -ForegroundColor Yellow
 }
 
 # Build
@@ -91,7 +94,8 @@ Write-Host "`nBuilding epub..." -ForegroundColor Cyan
 
 if ($LASTEXITCODE -eq 0) {
     $epub = Get-Item (Join-Path $bookDir $Output)
-    Write-Host "`n✅ Built: $($epub.Name) ($([math]::Round($epub.Length / 1KB)) KB)" -ForegroundColor Green
+    $sizeKB = [math]::Round($epub.Length / 1024)
+    Write-Host "`nBuilt: $($epub.Name) ($sizeKB KB)" -ForegroundColor Green
 } else {
     Write-Error "Pandoc failed with exit code $LASTEXITCODE"
     exit 1
