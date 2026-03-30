@@ -46,7 +46,7 @@ One clear statement is always better than two fuzzy ones.
 
 ### 3. Outline Conformance
 
-Open `next-gen/outline.md` and compare it to the chapter draft:
+Open `manuscript/outline.md` and compare it to the chapter draft:
 - **Missing sections:** Does the chapter skip any topic listed in the outline?
 - **Extra sections:** Does the chapter cover something the outline doesn't call for?
 - **Scope creep:** Does the chapter go deep on a topic the outline marks with `→ see ChX` (should be a sentence or two + forward ref)?
@@ -96,9 +96,17 @@ Flag any place where the chapter states a technical fact without explaining why 
 
 If the "why" is obvious to the target audience (experienced developers), it can be implicit. Flag only cases where a reader would reasonably ask "so what?" and the text doesn't answer.
 
----
+### 9. Table Width for Small Screens
 
-## Output Format
+This is a digital-only book — readers use phones and small tablets. Flag any table where:
+- Any cell contains more than ~30 characters
+- The table has 4+ columns
+- Cells contain full sentences, code examples, or long descriptions
+- The table would clearly overflow or wrap badly on a narrow screen
+
+Suggest fixes: shorten cell text, use abbreviations, split into multiple tables, move detail to prose below the table, or restructure as a bulleted list.
+
+---
 
 Return your review as a numbered list grouped by category. Example:
 
@@ -135,4 +143,4 @@ End with a one-line overall assessment: either "**Clean** — minor issues only"
 - **Be specific.** Quote the text. Give line numbers. Say exactly what's wrong.
 - **Be proportional.** A chapter with 2 minor issues should get a short review, not a 500-line document.
 - **Trust the writer's voice.** Don't flag stylistic choices that are consistent with the book's tone (conversational, direct, opinionated). Flag only things that break the rules above.
-- **Read the outline first.** Always open `next-gen/outline.md` before reviewing so you know what the chapter should and shouldn't cover.
+- **Read the outline first.** Always open `manuscript/outline.md` before reviewing so you know what the chapter should and shouldn't cover.

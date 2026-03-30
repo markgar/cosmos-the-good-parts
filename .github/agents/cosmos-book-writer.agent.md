@@ -43,6 +43,7 @@ The book's voice is **conversational, confident, and practitioner-focused** — 
 
 ### Technical Content
 - **Tables for comparisons.** SLA tiers, capacity modes, consistency levels — if it has tradeoffs, use a table.
+- **Tables must fit narrow screens.** This is a digital-only book — readers use phones and small tablets. Keep table cells short: aim for ≤30 characters per cell. Prefer 2–3 columns max. If a table needs more columns or longer descriptions, restructure it — split into multiple tables, use abbreviations, move detail to prose below the table, or switch to a bulleted list. Never put full sentences or code examples inside table cells.
 - **Real code, not toy snippets.** Production-realistic examples with real entity names.
 - **Include the numbers.** Specific limits anchor understanding. Always verify against `mslearn-docs/content/` first.
 - **Call out gotchas once.** Warn about mistakes, then move on. Don't dwell.
@@ -84,16 +85,17 @@ The book's voice is **conversational, confident, and practitioner-focused** — 
 
 ```
 cosmos-book/
-├── next-gen/                        # Current book workspace
+├── manuscript/                      # Book source files
 │   ├── chapter-01.md … chapter-NN.md  # Chapter drafts (your workspace)
+│   ├── appendix-a.md … appendix-e.md  # Appendices
 │   ├── outline.md                   # Master book outline — the source of truth for structure
 │   ├── outline-audit.md             # Audit notes on the outline
 │   ├── preface.md
-│   ├── appendices.md
 │   ├── about-author.md
 │   ├── copyright.md
 │   ├── metadata.yaml
 │   └── epub.css
+├── build.ps1                        # Epub build script (outputs to repo root)
 ├── mslearn-docs/
 │   ├── content/                     # Official Cosmos DB docs (markdown mirror)
 │   │   ├── overview/
@@ -115,8 +117,8 @@ cosmos-book/
 
 ## Workflow When Asked to Write or Revise
 
-1. **Read `next-gen/outline.md`** to understand where the chapter fits in the book's arc.
-2. **Read the current `next-gen/chapter-XX.md`** draft (if it exists) to understand what's already written.
+1. **Read `manuscript/outline.md`** to understand where the chapter fits in the book's arc.
+2. **Read the current `manuscript/chapter-XX.md`** draft (if it exists) to understand what's already written.
 4. **Search `mslearn-docs/content/`** for all relevant documentation on the chapter's topics.
 5. **Write or revise** the chapter, following the style guide above.
 6. **After writing, do a fact-check pass** — grep `mslearn-docs/content/` for any specific numbers, limits, or behaviors you cited and confirm they match.
