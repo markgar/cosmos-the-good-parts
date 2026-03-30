@@ -14,39 +14,39 @@
 - A brief history: from DocumentDB to Cosmos DB
 - Key value propositions
   - Single-digit millisecond latency at any scale
-  - Turnkey global distribution with 99.999% availability SLA → high-level pitch here; mechanics in Ch12
+  - Turnkey global distribution with 99.999% availability SLA → high-level pitch here; mechanics in Ch 12
   - Multi-model: document, key-value, graph, table, and vector data
   - Fully managed — no patching, tuning, or capacity planning headaches
 - When to use Cosmos DB (and when not to)
   - Good fits: IoT, real-time personalization, gaming, booking, commerce
-  - Poor fits: OLAP workloads, highly relational/join-heavy apps → mention Fabric Mirroring exists (Ch22) but don't explain it
+  - Poor fits: OLAP workloads, highly relational/join-heavy apps → mention Fabric Mirroring exists (Ch 22) but don't explain it
 - Cosmos DB vs. Azure DocumentDB (vCore) — a decision guide
 - The AI era connection: why OpenAI, retailers, and IoT companies chose Cosmos DB
 
 ### Chapter 2: Core Concepts and Architecture
 - The resource model: accounts → databases → containers → items
-- What is a "document" in Cosmos DB? JSON items and schema flexibility → modeling depth in Ch4
-- System properties: `id`, `_rid`, `_etag`, `_ts`, `_self` — what they mean and when you use them → ETags explained fully in Ch16
+- What is a "document" in Cosmos DB? JSON items and schema flexibility → modeling depth in Ch 4
+- System properties: `id`, `_rid`, `_etag`, `_ts`, `_self` — what they mean and when you use them → ETags explained fully in Ch 16
 - Unique key constraints: enforcing uniqueness within a logical partition
-- Request Units (RUs) — the universal currency of Cosmos DB → introduce the concept; deep dive in Ch10
+- Request Units (RUs) — the universal currency of Cosmos DB → introduce the concept; deep dive in Ch 10
   - How RUs are calculated (reads, writes, queries, stored procedures)
   - Why thinking in RUs matters for cost and performance
-- Automatic indexing: how Cosmos DB indexes everything by default → one paragraph; full policy details in Ch9
+- Automatic indexing: how Cosmos DB indexes everything by default → one paragraph; full policy details in Ch 9
 - The logical partition: Cosmos DB's fundamental unit of scale
-- Physical vs. logical partitions: a brief introduction → keep to ~2 paragraphs; deep dive in Ch5
-- Replica sets and high availability within a region → brief; global distribution in Ch12
+- Physical vs. logical partitions: a brief introduction → keep to ~2 paragraphs; deep dive in Ch 5
+- Replica sets and high availability within a region → brief; global distribution in Ch 12
 - Service limits and quotas: max item size (2 MB), partition key length, RU/s ceilings, nesting depth → table format; full reference in Appendix E
 
 ### Chapter 3: Setting Up Cosmos DB for NoSQL
 - Creating a Cosmos DB account in the Azure portal
-- Understanding account-level settings and free tier → pricing details in Ch11
+- Understanding account-level settings and free tier → pricing details in Ch 11
 - Creating databases and containers
-- Connection strings, endpoints, and keys → security implications in Ch17
+- Connection strings, endpoints, and keys → security implications in Ch 17
 - Introduction to the Azure Cosmos DB Data Explorer
 - The VS Code extension for Cosmos DB
 - The Cosmos DB emulator: Windows installer vs. Linux-based vNext (Docker) ✶ CANONICAL for emulator setup
   - Emulator limitations vs. the cloud service
-- Quickstart: your first item via the portal and the SDK → SDK depth in Ch21
+- Quickstart: your first item via the portal and the SDK → SDK depth in Ch 7
 
 ---
 
@@ -58,7 +58,7 @@
   - When to embed (one-to-few, data accessed together)
   - When to reference (one-to-many, unbounded arrays, independent updates)
 - Denormalization as a feature, not a flaw
-- Handling polymorphic data and schema evolution → schema evolution strategies also in Ch20 (IaC perspective); keep conceptual here
+- Handling polymorphic data and schema evolution → schema evolution strategies also in Ch 20 (IaC perspective); keep conceptual here
 - Common document design patterns
   - Subdocuments and nested objects
   - Arrays of complex types
@@ -72,34 +72,49 @@
   - Even write distribution
   - Enables efficient single-partition reads
 - Partition key anti-patterns and their consequences
-  - Hot partitions and throughput throttling → mention here as consequence; remediation strategies in Ch27
+  - Hot partitions and throughput throttling → mention here as consequence; remediation strategies in Ch 27
   - Using sequential IDs or timestamps as partition keys
 - Synthetic partition keys: combining properties for better distribution
 - Large partition keys: using values up to 2 KB
 - Hierarchical partition keys (subpartitioning) ✶ EXPAND HERE for the concept
-  - Use case: multi-tenant applications → brief example; full multi-tenancy patterns in Ch26
+  - Use case: multi-tenant applications → brief example; full multi-tenancy patterns in Ch 26
   - Use case: high-cardinality time-series data
-- Cross-partition queries: cost warning and when they're unavoidable → see Ch8 for query mechanics and optimization
+- Cross-partition queries: cost warning and when they're unavoidable → see Ch 8 for query mechanics and optimization
 - Partition merge: recombining physical partitions after scale-down or data deletion
 - Real-world partition key walk-throughs: IoT telemetry, e-commerce catalog
 
 ### Chapter 6: Advanced Data Modeling Patterns
 - The item type pattern: storing multiple entity types in one container
-- The lookup / reference pattern with materialized views → change feed for building views covered in Ch15
+- The lookup / reference pattern with materialized views → change feed for building views covered in Ch 15
 - Time-to-live (TTL) for expiring data automatically ✶ CANONICAL for TTL
 - Partial document update (Patch API) ✶ CANONICAL — go deep on operations and patterns
   - Supported operations: Add, Set, Replace, Remove, Increment, Move
   - Conditional patching with predicates
-  - RU savings vs. full-document Replace → Ch10 references Patch for RU savings; keep the RU angle brief here
+  - RU savings vs. full-document Replace → Ch 10 references Patch for RU savings; keep the RU angle brief here
 - Working with large items: strategies for chunking and streaming
 - Modeling hierarchical and tree structures
 - Modeling many-to-many relationships
 - Delete items by partition key: server-side bulk deletion (preview)
-- Event sourcing and immutable log patterns → change feed as the event consumer covered in Ch15
+- Event sourcing and immutable log patterns → change feed as the event consumer covered in Ch 15
 
 ---
 
-## Part III: Querying and Indexing
+## Part III: Working with Data
+
+### Chapter 7: Using the Cosmos DB SDKs ✶ CANONICAL for SDK setup, CRUD, and connection management
+- Overview of supported SDKs: .NET, Java, Python, JavaScript/Node.js, Go, Rust
+- SDK fundamentals: CosmosClient, Database, Container
+- CRUD operations in code
+  - Creating and upserting items
+  - Reading items (point read by id + partition key)
+  - Partial document update with the Patch API → brief here; full Patch API in Ch 6
+  - Querying with FeedIterator / async paging
+  - Deleting items
+- Connection management: singleton client pattern
+- Direct vs. Gateway connectivity mode
+- Reading the RU charge from response headers
+- Retry policies and handling transient errors (429, 503)
+- LINQ to SQL: querying Cosmos DB with .NET LINQ expressions
 
 ### Chapter 8: Querying with the NoSQL API ✶ CANONICAL for query language and query behavior
 - Introduction to Cosmos DB SQL (NoSQL query language)
@@ -110,7 +125,7 @@
 - Aggregate functions: COUNT, SUM, MIN, MAX, AVG
 - GROUP BY clause
 - Pagination strategies
-  - Continuation token-based pagination (recommended): iterating `FeedIterator`, storing and resuming tokens
+  - Continuation token-based pagination (recommended): iterating `FeedIterator`, storing and resuming tokens → FeedIterator mechanics in Ch 7
   - OFFSET/LIMIT: use cases, cost implications, and when to avoid it
 - Joins and self-joins across arrays (within a document)
 - Subqueries and correlated subqueries
@@ -124,11 +139,10 @@
   - Full-text scoring: FullTextScore (BM25) with ORDER BY RANK
   - Hybrid search: the RRF (Reciprocal Rank Fusion) function
 - Computed properties: server-side derived values that can be indexed and queried
-- Understanding cross-partition queries: how they work, why they cost more, and how to minimize them ✶ EXPAND HERE — Ch5 warns about them; this chapter explains the mechanics
-- LINQ to SQL: querying Cosmos DB with .NET LINQ expressions
-- Indexing and querying geospatial data (GeoJSON points, polygons, distance queries) → geospatial indexing policy in Ch9
-- Query Advisor: built-in recommendations for optimizing query performance ✶ CANONICAL — Ch27 references this within the tuning loop
-- Query metrics and diagnosing expensive queries → monitoring dashboard angle in Ch18
+- Understanding cross-partition queries: how they work, why they cost more, and how to minimize them ✶ EXPAND HERE — Ch 5 warns about them; this chapter explains the mechanics
+- Indexing and querying geospatial data (GeoJSON points, polygons, distance queries) → geospatial indexing policy in Ch 9
+- Query Advisor: built-in recommendations for optimizing query performance ✶ CANONICAL — Ch 27 references this within the tuning loop
+- Query metrics and diagnosing expensive queries → monitoring dashboard angle in Ch 18
 
 ### Chapter 9: Indexing Policies ✶ CANONICAL for all indexing configuration
 - How Cosmos DB automatic indexing works under the hood
@@ -143,8 +157,8 @@
     - Composite indexes with aggregate functions
   - Tuple indexes for array element queries
 - Disabling indexing for write-heavy bulk import scenarios
-- Full-text search indexing policy ✶ CANONICAL — Ch25 references this chapter for FTS indexing
-- Vector indexing policies (DiskANN) ✶ CANONICAL for vector index config — Ch25 covers the search queries and AI use cases
+- Full-text search indexing policy ✶ CANONICAL — Ch 25 references this chapter for FTS indexing
+- Vector indexing policies (DiskANN) ✶ CANONICAL for vector index config — Ch 25 covers the search queries and AI use cases
   - Sharded DiskANN for multi-tenant vector search
 - Lazy vs. consistent indexing mode
 - Global secondary indexes (preview): efficient cross-partition queries via secondary index
@@ -160,20 +174,20 @@
   - Upserts and writes
   - Queries (and why fanout queries cost more)
   - Stored procedure and trigger execution
-- Finding the RU charge for any operation (response headers and portal metrics)
+- Finding the RU charge for any operation (response headers and portal metrics) → reading headers in code covered in Ch 7
 - RU budgeting for your application
 - Strategies to reduce RU consumption
   - Optimize query predicates and avoid full scans
   - Prefer point reads over queries for known IDs
   - Use projections to fetch only needed fields
-  - Tune indexing to exclude unused paths → indexing policy details in Ch9
-  - Use the Patch API for partial updates instead of full Replace → Patch API details in Ch6
+  - Tune indexing to exclude unused paths → indexing policy details in Ch 9
+  - Use the Patch API for partial updates instead of full Replace → Patch API details in Ch 6
 - Priority-based execution: tagging requests as high or low priority
 
 ### Chapter 11: Provisioned Throughput, Autoscale, and Serverless ✶ CANONICAL for capacity models, cost optimization, and caching
 - Provisioned throughput: manual RU/s allocation
   - Database-level vs. container-level throughput sharing
-  - When to share throughput across containers → multi-tenancy angle in Ch26
+  - When to share throughput across containers → multi-tenancy angle in Ch 26
 - Autoscale provisioned throughput
   - How autoscale works (10% of max as baseline)
   - Ideal workloads: variable, unpredictable traffic
@@ -192,7 +206,7 @@
 - Cost optimization strategies: right-sizing, reserved capacity, TTL cleanup, indexing trimming
 - Reserved capacity for production cost savings (up to 63% discount)
 - The free tier: 1,000 RU/s and 25 GB forever free
-- The integrated cache and dedicated gateway ✶ CANONICAL — Ch21 mentions as a perf tip and should point here
+- The integrated cache and dedicated gateway ✶ CANONICAL — Ch 21 mentions as a perf tip and should point here
   - Item cache (point reads) and query cache (LRU eviction)
   - MaxIntegratedCacheStaleness and bypass options
   - When integrated cache makes sense vs. external caching
@@ -207,10 +221,10 @@
 - Adding and removing regions at runtime
 - Multi-region reads: routing reads to the nearest region
 - Multi-region writes: the 99.999% availability story
-  - Conflict resolution policies (last-write-wins vs. custom merge) → consistency implications in Ch13
+  - Conflict resolution policies (last-write-wins vs. custom merge) → consistency implications in Ch 13
 - Automatic failover and regional outage scenarios
 - Per-partition automatic failover (PPAF) — preview
-- Recovery Point Objective (RPO) and Recovery Time Objective (RTO) by configuration → DR planning details in Ch19
+- Recovery Point Objective (RPO) and Recovery Time Objective (RTO) by configuration → DR planning details in Ch 19
 - Azure Government and sovereign cloud regions
 
 ### Chapter 13: Consistency Levels ✶ CANONICAL for the five consistency levels
@@ -224,7 +238,7 @@
 - Choosing the right consistency for your workload
 - Consistency and its impact on RU cost and latency
 - Per-request consistency override
-- How consistency interacts with multi-region writes → conflict resolution mechanics in Ch12; keep this to the consistency angle only
+- How consistency interacts with multi-region writes → conflict resolution mechanics in Ch 12; keep this to the consistency angle only
 
 ---
 
@@ -235,7 +249,7 @@
 - Stored procedures
   - Scope: always within a single logical partition
   - Writing and registering a stored procedure
-  - Transactional semantics: all or nothing (ACID within a partition) → transaction concepts also in Ch16; keep focused on sproc mechanics here
+  - Transactional semantics: all or nothing (ACID within a partition) → transaction concepts also in Ch 16; keep focused on sproc mechanics here
   - Handling continuation tokens for large operations
 - Pre-triggers and post-triggers
   - Pre-trigger: validate or modify items before writes
@@ -252,13 +266,13 @@
   - All versions and deletes mode
 - Consuming the change feed
   - Change Feed Processor library (.NET, Java, Python, JavaScript)
-  - Azure Functions trigger (the simplest path) → Azure Functions integration in Ch22; keep to change feed trigger mechanics here
+  - Azure Functions trigger (the simplest path) → Azure Functions integration in Ch 22; keep to change feed trigger mechanics here
   - Direct SDK pull model
   - Apache Spark connector for change feed
 - Common change feed patterns
   - Event-driven microservices architecture
   - Real-time materialized views
-  - Streaming pipelines into Azure Event Hubs or Kafka → integration details in Ch22
+  - Streaming pipelines into Azure Event Hubs or Kafka → integration details in Ch 22
   - Cache invalidation
 - Checkpointing and resuming from a position
 - Change feed and global distribution: per-region feeds
@@ -266,7 +280,7 @@
 
 ### Chapter 16: Transactions and Optimistic Concurrency ✶ CANONICAL for ETags, optimistic concurrency, and transactional batch
 - Single-item atomicity: every write is automatically atomic
-- Multi-item transactions via stored procedures → sproc mechanics in Ch14; focus on transactional semantics here
+- Multi-item transactions via stored procedures → sproc mechanics in Ch 14; focus on transactional semantics here
 - Transactional batch operations using the SDK ✶ EXPAND HERE
   - Batch semantics: all succeed or all fail
   - Constraints: same partition key for all operations in a batch
@@ -288,7 +302,7 @@
 - Role-based access control (RBAC)
   - Built-in roles: Cosmos DB Built-in Data Reader, Data Contributor
   - Custom role definitions
-  - Assigning roles to managed identities and service principals → multi-tenancy RBAC patterns in Ch26
+  - Assigning roles to managed identities and service principals → multi-tenancy RBAC patterns in Ch 26
 - Network security
   - Virtual network service endpoints
   - Private endpoints and Private Link
@@ -320,12 +334,12 @@
   - Identifying expensive queries by RU charge
 - OpenTelemetry and distributed tracing
   - Consuming Cosmos DB traces in Azure Monitor, Jaeger, or other collectors
-  - SDK instrumentation setup covered in Chapter 21
+  - SDK instrumentation setup covered in Ch 21
 - The Azure Cosmos DB Insights workbook in Azure Monitor
 - Troubleshooting common issues
-  - 429 Too Many Requests: causes and remedies → RU mechanics in Ch10; capacity solutions in Ch11
-  - High cross-partition query cost → query optimization in Ch8
-  - Hot partition detection → partition key design in Ch5; redistribution in Ch27
+  - 429 Too Many Requests: causes and remedies → RU mechanics in Ch 10; capacity solutions in Ch 11
+  - High cross-partition query cost → query optimization in Ch 8
+  - Hot partition detection → partition key design in Ch 5; redistribution in Ch 27
 
 ### Chapter 19: Backup, Restore, and Disaster Recovery ✶ CANONICAL for backup modes, PITR, and DR planning
 - Periodic backup mode (the default)
@@ -337,7 +351,7 @@
   - Restoring to any point within the retention window
   - Restoring a deleted container or database
   - In-account restore: restoring into the same account (no new account required)
-- Disaster recovery configurations and their RTO/RPO guarantees → global distribution mechanics in Ch12; focus on DR planning here
+- Disaster recovery configurations and their RTO/RPO guarantees → global distribution mechanics in Ch 12; focus on DR planning here
   - Single-region: no automatic failover
   - Multi-region read: automatic failover with RTO ~minutes
   - Multi-region write: near-zero RPO/RTO
@@ -347,9 +361,9 @@
 - Managing Cosmos DB resources in code (IaC-first mindset)
 - Bicep and Terraform: defining accounts, databases, containers, and indexing policies
 - Deploying indexing policy and throughput changes without downtime
-- Schema evolution strategies: additive changes, container versioning, dual-write patterns → data modeling foundations in Ch4; focus on operational/deployment aspects here
+- Schema evolution strategies: additive changes, container versioning, dual-write patterns → data modeling foundations in Ch 4; focus on operational/deployment aspects here
 - Integrating Cosmos DB into CI/CD pipelines
-  - Provisioning test environments per PR with the emulator or a dedicated account → emulator setup in Ch3; testing patterns in Ch24
+  - Provisioning test environments per PR with the emulator or a dedicated account → emulator setup in Ch 3; testing patterns in Ch 24
   - Running integration tests in pipeline stages
   - Teardown and cost controls for ephemeral environments
 - Environment promotion: dev → staging → production with IaC
@@ -358,21 +372,10 @@
 
 ## Part VIII: Integration and Ecosystem
 
-### Chapter 21: Using the Cosmos DB SDKs ✶ CANONICAL for SDK usage, resilience, and observability
-- Overview of supported SDKs: .NET, Java, Python, JavaScript/Node.js, Go, Rust
-- SDK fundamentals: CosmosClient, Database, Container
-- CRUD operations in code
-  - Creating and upserting items
-  - Reading items (point read by id + partition key)
-  - Partial document update with the Patch API → brief here; full Patch API in Ch6
-  - Querying with FeedIterator / async paging
-  - Deleting items
-- Connection management: singleton client pattern
-- Retry policies and handling transient errors (429, 503)
+### Chapter 21: Advanced SDK Patterns ✶ CANONICAL for bulk operations, resilience, observability, and ORM integration
 - Bulk executor and bulk operations mode
-- Performance tips for SDK usage
-  - Direct vs. Gateway connectivity mode
-  - Dedicated gateway for integrated cache scenarios → see Ch11 for cache details; one-liner here
+- Performance tips for high-throughput scenarios
+  - Dedicated gateway for integrated cache scenarios → see Ch 11 for cache details; one-liner here
   - Connection pooling
   - Preferred region configuration
 - Entity Framework Core with Cosmos DB
@@ -383,16 +386,16 @@
 - OpenTelemetry instrumentation in the SDK ✶ CANONICAL for SDK-side telemetry setup
   - Enabling built-in tracing and metrics
   - Correlating with application-level spans
-  - → consuming and dashboarding telemetry covered in Ch18
+  - → consuming and dashboarding telemetry covered in Ch 18
 - SDK observability: Micrometer metrics (Java), diagnostic strings, and request-level diagnostics
-- Designing resilient SDK applications ✶ CANONICAL — the single home for retry, resilience, and availability strategy
+- Designing resilient SDK applications ✶ CANONICAL — the single home for advanced retry, resilience, and availability strategy
   - Preferred regions and availability strategy
   - Retry policies, circuit breakers, and custom retry logic
   - Connection timeout and keep-alive tuning
 
 ### Chapter 22: Integrating with Azure Services
-- **Azure Functions**: the change feed trigger and HTTP trigger → change feed concepts in Ch15; focus on Functions wiring here
-- **Azure Event Hubs and Kafka**: streaming Cosmos DB changes downstream → change feed patterns in Ch15; focus on Event Hubs/Kafka setup here
+- **Azure Functions**: the change feed trigger and HTTP trigger → change feed concepts in Ch 15; focus on Functions wiring here
+- **Azure Event Hubs and Kafka**: streaming Cosmos DB changes downstream → change feed patterns in Ch 15; focus on Event Hubs/Kafka setup here
 - **Azure Synapse Link and Synapse Analytics**: no-ETL HTAP analytics
   - Analytical store: column-format replica for analytics
   - Running Spark and serverless SQL pools over Cosmos DB data
@@ -416,7 +419,7 @@
 - Assessing your current workload for Cosmos DB fit
 - Converting vCores to Request Units: the migration calculator
 - Migrating from relational databases (SQL Server, PostgreSQL)
-  - Rethinking the schema: denormalization and embedding → modeling concepts in Ch4; keep to migration-specific advice here
+  - Rethinking the schema: denormalization and embedding → modeling concepts in Ch 4; keep to migration-specific advice here
   - One-to-few migration patterns using Azure Data Factory
   - Using Azure Databricks for complex transformation
 - Migrating from other NoSQL databases
@@ -433,7 +436,7 @@
 - Unit testing with a mocked Cosmos DB client
   - Abstracting the SDK behind a repository interface
   - Mocking CosmosClient, Container, and FeedIterator
-- Integration testing with the Cosmos DB emulator → emulator setup in Ch3; focus on test workflows and CI here
+- Integration testing with the Cosmos DB emulator → emulator setup in Ch 3; focus on test workflows and CI here
   - Windows emulator vs. Linux-based vNext Docker image
   - Configuring the emulator for CI (Docker image)
   - Seeding and tearing down test data between runs
@@ -453,14 +456,14 @@
   - Supported vector data types (float32, int8, uint8)
   - Distance functions: cosine, Euclidean, dot product
   - Dimensions and model selection (OpenAI, Azure AI)
-- Vector indexing with DiskANN → indexing policy config in Ch9; focus on search behavior and AI patterns here
+- Vector indexing with DiskANN → indexing policy config in Ch 9; focus on search behavior and AI patterns here
   - Flat (exact search) vs. DiskANN (approximate nearest neighbor)
   - Sharded DiskANN for multi-tenant scenarios
 - Running vector similarity search queries
 - Hybrid search: combining vector search with keyword and filter queries
   - Weighted hybrid search with RRF
 - Semantic Reranker (preview): AI-powered reranking of query results
-- Full-text search: using the indexing policy and query functions → indexing in Ch9, query functions in Ch8; brief recap and AI-specific usage here
+- Full-text search: using the indexing policy and query functions → indexing in Ch 9, query functions in Ch 8; brief recap and AI-specific usage here
 - Semantic cache: using Cosmos DB as an LLM response cache
 - Building a RAG (Retrieval-Augmented Generation) application with Cosmos DB and Azure OpenAI
 - Using Cosmos DB for LLM conversation history / memory caching
@@ -478,38 +481,38 @@
 ### Chapter 26: Multi-Tenancy Patterns ✶ CANONICAL for tenant isolation, throughput sharing, and fleet management
 - The spectrum: database-per-tenant, container-per-tenant, shared container
 - Shared container multi-tenancy with partition key isolation
-- Hierarchical partition keys for high-cardinality tenant + entity patterns → HPK concept introduced in Ch5; expand on multi-tenant usage here
-- Enforcing tenant data isolation with RBAC and resource tokens → RBAC details in Ch17; focus on tenancy-specific patterns here
-- Throughput management: dedicated vs. shared (database-level) RU/s per tenant → capacity models in Ch11; focus on per-tenant decisions here
+- Hierarchical partition keys for high-cardinality tenant + entity patterns → HPK concept introduced in Ch 5; expand on multi-tenant usage here
+- Enforcing tenant data isolation with RBAC and resource tokens → RBAC details in Ch 17; focus on tenancy-specific patterns here
+- Throughput management: dedicated vs. shared (database-level) RU/s per tenant → capacity models in Ch 11; focus on per-tenant decisions here
 - Multi-tenant vector search: combining tenancy isolation with vector queries
 - Cosmos DB Fleets: orchestrating multi-account, multi-tenant deployments at scale
   - Fleet pools and fleet analytics
 - Anti-patterns and pitfalls in multi-tenant Cosmos DB design
 
 ### Chapter 27: Performance Tuning and Best Practices
-- The performance tuning loop: measure → identify → optimize → validate → uses metrics from Ch18, RU analysis from Ch10
-- Choosing direct connectivity mode for lowest latency → connection modes introduced in Ch21; expand on when/why here
-- Optimizing document size and structure → modeling in Ch4; focus on perf impact here
-- Indexing policy tuning for write-heavy workloads → indexing policy details in Ch9; focus on perf trade-offs here
-- Query optimization walk-through: from expensive to efficient → query language in Ch8; this is the applied walk-through
-- Leveraging Query Advisor (introduced in Chapter 8) in the tuning loop → see Ch8 for how it works; brief reference here
+- The performance tuning loop: measure → identify → optimize → validate → uses metrics from Ch 18, RU analysis from Ch 10
+- Choosing direct connectivity mode for lowest latency → connection modes introduced in Ch 7; expand on when/why here
+- Optimizing document size and structure → modeling in Ch 4; focus on perf impact here
+- Indexing policy tuning for write-heavy workloads → indexing policy details in Ch 9; focus on perf trade-offs here
+- Query optimization walk-through: from expensive to efficient → query language in Ch 8; this is the applied walk-through
+- Leveraging Query Advisor (introduced in Ch 8) in the tuning loop → see Ch 8 for how it works; brief reference here
 - Handling hot partitions at scale ✶ EXPAND HERE for remediation
   - Throughput redistribution across physical partitions
 - Capacity planning and load testing with the RU calculator
-- Per-language SDK best practices (.NET, Java, Python, JavaScript) → SDK fundamentals in Ch21; this is the perf-specific addendum
+- Per-language SDK best practices (.NET, Java, Python, JavaScript) → SDK fundamentals in Ch 7, advanced patterns in Ch 21; this is the perf-specific addendum
 - When to consider multiple containers vs. a single container design
 - Production readiness checklist
 
 ### Chapter 28: Capstone — Building a Production-Ready Application
 > This chapter ties together concepts from across the book. Keep explanations minimal — reference the canonical chapter for each topic. The value here is seeing everything work together.
 - Overview: what we're building (e.g., a multi-tenant task management API or real-time order system)
-- Designing the data model and choosing the partition key → applies Ch4 + Ch5
-- Implementing CRUD and query endpoints with the SDK → applies Ch21 + Ch8
-- Adding change feed processing for downstream side effects → applies Ch15
-- Securing the app with Entra ID and RBAC → applies Ch17
-- Wiring up monitoring, alerting, and distributed tracing → applies Ch18 + Ch21
-- Writing the test suite: unit, integration, and emulator-based → applies Ch24
-- Deploying to Azure with Bicep and a CI/CD pipeline → applies Ch20
+- Designing the data model and choosing the partition key → applies Ch 4 + Ch 5
+- Implementing CRUD and query endpoints with the SDK → applies Ch 7 + Ch 8
+- Adding change feed processing for downstream side effects → applies Ch 15
+- Securing the app with Entra ID and RBAC → applies Ch 17
+- Wiring up monitoring, alerting, and distributed tracing → applies Ch 18 + Ch 21
+- Writing the test suite: unit, integration, and emulator-based → applies Ch 24
+- Deploying to Azure with Bicep and a CI/CD pipeline → applies Ch 20
 - Retrospective: trade-offs made and alternatives considered
 
 ---
