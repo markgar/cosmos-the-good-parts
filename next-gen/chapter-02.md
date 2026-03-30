@@ -212,7 +212,7 @@ There's no limit to the *number* of logical partitions in a container. You can h
 
 Behind the scenes, Cosmos DB maps your logical partitions onto **physical partitions** — actual storage and compute resources on the service's infrastructure. Multiple logical partitions can share a single physical partition. As your data grows, the service automatically splits physical partitions to maintain performance.
 
-Each physical partition supports up to **10,000 RU/s** of throughput and up to **50 GB** of storage. When either limit is approached, Cosmos DB splits the physical partition, redistributing logical partitions across the new physical partitions. This happens transparently — your application sees no downtime and no behavior change. <!-- Source: resource-model.md, partitioning.md -->
+Each physical partition supports up to **10,000 RU/s** of throughput and up to **50 GB** of storage. When either limit is approached, Cosmos DB splits the physical partition, redistributing logical partitions across the new physical partitions. This happens transparently — your application sees no downtime and no behavior change. The mechanics of how splits work, what triggers them, and how the reverse operation (partition merge) can reclaim fragmented resources are covered in Chapter 5. <!-- Source: resource-model.md, partitioning.md -->
 
 Provisioned throughput is divided evenly across physical partitions, which means an uneven partition key can create a "hot partition" that gets throttled even though the container has headroom overall. We'll explore the throughput math and partition key design strategies in Chapter 5, including hierarchical partition keys that help you break through the 20 GB logical partition limit.
 
