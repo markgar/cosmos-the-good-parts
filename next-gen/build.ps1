@@ -58,9 +58,15 @@ foreach ($ch in $chapters) {
 }
 Write-Host "Including $($chapters.Count) chapters: $($chapters.Name -join ', ')" -ForegroundColor Green
 
-# Appendices
-$appendices = Join-Path $bookDir "appendices.md"
-if (Test-Path $appendices) { $sources += $appendices }
+# Appendices (individual files sorted by name, or single appendices.md)
+$appendixFiles = Get-ChildItem -Path $bookDir -Filter "appendix-*.md" | Sort-Object Name
+if ($appendixFiles.Count -gt 0) {
+    foreach ($app in $appendixFiles) { $sources += $app.FullName }
+    Write-Host "Including $($appendixFiles.Count) appendices: $($appendixFiles.Name -join ', ')" -ForegroundColor Green
+} else {
+    $appendices = Join-Path $bookDir "appendices.md"
+    if (Test-Path $appendices) { $sources += $appendices }
+}
 
 # Back matter
 $backMatter = @("about-author.md")
