@@ -1,494 +1,361 @@
-# Chapter 13: Stored Procedures, Triggers, and User-Defined Functions
+# Chapter 13: Consistency Levels
 
-So far in this book, every operation you've performed against Cosmos DB has originated from your application code — reads, writes, queries, all traveling across the network to the database and back. But what if you could push logic *into* the database engine itself, execute it right next to the data, and wrap multiple operations in a genuine ACID transaction?
+You've replicated your data to three continents. A user in Frankfurt writes a product review. A user in Sydney reads the product page half a second later. Does she see the review? That depends entirely on the consistency level you chose — and choosing the wrong one means your application either pays too much, reads stale data at the worst time, or slows to a crawl waiting for a guarantee it didn't need.
 
-That's exactly what server-side programming in Cosmos DB gives you. Using JavaScript, you can author **stored procedures**, **triggers**, and **user-defined functions (UDFs)** that run directly inside the database engine. In this chapter, you'll learn when these constructs make sense, how to write and register them, and — just as importantly — when to reach for other tools instead.
+Most distributed databases give you two options: strong consistency (safe but slow) or eventual consistency (fast but chaotic). Cosmos DB gives you five. That's not complexity for its own sake — it's recognition that different operations within the same application have different tolerance for staleness. A bank transfer needs the latest balance. A social media like count does not. Cosmos DB lets you pick the right tradeoff instead of forcing a one-size-fits-all answer.
 
-## When and Why to Use Server-Side JavaScript
+## The Consistency Spectrum
 
-Cosmos DB's database engine natively hosts a JavaScript runtime. When you register a stored procedure, trigger, or UDF, your code executes within the same process that manages the data. This architecture gives you several advantages:
+Think of consistency as a dial, not a switch. At one extreme, **strong consistency** guarantees every read returns the most recent write — across every region, every replica, every time. At the other extreme, **eventual consistency** says the data will converge *at some point*, but right now you might read something stale. Between those poles sit three levels that trade off increasing staleness tolerance for better latency, throughput, and availability.
 
-- **True ACID transactions.** Stored procedures and triggers execute within an ambient transaction with snapshot isolation. If any operation throws an exception, the entire transaction rolls back — all or nothing. Outside of server-side code, the only other way to get multi-item transactions is the transactional batch API.
-- **Reduced network round-trips.** Instead of reading an item, modifying it on the client, and writing it back — incurring latency on each hop — a stored procedure can do all of that in a single call.
-- **Pre-compilation.** Stored procedures, triggers, and UDFs are implicitly pre-compiled to byte code when you register them. Each subsequent invocation skips compilation overhead entirely.
-- **Batching.** You can group writes (like bulk inserts) into a single stored procedure call, reducing both network traffic and the per-operation transaction overhead.
+<!-- Source: consistency-levels.md -->
 
-That said, server-side code isn't a silver bullet. Here are the constraints to keep in mind:
+Here's the spectrum from strongest to weakest:
 
-- **Single partition scope.** Stored procedures and triggers are always scoped to a single logical partition. You must supply a partition key value when you execute them, and they cannot read or write items in other partitions.
-- **JavaScript only.** You can't import external modules. The runtime provides a specific server-side SDK (the `__` or `getContext()` API) — and that's it.
-- **Bounded execution.** The runtime enforces time and resource limits. Long-running procedures must handle continuation gracefully.
-- **RU variance.** Stored procedures consume RUs based on the complexity of their operations, and Cosmos DB reserves the *average* RU cost upfront. If your procedure's RU consumption varies widely between executions, this can affect budget utilization.
+| Consistency Level | Guarantee | Write Latency | RU Cost (Reads) |
+|---|---|---|---|
+| **Strong** | Linearizable — always the latest committed write | Highest (multi-region: 2×RTT + 10ms) | 2× |
+| **Bounded Staleness** | Reads lag by at most *K* versions or *T* seconds | < 10ms at p99 | 2× |
+| **Session** | Read-your-writes within a client session | < 10ms at p99 | 1× |
+| **Consistent Prefix** | No out-of-order reads, but can lag | < 10ms at p99 | 1× |
+| **Eventual** | No ordering guarantees, lowest latency | < 10ms at p99 | 1× |
 
-> **When to choose server-side code:** Use stored procedures when you need atomic multi-item writes within a partition — for example, transferring a balance between two documents, or bulk-inserting a batch of related items. Use triggers for lightweight validation or metadata bookkeeping that must happen atomically with a write. Use UDFs to encapsulate reusable calculation logic in queries.
->
-> **When to choose something else:** For cross-partition operations, use the transactional batch API or handle coordination in your application. For read-heavy workloads, querying from the client SDK is generally more efficient. For simple write transactions, the transactional batch feature in the .NET, Java, and Python SDKs offers better language integration and versioning.
+Every step down the ladder trades some freshness for better performance. The rest of this chapter explains exactly what each level guarantees, what it doesn't, and when to use it.
 
-## Stored Procedures
+## The Five Consistency Levels Explained
 
-A stored procedure is a JavaScript function registered on a container. When you execute it, you supply a partition key, and the procedure runs transactionally against items within that single logical partition.
+Before we dive into each level, one architectural detail matters: each physical partition in Cosmos DB maintains a **four-replica set**. Writes are committed to some quorum of those replicas, and reads are served from one or more replicas depending on the consistency level. The differences in how many replicas participate — and whether remote regions must acknowledge — is what makes each level behave differently.
 
-### The Execution Context
+<!-- Source: consistency-levels.md -->
 
-Every stored procedure accesses the database through the **context object**, retrieved via `getContext()`. From there, you can get:
+One more ground rule: **read consistency applies to a single read operation within a single logical partition**. Whether that read comes from your application code, a stored procedure, or a trigger, the consistency guarantee applies per-operation, not globally across your entire dataset.
 
-- `getContext().getCollection()` — the container, used for CRUD and query operations.
-- `getContext().getResponse()` — the response object, used to return data to the caller.
-- `getContext().getRequest()` — available inside triggers to inspect or modify the incoming request.
+### Strong Consistency
 
-### A Simple Example
+**Strong** consistency offers a **linearizability** guarantee. Every read, in every region, returns the most recent committed version of an item. You never see an uncommitted or partial write. If two clients on opposite sides of the planet read the same item at the same instant after a write, they both get the same value — the latest one.
 
-Here's the classic starting point — a stored procedure that returns a greeting:
+<!-- Source: consistency-levels.md -->
 
-```javascript
-function helloWorld() {
-    var context = getContext();
-    var response = context.getResponse();
-    response.setBody("Hello, World");
-}
-```
+This is the easiest model to reason about. It behaves like a single-copy system. No stale reads, no surprises. But that guarantee costs something:
 
-You register this on a container, execute it with a partition key, and get back `"Hello, World"`. Not terribly useful, but it illustrates the structure: get the context, do your work, set the response body.
+**Writes require acknowledgment from every region.** When you write an item under strong consistency, the operation doesn't return until all regions in your account have committed the write. The docs call this a "global majority" commit, but under normal conditions that means every region — no exceptions. (The Dynamic Quorum section below explains what happens when a region becomes unresponsive.)
 
-### Bulk Insert with Continuation Tokens
+**Write latency scales with geography.** For multi-region accounts, the write latency at the 99th percentile equals **two times the round-trip time (RTT) between the two farthest regions, plus 10 milliseconds**. If your farthest regions are US East and Australia East — roughly 200ms RTT — you're looking at around 410ms per write at p99. That's an order of magnitude slower than the sub-10ms latency you get with other consistency levels.
 
-Let's look at a more realistic scenario. Suppose you need to insert a batch of order line items that all share the same `orderId` (your partition key). You want them inserted atomically — either all of them land, or none do.
+<!-- Source: consistency-levels.md -->
 
-Here's a stored procedure that handles bulk insertion with **bounded execution**:
+**Reads consume 2× the RUs.** Strong consistency reads from two replicas in the local region (a minority quorum) to ensure freshness. That doubles the RU cost compared to session or eventual consistency. A point read that costs 1 RU under session consistency costs 2 RUs under strong.
 
-```javascript
-function bulkInsert(items) {
-    var container = getContext().getCollection();
-    var containerLink = container.getSelfLink();
-    var count = 0;
+<!-- Source: consistency-levels.md, request-units.md -->
 
-    if (!items) throw new Error("The items array is undefined or null.");
+**Regions farther than 5,000 miles (8,000 km) apart are blocked by default.** If you need strong consistency spanning, say, US East and Southeast Asia, you'll need to contact Azure support to enable it. Microsoft blocks this by default because the write latency would be punishingly high.
 
-    var itemsLength = items.length;
-    if (itemsLength === 0) {
-        getContext().getResponse().setBody(0);
-        return;
-    }
+<!-- Source: consistency-levels.md -->
 
-    tryCreate(items[count], callback);
+#### Dynamic Quorum
 
-    function tryCreate(item, callback) {
-        var isAccepted = container.createDocument(containerLink, item, callback);
+Strong consistency isn't as brittle as it sounds. Cosmos DB implements **dynamic quorum** for accounts with three or more regions.
 
-        // If the request was not accepted, we've hit the execution budget.
-        // Return the count so the client knows where to resume.
-        if (!isAccepted) getContext().getResponse().setBody(count);
-    }
+Under normal conditions, a write must be acknowledged by all regions. But if a region becomes unresponsive, the system can temporarily remove it from the quorum set to maintain write availability while preserving the strong consistency guarantee. In a five-region account, up to two unresponsive regions can be removed (since the majority is three). Removed regions can't serve reads until they rejoin the quorum.
 
-    function callback(err, item, options) {
-        if (err) throw err;
+<!-- Source: consistency-levels.md -->
 
-        count++;
+#### When to Use Strong Consistency
 
-        if (count >= itemsLength) {
-            // All items created successfully.
-            getContext().getResponse().setBody(count);
-        } else {
-            // Create the next item.
-            tryCreate(items[count], callback);
-        }
-    }
-}
-```
+Use strong when your application cannot tolerate *any* stale reads and the latency penalty is acceptable. Financial ledgers, inventory systems where double-selling is catastrophic, and regulatory scenarios where reads must always reflect the latest state are the classic use cases.
 
-There are two critical patterns in this code:
+Strong consistency is **not available with multi-region writes**. If your account is configured for multi-region writes, you can't select strong as your consistency level — the distributed system can't guarantee both zero RPO and zero RTO simultaneously. Chapter 12 covers this constraint from the replication angle.
 
-1. **The `isAccepted` check.** Every CRUD method on the collection object (`createDocument`, `replaceDocument`, `queryDocuments`, etc.) returns a boolean. If it returns `false`, the runtime has run out of execution budget (time or RUs). Your procedure must gracefully stop and return enough information for the client to resume.
+<!-- Source: consistency-levels.md -->
 
-2. **The callback chain.** Operations are asynchronous. You pass a callback to `createDocument`, and inside that callback, you trigger the next create. This sequential chaining is the standard pattern for server-side JavaScript in Cosmos DB.
+### Bounded Staleness
 
-### Handling Continuation on the Client
+**Bounded staleness** lets you put a ceiling on *how stale* a read can be. You configure two bounds, and whichever is reached first takes effect:
 
-When `isAccepted` returns `false`, the stored procedure returns the count of items it managed to insert. Your client code then needs to call the procedure again with the remaining items:
+- **K** — the maximum number of versions (writes) a read can lag behind
+- **T** — the maximum time interval a read can lag behind
 
-```csharp
-var items = GetOrderLineItems(); // Your full batch
-int totalInserted = 0;
+If you set K = 100,000 and T = 300 seconds, you're saying: "Reads in secondary regions can be at most 100,000 versions or 5 minutes behind, whichever is tighter."
 
-while (totalInserted < items.Count)
-{
-    var batch = items.Skip(totalInserted).ToArray();
+<!-- Source: consistency-levels.md -->
 
-    var result = await container.Scripts.ExecuteStoredProcedureAsync<int>(
-        "bulkInsert",
-        new PartitionKey("order-4567"),
-        new dynamic[] { batch });
+The minimums depend on your account topology:
 
-    totalInserted += result.Resource;
-}
-```
+| Account Type | Minimum K | Minimum T |
+|---|---|---|
+| Single-region | 10 write operations | 5 seconds |
+| Multi-region | 100,000 write operations | 300 seconds (5 minutes) |
 
-Each call to the stored procedure is its own transaction. If you need the *entire* set to be atomic, you'll need to size your batches to fit within the execution budget — or use the transactional batch API if it suits your operation types.
+<!-- Source: consistency-levels.md -->
 
-### Transactional Semantics: All or Nothing
+There's a subtlety that trips people up: **staleness checks happen only across regions, not within a region**. Within any given region, data is always replicated to a local majority (three replicas in the four-replica set) regardless of the consistency level. So within the write region, bounded staleness behaves like strong consistency. The "bounded lag" applies to *secondary regions* reading data written in the primary.
 
-Within a single execution of a stored procedure, all operations participate in an ACID transaction with snapshot isolation. This means:
+<!-- Source: consistency-levels.md -->
 
-- **Atomicity:** If your procedure throws an exception (or you call `getContext().abort()`), every write performed during that execution is rolled back.
-- **Consistency:** Reads within the procedure see a consistent snapshot of the partition's data.
-- **Isolation:** The procedure operates under snapshot isolation — other concurrent operations won't see intermediate states.
-- **Durability:** Once the procedure completes without error, all writes are committed and durable.
+Like strong consistency, bounded staleness reads use a **minority quorum** — two replicas in the local region — which means **reads cost 2× the RUs** of weaker consistency levels.
 
-This is the primary reason stored procedures exist. When you need to read two items, modify them based on each other, and write them both back — all without risking a partial update — a stored procedure gives you that guarantee within a partition.
+<!-- Source: consistency-levels.md -->
 
-### Registering and Executing from C\#
+If the replication lag for any partition exceeds the configured staleness bounds, writes to that partition are **throttled** until staleness falls back within limits. This is the service enforcing the guarantee you asked for — but it can cause unexpected 429 (rate-limited) responses if cross-region replication is slow.
 
-Here's how to register and execute a stored procedure using the .NET SDK v3:
+<!-- Source: consistency-levels.md -->
+
+#### Bounded Staleness and Multi-Region Writes: An Anti-Pattern
+
+The docs are blunt about this, and so am I: **bounded staleness in a multi-region write account is an anti-pattern**. In a multi-write topology, application servers should be reading and writing in the same region. The staleness bound measures lag *between* regions, which is irrelevant if you're always reading from where you wrote. You'd be paying the 2× RU read cost for a guarantee that doesn't help you. Use session consistency instead.
+
+<!-- Source: consistency-levels.md -->
+
+#### When to Use Bounded Staleness
+
+Bounded staleness is designed for **single-region write accounts with multiple read regions** where you need near-strong consistency globally but can tolerate a small, predictable lag. Think: a global analytics dashboard that can be a few minutes behind, but never wildly out of date. Or a multi-region app where regulatory requirements dictate a maximum data freshness window.
+
+### Session Consistency
+
+**Session** is the default consistency level for Cosmos DB accounts, and for good reason — it's the right choice for most applications.
+
+The guarantee: within a single client session, you get **read-your-writes** and **write-follows-reads**. If you write an item and immediately read it back, you see your write. Always. Outside your session, other readers might see stale data (exactly like eventual consistency), but *you* never see your own writes disappear.
+
+<!-- Source: consistency-levels.md -->
+
+The mechanism behind this is the **session token**. After every write, the server returns an updated session token to the SDK. The SDK caches this token and sends it with subsequent read requests. The token tells the server "I need data at least as fresh as version X." If the replica serving the read has that version (or newer), it returns the data. If not, the SDK retries against other replicas in the region and, if necessary, in other regions.
+
+<!-- Source: consistency-levels.md -->
+
+A few critical details:
+
+**Session tokens are partition-bound.** Each token is associated with a specific physical partition. If your client writes to partition A and then reads from partition B (a different partition key), there's no session token for partition B — and that read behaves like eventual consistency. This is by design, but it surprises developers who expect session consistency to be "sticky" across the entire container.
+
+**New clients start cold.** When you create a new `CosmosClient` instance (or restart your application), the session token cache is empty. Until the client performs writes that populate the cache, reads behave like eventual consistency. This is why Chapter 7 stressed using a singleton `CosmosClient` — creating fresh instances breaks session continuity.
+
+**You can pass session tokens between clients.** In a web application with stateless backends behind a load balancer, requests might land on different servers, each with its own `CosmosClient` instance. If you need read-your-writes across those servers, extract the session token from the write response header (`x-ms-session-token`) and pass it to subsequent read requests. The typical approach is to flow the token through a cookie or custom HTTP header.
+
+<!-- Source: how-to-manage-consistency.md -->
+
+Here's what passing a session token looks like in C#:
 
 ```csharp
-// Register the stored procedure
-StoredProcedureResponse spResponse = await container.Scripts
-    .CreateStoredProcedureAsync(new StoredProcedureProperties
-    {
-        Id = "bulkInsert",
-        Body = File.ReadAllText(@"js\bulkInsert.js")
-    });
+// After a write, capture the session token
+ItemResponse<Order> writeResponse = await container.UpsertItemAsync(order, 
+    new PartitionKey(order.CustomerId));
+string sessionToken = writeResponse.Headers.Session;
 
-// Execute it
-dynamic[] newItems = new dynamic[]
+// On a subsequent read (possibly from a different server), pass it
+ItemResponse<Order> readResponse = await container.ReadItemAsync<Order>(
+    order.Id,
+    new PartitionKey(order.CustomerId),
+    new ItemRequestOptions { SessionToken = sessionToken }
+);
+```
+
+<!-- Source: how-to-manage-consistency.md -->
+
+And in JavaScript:
+
+```javascript
+// Capture session token from the write response
+const { headers } = await container.items.upsert(order);
+const sessionToken = headers["x-ms-session-token"];
+
+// Use it on a subsequent read
+const { resource } = await container.item(order.id, order.customerId)
+    .read({ sessionToken });
+```
+
+<!-- Source: how-to-manage-consistency.md -->
+
+If you don't manually manage session tokens, the SDK handles it automatically within a single client instance. You only need to get involved when crossing client boundaries.
+
+#### When to Use Session Consistency
+
+Session is the right default for the vast majority of applications. Any scenario where users interact with their own data — shopping carts, user profiles, document editing, order tracking — benefits from read-your-writes without the latency or cost penalty of strong consistency. It provides write latencies, availability, and read throughput comparable to eventual consistency while giving you the one guarantee most applications actually need.
+
+<!-- Source: consistency-levels.md -->
+
+### Consistent Prefix
+
+**Consistent prefix** guarantees that you never see writes out of order — but makes no promise about *how far behind* you might be.
+
+The key distinction here is between single-document writes and transactional batches:
+
+- **Single document writes** see eventual consistency. A standalone write to one document offers no ordering guarantee relative to other standalone writes.
+- **Transactional batch writes** are always visible together. If a transaction writes Doc1 v2 and Doc2 v2 atomically, a reader will see either both old values (Doc1 v1, Doc2 v1) or both new values (Doc1 v2, Doc2 v2) — never a mix like Doc1 v2 with Doc2 v1.
+
+<!-- Source: consistency-levels.md -->
+
+This level reads from a single replica, so **RU cost is the same as session and eventual** — no 2× penalty. Writes use local majority (three of four replicas), same as all non-strong levels.
+
+#### When to Use Consistent Prefix
+
+Consistent prefix is useful when you're processing events or state transitions that must appear in order but don't need to be real-time. A pipeline processing status updates (pending → processing → complete) benefits from never seeing "complete" before "processing," even if the reader is a few seconds behind. However, for single-document operations, consistent prefix offers minimal benefit over eventual. Its value is concentrated in transactional batch scenarios.
+
+### Eventual Consistency
+
+**Eventual** consistency is the weakest level. The only guarantee is that, given enough time without new writes, all replicas will converge to the same value. While writes are still propagating, a client might read stale data — and might even read *older* data than it read a moment ago. There's no ordering guarantee whatsoever.
+
+<!-- Source: consistency-levels.md -->
+
+Reads go to any one of the four replicas in the local region. If that replica is lagging, you get stale data. No retries, no version checking, no session tokens — just whatever the first replica has.
+
+This gives you the best read performance. Single-replica reads mean the lowest possible latency and the standard 1× RU cost. Write performance is identical to all other non-strong levels: local majority commit, asynchronous replication to other regions.
+
+#### When to Use Eventual Consistency
+
+Eventual consistency works for data where staleness is harmless and ordering doesn't matter: like counts, social media reactions, non-threaded comments, view counters, or telemetry aggregations. If you're building a dashboard that shows approximate metrics and can tolerate a few seconds of lag, eventual consistency gives you the cheapest, fastest reads available.
+
+Don't use it for anything where a user could notice inconsistency. A shopping cart that loses the last item you added — even temporarily — is a terrible experience.
+
+## Choosing the Right Consistency for Your Workload
+
+The five levels aren't equally popular. In practice, the decision tree is simpler than the spectrum implies.
+
+**Start with Session.** It's the default for a reason. Most application logic operates in the context of a user session — a web request, an API call, a mobile app interaction. Within that context, read-your-writes is the guarantee you actually need. Session consistency costs the same as eventual for reads (1× RU) and gives you a meaningful guarantee.
+
+**Step up to Strong or Bounded Staleness only when you have a concrete reason.** Financial transactions, inventory reservations, or regulatory requirements that mandate zero staleness justify the cost. Remember: you're paying 2× RU on every read and (for strong in multi-region) significantly higher write latency.
+
+**Step down to Eventual only for genuinely unimportant reads.** Analytics counters, activity feeds where "close enough" is fine, bulk data pipelines where the consumer tolerates lag.
+
+**Consistent Prefix lives in a narrow niche.** It's mainly useful when you have transactional batches that must be visible atomically but don't need to be current. For single-document operations, it behaves almost identically to eventual.
+
+Here's a decision table:
+
+| Scenario | Recommended Level | Why |
+|---|---|---|
+| User reads their own data (profiles, carts, orders) | **Session** | Read-your-writes at low cost |
+| Financial ledger, inventory, legal record | **Strong** | Zero staleness required |
+| Global dashboard, max 5 min delay acceptable | **Bounded Staleness** | Controlled lag ceiling |
+| Event processing pipeline with ordered transactions | **Consistent Prefix** | No out-of-order batch reads |
+| Like counts, view counters, telemetry | **Eventual** | Staleness is harmless |
+
+## Consistency and Its Impact on RU Cost and Latency
+
+Consistency isn't free. Your choice affects both the cost of individual operations and the throughput ceiling of your account.
+
+### Read Cost
+
+The fundamental split: **strong and bounded staleness reads cost 2× the RUs** of session, consistent prefix, and eventual reads. This is because strong and bounded staleness read from two replicas (a local minority quorum), while the weaker levels read from a single replica.
+
+<!-- Source: consistency-levels.md, request-units.md -->
+
+| Consistency Level | Quorum Reads | Quorum Writes | Read RU Multiplier |
+|---|---|---|---|
+| **Strong** | Local Minority (2 replicas) | Global Majority | 2× |
+| **Bounded Staleness** | Local Minority (2 replicas) | Local Majority | 2× |
+| **Session** | Single Replica (session token) | Local Majority | 1× |
+| **Consistent Prefix** | Single Replica | Local Majority | 1× |
+| **Eventual** | Single Replica | Local Majority | 1× |
+
+<!-- Source: consistency-levels.md -->
+
+Concretely: a point read of a 1 KB item costs about 1 RU at session consistency but about 2 RUs at strong consistency. For a read-heavy workload doing millions of point reads per day, that's a 2× difference in your monthly bill's read component. Chapter 10 covers RU mechanics in depth; the takeaway here is that consistency level is one of the main levers for managing RU cost.
+
+### Write Cost
+
+Write RU cost is **identical across all consistency levels**. A 1 KB upsert costs the same number of RUs whether your account is set to strong or eventual. The difference is in *latency*, not cost:
+
+- **Strong:** writes must commit to all regions (the docs call this "global majority"). Latency = 2×RTT between farthest regions + 10ms at p99.
+- **All others:** writes commit to a local majority (three of four replicas in the local region). Replication to other regions is asynchronous. Latency stays under 10ms at p99.
+
+<!-- Source: consistency-levels.md -->
+
+### Read Latency
+
+All consistency levels guarantee read latency under 10 milliseconds at the 99th percentile, with typical (p50) read latency of 4 milliseconds or less. The consistency level doesn't change the latency SLA for reads — it changes the *cost* (RUs) and the *freshness* of what you read.
+
+<!-- Source: consistency-levels.md -->
+
+### The Throughput Impact
+
+Since strong and bounded staleness reads consume 2× RUs, they also halve your effective read throughput for the same provisioned RU/s. If you provision 10,000 RU/s, a workload using session consistency can sustain roughly twice as many 1 KB point reads per second as the same workload using strong consistency. That's a significant capacity difference — factor it into your provisioning calculations.
+
+## Per-Request Consistency Override
+
+You don't have to pick one consistency level and live with it for every operation. Cosmos DB lets you **override the default consistency on a per-request basis** — but with a critical constraint: **you can only relax, never strengthen**. If your account default is session, you can weaken a specific read to eventual (cheaper, faster), but you can't elevate it to strong.
+
+<!-- Source: consistency-levels.md, how-to-manage-consistency.md -->
+
+This is useful when different operations within the same application have different freshness needs. Your checkout flow might use the account default (session) to guarantee read-your-writes on the order, while a product recommendations query relaxes to eventual because a slightly stale recommendation is fine.
+
+Chapter 7 showed the code pattern. Here's a quick reminder in C#:
+
+```csharp
+// Account default is Session. Relax this specific read to Eventual.
+var options = new ItemRequestOptions
 {
-    new { id = "line-1", orderId = "order-4567", product = "Widget A", qty = 3 },
-    new { id = "line-2", orderId = "order-4567", product = "Widget B", qty = 1 }
+    ConsistencyLevel = ConsistencyLevel.Eventual
 };
 
-var result = await container.Scripts.ExecuteStoredProcedureAsync<int>(
-    "bulkInsert",
-    new PartitionKey("order-4567"),
-    new dynamic[] { newItems });
-
-Console.WriteLine($"Inserted {result.Resource} items. Cost: {result.RequestCharge} RUs");
+ItemResponse<Product> response = await container.ReadItemAsync<Product>(
+    "prod-1001",
+    new PartitionKey("gear-surf-surfboards"),
+    options
+);
 ```
 
-Note the partition key in the `ExecuteStoredProcedureAsync` call. This is mandatory — it tells the engine which logical partition to scope the transaction to.
+<!-- Source: how-to-manage-consistency.md -->
 
-## Pre-Triggers and Post-Triggers
+And the same in Go, where per-request overrides are set through options:
 
-Triggers let you execute JavaScript automatically before or after a write operation. Unlike stored procedures, you don't call triggers directly. Instead, you *specify* them as part of a write request, and the engine runs them within the same transaction as the write.
-
-Two important rules:
-
-1. **Triggers are not automatic.** You must explicitly name the trigger in your request options. They won't fire on their own just because they're registered.
-2. **One trigger per type per operation.** You can include one pre-trigger and one post-trigger per request.
-
-### Pre-Triggers: Validate or Modify Before the Write
-
-A pre-trigger runs *before* the item is written. It has access to the request body and can inspect, validate, or modify it. If it throws an exception, the write is aborted.
-
-Here's a pre-trigger that ensures every new item has a `createdAt` timestamp:
-
-```javascript
-function ensureCreatedTimestamp() {
-    var context = getContext();
-    var request = context.getRequest();
-
-    // Get the item about to be created
-    var itemToCreate = request.getBody();
-
-    // Add a timestamp if one isn't present
-    if (!("createdAt" in itemToCreate)) {
-        itemToCreate["createdAt"] = new Date().toISOString();
-    }
-
-    // Validate required fields
-    if (!itemToCreate["name"]) {
-        throw new Error("Item must have a 'name' property.");
-    }
-
-    // Write the modified item back to the request
-    request.setBody(itemToCreate);
-}
+```go
+container.ReadItem(
+    context.Background(),
+    azcosmos.NewPartitionKeyString("gear-surf-surfboards"),
+    "prod-1001",
+    &azcosmos.ItemOptions{
+        ConsistencyLevel: azcosmos.ConsistencyLevelEventual.ToPtr(),
+    },
+)
 ```
 
-The key method here is `request.setBody()`. After you modify the item, you must call this to update the request body — otherwise your changes are lost.
-
-To register and invoke this pre-trigger from C#:
-
-```csharp
-// Register
-await container.Scripts.CreateTriggerAsync(new TriggerProperties
-{
-    Id = "ensureCreatedTimestamp",
-    Body = File.ReadAllText(@"js\ensureCreatedTimestamp.js"),
-    TriggerOperation = TriggerOperation.Create,
-    TriggerType = TriggerType.Pre
-});
-
-// Use the trigger when creating an item
-var newItem = new { id = "item-1", orderId = "order-4567", name = "Widget A" };
-
-await container.CreateItemAsync(
-    newItem,
-    new PartitionKey("order-4567"),
-    new ItemRequestOptions
-    {
-        PreTriggers = new List<string> { "ensureCreatedTimestamp" }
-    });
-```
-
-When this executes, the engine calls your pre-trigger, which stamps `createdAt` onto the item, validates that `name` is present, and then the write proceeds — all within a single transaction.
-
-### Post-Triggers: React to Writes Atomically
-
-A post-trigger runs *after* the item has been written but *within the same transaction*. This makes it ideal for maintaining metadata, audit logs, or aggregate documents that must stay consistent with the data they describe.
-
-Here's a post-trigger that maintains a running count of items in a metadata document:
-
-```javascript
-function updateItemCount() {
-    var context = getContext();
-    var container = context.getCollection();
-    var response = context.getResponse();
-
-    // The item that was just created
-    var createdItem = response.getBody();
-
-    // Query for the metadata document
-    var filterQuery = 'SELECT * FROM root r WHERE r.id = "_metadata"';
-    var accept = container.queryDocuments(
-        container.getSelfLink(),
-        filterQuery,
-        function (err, items, responseOptions) {
-            if (err) throw new Error("Error: " + err.message);
-            if (items.length !== 1) throw new Error("Metadata document not found.");
-
-            var metadata = items[0];
-            metadata.itemCount += 1;
-            metadata.lastItemId = createdItem.id;
+<!-- Source: how-to-manage-consistency.md -->
 
-            var acceptReplace = container.replaceDocument(
-                metadata._self,
-                metadata,
-                function (err, replaced) {
-                    if (err) throw new Error("Unable to update metadata.");
-                });
-
-            if (!acceptReplace) throw new Error("Unable to update metadata, abort.");
-        });
-
-    if (!accept) throw new Error("Unable to query metadata, abort.");
-}
-```
-
-Because the post-trigger participates in the same transaction as the write, if the metadata update fails, the original item creation is also rolled back. This gives you cross-document consistency within the partition without any client-side coordination.
-
-To invoke it:
-
-```csharp
-await container.CreateItemAsync(
-    newItem,
-    new PartitionKey("order-4567"),
-    new ItemRequestOptions
-    {
-        PostTriggers = new List<string> { "updateItemCount" }
-    });
-```
-
-## User-Defined Functions (UDFs)
-
-User-defined functions are pure JavaScript functions that you can call from within SQL queries. Unlike stored procedures and triggers, UDFs are read-only — they can't modify data. Their purpose is to encapsulate computation logic that you'd otherwise have to duplicate in application code or express awkwardly in SQL.
-
-### Writing and Registering a UDF
-
-Here's a UDF that calculates a tiered discount based on quantity:
-
-```javascript
-function calculateDiscount(quantity, unitPrice) {
-    if (quantity == undefined || unitPrice == undefined)
-        throw "Both quantity and unitPrice are required.";
-
-    var discount;
-    if (quantity >= 100) {
-        discount = 0.20;  // 20% off for large orders
-    } else if (quantity >= 25) {
-        discount = 0.10;  // 10% off for medium orders
-    } else {
-        discount = 0.0;   // No discount
-    }
-
-    return unitPrice * quantity * (1 - discount);
-}
-```
-
-Register it from C#:
-
-```csharp
-await container.Scripts.CreateUserDefinedFunctionAsync(
-    new UserDefinedFunctionProperties
-    {
-        Id = "calculateDiscount",
-        Body = File.ReadAllText(@"js\calculateDiscount.js")
-    });
-```
-
-### Using UDFs in Queries
-
-Once registered, you can reference UDFs in SQL queries using the `udf.` prefix:
-
-```sql
-SELECT
-    c.productName,
-    c.quantity,
-    c.unitPrice,
-    udf.calculateDiscount(c.quantity, c.unitPrice) AS totalAfterDiscount
-FROM c
-WHERE c.orderId = "order-4567"
-```
-
-You can also use UDFs in `WHERE` clauses to filter results:
+One detail that catches people: **overriding consistency affects reads only**. An account configured for strong consistency still writes synchronously to every region, even if the SDK or request overrides the read consistency to eventual. You're changing *how reads are served*, not how writes are replicated.
 
-```sql
-SELECT c.productName, c.quantity
-FROM c
-WHERE udf.calculateDiscount(c.quantity, c.unitPrice) > 500
-```
+<!-- Source: consistency-levels.md, how-to-manage-consistency.md -->
 
-This pushes the discount logic into the query engine so it's evaluated server-side per document. The UDF runs in the same read transaction as the query.
+To go the other direction — strengthening consistency — you need to change the account-level default. If your account is set to eventual and you need strong consistency for some operations, you must change the account default to strong and then relax per-request where you don't need it. One important housekeeping note: after changing the account-level consistency, restart your application (or recreate your SDK client instances) so the SDK picks up the new default.
 
-> **A note on performance:** UDFs are invoked once per document evaluated by the query. For large result sets, this can add up. If your UDF is simple arithmetic, consider whether you can express it directly in SQL. UDFs shine when the logic is complex enough that SQL can't express it cleanly — tiered calculations, string manipulations, custom validation rules.
+<!-- Source: consistency-levels.md -->
 
-## Optimistic Concurrency with ETags in Server-Side Logic
+## How Consistency Interacts with Multi-Region Writes
 
-Every item in Cosmos DB has a system-managed `_etag` property that changes whenever the item is updated. This is the foundation of **optimistic concurrency control (OCC)** — and it works inside stored procedures too.
+Chapter 12 covers multi-region write topologies and conflict resolution in detail. Here, we'll focus specifically on how consistency levels behave differently in multi-region write accounts.
 
-When a stored procedure reads an item and then replaces it, the engine implicitly checks the `_etag` of all written items. If another operation modified the item between the procedure's read and write, the `_etag` won't match, and the entire transaction rolls back with a conflict error.
+### Strong Consistency Is Off the Table
 
-Here's how this looks in practice:
+As covered in the Strong Consistency section above, **strong consistency is not available with multi-region writes** — you must use a single-region write configuration.
 
-```javascript
-function conditionalUpdate(itemId, expectedEtag, updates) {
-    var context = getContext();
-    var container = context.getCollection();
-    var response = context.getResponse();
+### Bounded Staleness Isn't Worth It
 
-    var query = {
-        query: "SELECT * FROM c WHERE c.id = @id",
-        parameters: [{ name: "@id", value: itemId }]
-    };
+As discussed earlier, combining bounded staleness with multi-region writes is an anti-pattern — you pay the 2× read cost for no benefit.
 
-    var accept = container.queryDocuments(
-        container.getSelfLink(),
-        query,
-        function (err, items) {
-            if (err) throw new Error(err.message);
-            if (items.length !== 1) throw new Error("Item not found.");
+### Session Is the Sweet Spot for Multi-Region Writes
 
-            var item = items[0];
+In a multi-region write account, session consistency gives you read-your-writes within each region. As long as your application reads from the same region where it wrote (which the SDK's preferred-regions configuration handles automatically), session consistency works exactly as you'd expect. Writes that arrive in satellite regions are sent to the hub region for conflict resolution asynchronously, but your local reads see your local writes immediately.
 
-            // Check the ETag matches what the client expects
-            if (item._etag !== expectedEtag) {
-                throw new Error("ETag mismatch — item was modified by another operation.");
-            }
+### Consistency and Data Durability
 
-            // Apply updates
-            for (var key in updates) {
-                if (updates.hasOwnProperty(key)) {
-                    item[key] = updates[key];
-                }
-            }
+Your consistency level directly impacts your **Recovery Point Objective (RPO)** — how much data you could lose during a regional outage. Here's the relationship:
 
-            var acceptReplace = container.replaceDocument(
-                item._self,
-                item,
-                function (err, replaced) {
-                    if (err) throw new Error(err.message);
-                    response.setBody(replaced);
-                });
+<!-- Source: consistency-levels.md -->
 
-            if (!acceptReplace) throw new Error("Replace was not accepted.");
-        });
-
-    if (!accept) throw new Error("Query was not accepted.");
-}
-```
-
-In this example, the client passes the `_etag` value it received when it last read the item. The stored procedure checks it explicitly before applying updates. But even without that explicit check, the Cosmos DB engine would catch the conflict at commit time because `_etag` values are implicitly checked for all items written within a stored procedure. If any conflict is detected, the transaction rolls back and throws an exception.
-
-From the client side, you handle the conflict by catching the exception and retrying with a fresh read:
-
-```csharp
-try
-{
-    var result = await container.Scripts.ExecuteStoredProcedureAsync<dynamic>(
-        "conditionalUpdate",
-        new PartitionKey("order-4567"),
-        new dynamic[] { "item-1", currentEtag, new { status = "shipped" } });
-}
-catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.PreconditionFailed)
-{
-    // ETag mismatch — re-read and retry
-}
-```
-
-## Performance Considerations
-
-Understanding the performance characteristics of server-side code helps you decide when to use it — and when to avoid it.
-
-### Pre-Compilation
-
-When you register a stored procedure, trigger, or UDF, Cosmos DB compiles the JavaScript to byte code and caches it. Subsequent invocations skip the compilation step entirely. This makes stored procedures particularly efficient for operations you execute frequently — the overhead is essentially just the RU cost of the data operations themselves.
-
-### Batching Benefits
-
-The biggest performance win from stored procedures comes from batching. Consider inserting 50 items individually from a client:
-
-- 50 network round-trips
-- 50 separate transactions
-- 50 sets of request/response overhead
-
-With a bulk-insert stored procedure:
-
-- 1 network round-trip
-- 1 transaction
-- 1 set of request/response overhead
-
-The RU cost for the data operations is roughly the same either way, but you eliminate the per-request overhead and network latency.
-
-### Bounded Execution and Timeouts
-
-The JavaScript runtime enforces an execution budget. If your procedure exceeds it, CRUD operations start returning `false` for `isAccepted`. This is not an error — it's by design. The procedure must return cleanly so the client can continue with the next batch.
-
-Design your stored procedures with this in mind:
-
-- **Always check `isAccepted`.** If you ignore it and try to keep going, the runtime will eventually terminate your procedure.
-- **Return progress indicators.** Return a count, a continuation token, or the ID of the last processed item so the client knows where to resume.
-- **Keep individual procedures focused.** A procedure that tries to do too much is more likely to hit execution limits and harder to debug.
-
-### When *Not* to Use Stored Procedures
-
-The official guidance is clear: stored procedures are best suited for **write-heavy operations that require transactions within a partition key**. They're not the right tool for:
-
-- **Read-heavy workloads.** Queries from the client SDK are more efficient for large reads because results stream back asynchronously.
-- **Cross-partition operations.** The single-partition scope is a hard constraint.
-- **Complex business logic.** Without module imports, debugging tools, or a rich standard library, complex logic is better handled in your application tier.
-- **Operations with high RU variance.** Because the engine reserves the average RU cost upfront, wide variance in RU consumption can lead to inefficient budget utilization.
-
-Also keep in mind that the **transactional batch** API (available in the .NET, Java, Python, and Go SDKs) offers multi-item ACID transactions within a partition using your native language — without writing JavaScript. For many scenarios that once required stored procedures, transactional batch is now the better choice. We'll cover transactional batch in detail in Chapter 15.
-
-## Summary
-
-Server-side JavaScript in Cosmos DB gives you three tools:
-
-| Feature | Purpose | Scope | Modifies Data? |
+| Regions | Replication Mode | Consistency Level | RPO |
 |---|---|---|---|
-| **Stored Procedures** | Multi-operation transactional logic | Single partition | Yes |
-| **Pre-Triggers** | Validate or enrich items before writes | Single partition | Yes (the incoming item) |
-| **Post-Triggers** | React to writes atomically | Single partition | Yes (other items) |
-| **UDFs** | Custom logic inside SQL queries | Query scope | No (read-only) |
+| 1 | Single or multiple write | Any | < 240 minutes |
+| >1 | Single write | Session, Consistent Prefix, Eventual | < 15 minutes |
+| >1 | Single write | Bounded Staleness | *K* versions & *T* seconds |
+| >1 | Single write | Strong | 0 |
+| >1 | Multiple write | Session, Consistent Prefix, Eventual | < 15 minutes |
+| >1 | Multiple write | Bounded Staleness | *K* & *T* |
 
-All four execute within the database engine, benefit from pre-compilation, and run under snapshot isolation within their logical partition. Stored procedures and triggers provide ACID guarantees — if anything throws, everything rolls back.
+Only strong consistency with a single-region write account gives you zero RPO — no data loss during a regional outage. Every other combination can lose some recent writes. Chapter 19 covers disaster recovery planning in depth; keep this table in mind when choosing your consistency level for mission-critical workloads.
 
-The key decisions are:
+## In Practice: Consistency Is Often Stronger Than You Asked For
 
-1. **Do you need multi-item transactions?** If yes, and it's within a single partition, stored procedures or transactional batch are your options.
-2. **Do you need validation or enrichment at write time?** Pre-triggers are a clean solution, but remember they must be specified explicitly on each request.
-3. **Do you need consistent side effects from writes?** Post-triggers give you atomic metadata updates.
-4. **Do you need custom computation in queries?** UDFs keep that logic server-side and reusable.
+One last thing worth knowing: Cosmos DB frequently delivers stronger consistency than the level you configured. If there are no active writes, a read at eventual consistency might return the same result as a read at strong consistency — because all replicas have already converged. The **Probabilistically Bounded Staleness (PBS)** metric in the Azure portal quantifies this: it shows the probability that your reads are actually strongly consistent, even when you've configured a weaker level.
 
-## What's Next
+<!-- Source: consistency-levels.md, how-to-manage-consistency.md -->
 
-In Chapter 14, we'll shift from server-side logic to the **change feed** — Cosmos DB's built-in mechanism for reacting to data changes asynchronously. Where triggers give you synchronous, transactional reactions within a partition, the change feed opens up an entirely different pattern: event-driven architectures, materialized views, and real-time data pipelines that can span your entire database. You'll learn how to consume the change feed with the change feed processor, Azure Functions, and custom pull-based readers.
+This is a nice-to-know, not something to design around. Always architect for the *guaranteed* behavior, not the optimistic case. But it does mean that in practice, the cost savings of weaker consistency levels come with fewer real-world staleness incidents than you'd expect from the theory.
+
+Up next, we'll leave the distributed systems theory behind and get into server-side code: stored procedures, triggers, and user-defined functions in Chapter 14.

@@ -1,266 +1,499 @@
-# Chapter 11: Going Global — Multi-Region Distribution
+# Chapter 11: Provisioned Throughput, Autoscale, and Serverless
 
-Up until now, every container you've created has lived in a single Azure region. That's fine for a proof of concept, but the moment your users span continents — or the moment a regional outage threatens your uptime SLA — a single-region deployment becomes a liability. Azure Cosmos DB was designed from day one as a globally distributed database, and in this chapter you'll learn how to take advantage of that.
+You've been paying for Cosmos DB since Chapter 3, but do you actually know what you're paying for? Request Units are the *currency* (Chapter 10), but your **capacity model** — how you provision and pay for those RUs — determines whether your monthly bill is pleasantly predictable or a budget-busting surprise. This chapter is where you make the money decisions.
 
-We'll cover how replication actually works under the hood, how to add and remove regions without downtime, how to route reads and writes for minimal latency, and how to reason about availability, failover, and data durability across every configuration option Cosmos DB offers.
+Cosmos DB offers three capacity models: manual provisioned throughput, autoscale provisioned throughput, and serverless. Each has a different billing model, a different set of tradeoffs, and a different sweet spot. Then there are the cost levers layered on top — burst capacity, throughput buckets, reserved capacity, the free tier, and the integrated cache. By the end of this chapter, you'll know which model fits your workload and how to squeeze every dollar out of it.
 
-## How Cosmos DB Replicates Data Across Regions
+## Provisioned Throughput: Manual RU/s Allocation
 
-When you add a region to your Cosmos DB account, you aren't setting up a separate database and wiring up change feeds between them. Cosmos DB handles replication transparently at the platform level. Every write that lands on a physical partition in one region is automatically propagated to the corresponding partition replicas in every other region you've configured.
+**Manual provisioned throughput** is the original Cosmos DB pricing model and the one most production workloads use. You tell Cosmos DB exactly how many RU/s you want, and the service reserves that capacity for you. You pay for every provisioned RU/s, every hour, whether you use them or not.
 
-### Replica-Sets and Partition-Sets
+<!-- Source: set-throughput.md, how-to-choose-offer.md -->
 
-To understand global distribution, you need two concepts:
+That "whether you use them or not" part is the key tradeoff. Manual throughput gives you a fixed, predictable bill — great for budgeting — but if your traffic is spiky, you're paying for idle capacity during the valleys and possibly getting throttled during the peaks.
 
-- **Replica-set**: Within a single region, each physical partition is backed by a group of replicas (typically four) spread across fault domains. These replicas form a quorum — writes are acknowledged once a majority commits them. This is what gives you durability and high availability *within* a region.
-- **Partition-set**: Across regions, the physical partitions that manage the same set of partition keys form a *partition-set*. Think of it as a "super replica-set" that spans geographies. A partition-set is the unit of cross-region replication.
+The minimum is **400 RU/s** for a container with dedicated throughput. The maximum is **1,000,000 RU/s** per container or database, increasable via a support ticket. You're billed per hour at the standard rate — $0.008 per 100 RU/s per hour in US regions (check the pricing page for your region). <!-- Source: concepts-limits.md, how-to-choose-offer.md -->
 
-When you write a document in, say, East US, the local replica-set commits the write via majority quorum and acknowledges it to your client. That write is then propagated asynchronously (for most consistency levels) to the corresponding physical partitions in every other region through an anti-entropy channel. The frequency and urgency of that propagation depend on your configured consistency level, the network topology between regions, and the current replication load.
+Manual throughput is the right choice when your workload has **steady, predictable traffic** and you consistently use 66% or more of your provisioned capacity. If you're running a high-volume transactional system that hums along at a consistent rate, manual provisioning is cheaper than autoscale. We'll see the math on that shortly.
 
-The partition-set uses a two-level nested consensus protocol: one level operates within each replica-set to handle local writes, and another operates at the partition-set level to provide global ordering guarantees. This layered approach is how Cosmos DB delivers its stringent SLAs without sacrificing write throughput.
+### Database-Level vs. Container-Level Throughput
 
-### It's All Turnkey
+You can provision throughput at two levels: on a specific container (dedicated) or on a database (shared).
 
-Adding or removing a geographic region requires a single API call, a CLI command, or a few clicks in the Azure portal. Your application doesn't need to be redeployed or paused. Cosmos DB dynamically reconfigures the partition-set topology — creating new physical partition replicas in the new region and starting data synchronization — while your application continues operating. The SDK automatically discovers the new region and begins routing requests to it.
+<!-- Source: set-throughput.md -->
 
-## Availability Zones and Zone Redundancy
+**Container-level (dedicated) throughput** is the most common choice. The RU/s you provision are exclusively reserved for that container, backed by SLAs. If you provision 10,000 RU/s on a container, that container gets all 10,000 — no sharing, no contention from other containers.
 
-Before we talk about multi-*region* distribution, let's zoom into what happens *within* a single region.
+**Database-level (shared) throughput** pools RU/s across all containers in the database. You can have up to **25 containers** sharing a single database's throughput, with no per-container minimum. This is useful when you have many small containers that don't individually justify their own dedicated capacity.
 
-Azure availability zones are physically separate datacenters within the same Azure region, each with independent power, cooling, and networking. When you enable **zone redundancy** on a Cosmos DB region, the platform distributes your partition replicas across multiple availability zones instead of keeping them all in the same datacenter.
+<!-- Source: set-throughput.md -->
 
-Why does this matter? Without zone redundancy, a datacenter failure — power loss, cooling failure, network partition — can take down all four replicas of a physical partition simultaneously. With zone redundancy, your replicas survive a full zone failure with no data loss and no availability loss.
+The catch with shared throughput is that you get **no per-container guarantees**. If one container in the pool suddenly attracts heavy traffic, it can starve the others. The throughput each container actually gets depends on its partition key distribution, the number of containers, and the real-time workload across all of them.
 
-### When to Enable Zone Redundancy
+| Aspect | Container-level (Dedicated) | Database-level (Shared) |
+|--------|----------------------------|------------------------|
+| **RU/s guarantee** | SLA-backed for the container | No per-container guarantee |
+| **Minimum (manual)** | 400 RU/s | 400 RU/s for the database |
+| **Minimum (autoscale)** | 1,000 max RU/s | 1,000 max RU/s for the database |
+| **Max containers** | No limit | 25 sharing throughput |
+| **Best for** | Predictable, high-traffic containers | Many small, similar-traffic containers |
 
-- **Single-region accounts**: This is where zone redundancy provides the most value. It's your only defense against datacenter-level failures when you don't have a second region.
-- **Multi-region accounts**: Zone redundancy is still valuable, particularly for your write region(s). If you're running with a single write region, losing that region to a zone-level failure is disruptive even if service-managed failover eventually kicks in. Zone redundancy prevents that scenario.
-- **Multi-region write accounts**: The 25% zone redundancy pricing premium is waived for multi-region write accounts, so there's no cost reason to skip it.
+> **Gotcha:** You can't convert a container from dedicated to shared throughput (or vice versa) after creation. You'd need to create a new container with the desired throughput model and copy the data. Plan before you provision. <!-- Source: set-throughput.md -->
 
-You can enable zone redundancy only when adding a new region to your account (or during initial account creation). You configure it per region — you don't have to enable it everywhere, though you should where it's supported.
+You can also mix the two models within a single database. Provision shared throughput on the database, and then give specific high-traffic containers their own dedicated throughput. The dedicated containers don't consume any of the shared pool. <!-- Source: set-throughput.md -->
 
-### Cost
+### When to Share Throughput Across Containers
 
-Regions with zone redundancy enabled are charged at a 25% premium on provisioned RU/s. However, this premium is waived for accounts configured with multi-region writes or for collections using autoscale throughput.
+Shared throughput shines in two scenarios:
 
-## Adding and Removing Regions at Runtime
+1. **Multi-tenant applications** where each tenant gets its own container. If you have dozens of tenants with similar, low-volume workloads, shared throughput keeps costs down. (We'll cover multi-tenant patterns in depth in Chapter 26.)
 
-One of the most operationally powerful features of Cosmos DB is that region management is a live operation. You can add a region to handle a new market launch, remove one to cut costs, or reorder your failover priorities — all without application downtime.
+2. **Migration workloads** where you're moving data from a self-managed NoSQL cluster and want a logical equivalent of shared compute capacity across many collections.
 
-When you **add a region**, Cosmos DB:
+If any container in the group has meaningfully different traffic patterns or needs predictable performance guarantees, give it dedicated throughput.
 
-1. Creates new physical partitions in the target region.
-2. Begins replicating data from existing regions.
-3. Once the new region is caught up, it starts serving read traffic (and write traffic, if multi-region writes is enabled).
+## Autoscale Provisioned Throughput
 
-When you **remove a region**, Cosmos DB:
+**Autoscale** is the same provisioned throughput model, but Cosmos DB manages the scaling for you. You set a maximum RU/s (`Tmax`), and the system automatically scales between **10% of `Tmax`** and `Tmax` based on actual usage. Scaling is instantaneous — there's no warm-up delay.
 
-1. Stops routing traffic to the region.
-2. Decommissions the replicas.
-3. Your throughput bill for that region stops.
+<!-- Source: provision-throughput-autoscale.md -->
 
-You can perform these operations through the Azure portal, Azure CLI, PowerShell, ARM/Bicep templates, or the Azure Cosmos DB resource provider REST API. The SDK automatically discovers topology changes through its service endpoint resolution, so your application seamlessly starts using the new region.
+Set `Tmax` to 20,000 RU/s and you get a container that scales between 2,000 and 20,000 RU/s, reacting in real time to your traffic. When traffic drops at 2 AM, you're billed for the minimum. When it spikes at noon, you've got headroom up to the max without a single 429.
 
-A practical tip: if you're adding a region just before a major product launch in a new geography, do it well in advance. Initial data synchronization depends on the amount of data you have, and you want the region fully caught up and ready before the traffic spike.
+The entry point for autoscale is a `Tmax` of **1,000 RU/s**, which scales between 100 and 1,000 RU/s. You can set `Tmax` in increments of 1,000 RU/s from there. <!-- Source: autoscale-faq.md -->
 
-## Multi-Region Reads: Routing to the Nearest Region
+### How Autoscale Billing Works
 
-The simplest and most impactful way to reduce read latency for a global user base is to deploy read replicas close to your users and configure the SDK to prefer the nearest one.
+Here's the part that trips people up: the autoscale per-RU rate is **1.5× the manual rate** for single-write-region accounts. That's $0.012 per 100 RU/s per hour instead of $0.008. You're paying a premium for the convenience of automatic scaling.
 
-In the .NET SDK, you configure this with `ApplicationPreferredRegions`:
+<!-- Source: how-to-choose-offer.md, autoscale-faq.md -->
+
+But you're only billed for the **highest RU/s the system scaled to in each hour**, not the max. So if your traffic only hits 40% of `Tmax` for most of the day, you're paying the 1.5× rate on 40% of your capacity, not 100%.
+
+**The 66% rule of thumb:** If your workload consistently uses its full provisioned capacity for **more than 66% of the hours in a month**, manual throughput is cheaper. If utilization is below 66%, autoscale wins despite the rate premium. This is a simplified heuristic — your actual crossover depends on how your traffic distributes across hours — but it's a solid starting point. <!-- Source: how-to-choose-offer.md -->
+
+> **Tip for multi-region write accounts:** The autoscale rate per 100 RU/s is the *same* as the manual multi-region write rate. There's no 1.5× premium. If you have multiple write regions, autoscale costs the same as manual at peak — and less whenever the system scales down. For multi-region write accounts, autoscale is almost always the right default. <!-- Source: autoscale-faq.md -->
+
+### Cost Comparison: Manual vs. Autoscale
+
+Let's make the math concrete. Suppose you provision 30,000 RU/s and look at three representative hours:
+
+| Hour | Utilization | Billed RU/s (Autoscale) | Manual Cost (30,000 RU/s) | Autoscale Cost |
+|------|-------------|------------------------|--------------------------|----------------|
+| 1 | 6% | 3,000 (minimum) | $2.40 | $0.36 |
+| 2 | 100% | 30,000 | $2.40 | $3.60 |
+| 3 | 11% | 3,300 | $2.40 | $0.40 |
+| **Total** | | | **$7.20** | **$4.36** (39% savings) |
+
+<!-- Source: how-to-choose-offer.md -->
+
+In this variable workload, autoscale saves 39%. Now flip the scenario to a steady workload averaging 88% utilization:
+
+| Hour | Utilization | Billed RU/s (Autoscale) | Manual Cost (30,000 RU/s) | Autoscale Cost |
+|------|-------------|------------------------|--------------------------|----------------|
+| 1 | 72% | 21,600 | $2.40 | $2.59 |
+| 2 | 93% | 28,000 | $2.40 | $3.36 |
+| 3 | 100% | 30,000 | $2.40 | $3.60 |
+| **Total** | | | **$7.20** | **$9.55** |
+
+<!-- Source: how-to-choose-offer.md -->
+
+Same provisioned capacity, but the steady workload pays 33% *more* with autoscale. The 1.5× rate premium only helps you when traffic actually dips.
+
+### Dynamic Scaling: Per-Region, Per-Partition Autoscale
+
+Standard autoscale has a quirk: it scales uniformly based on the *most active* partition and region. If one partition is running hot while nine others are idle, all ten get scaled to the hot partition's level — and you pay for it.
+
+**Dynamic scaling** fixes this by letting each physical partition and each region scale independently. It's enabled by default for all accounts created after **September 25, 2024**. For older accounts, you can enable it from the Features page in the Azure portal. <!-- Source: provision-throughput-autoscale.md -->
+
+Dynamic scaling is a pure win for nonuniform workloads. It doesn't change the programming model, has zero downtime to enable, and can significantly reduce costs when you have hot partitions or lightly loaded secondary regions.
+
+### Ideal Workloads for Autoscale
+
+- Variable or unpredictable traffic (seasonal retail, IoT daily spikes)
+- New applications where you don't yet know your traffic patterns
+- Infrequently used applications (internal tools, low-volume blogs)
+- Dev/test workloads that only run during business hours
+- Multi-region write accounts (no rate premium)
+
+## Serverless Mode
+
+**Serverless** throws out the entire concept of provisioned capacity. You don't set any RU/s. You just read and write, and Cosmos DB bills you for the exact RUs consumed — $0.25 per million RUs <!-- Source: Azure pricing page (region-dependent) -->, plus storage at the standard rate. No traffic? No charge (beyond storage).
+
+<!-- Source: serverless.md, throughput-serverless.md -->
+
+Serverless containers start with a throughput ceiling of **5,000 RU/s** per physical partition. As data grows and partitions are added, the maximum throughput grows linearly: `number of partitions × 5,000 RU/s`. <!-- Source: serverless-performance.md -->
+
+### Serverless Limitations
+
+Serverless comes with real constraints that rule it out for many production workloads:
+
+- **Single region only.** You can't add regions to a serverless account. No global distribution, no multi-region failover. <!-- Source: serverless.md -->
+- **No throughput SLA.** Serverless offers an SLO of less than 10 ms for point reads and less than 30 ms for writes — but that's a *service-level objective*, not a contractual guarantee. <!-- Source: throughput-serverless.md -->
+- **No shared throughput databases.** Every container is independent. <!-- Source: serverless.md -->
+- **No autoscale.** Throughput is demand-driven, but you can't set a max or min. <!-- Source: serverless.md -->
+- **Less predictable costs.** Your bill is directly proportional to traffic. A surprise spike in usage means a surprise spike in your invoice. <!-- Source: serverless.md -->
+
+### When Serverless Makes Sense
+
+Serverless is the right choice for:
+
+- **Dev/test environments** where you want zero baseline cost.
+- **Prototypes and MVPs** where you don't know your traffic patterns yet.
+- **Sporadic, low-traffic workloads** — internal tools, webhooks, event-driven functions that fire a few times a day.
+- **Applications with low average-to-peak traffic ratios** (less than 10%). <!-- Source: serverless.md -->
+
+The crossover point between serverless and provisioned depends on total monthly RU consumption. At low volumes, serverless is dramatically cheaper. As volume grows, the per-RU cost eventually exceeds what you'd pay with provisioned throughput:
+
+| Scenario | Max RU/s | Monthly RUs | Provisioned Cost | Serverless Cost |
+|----------|----------|-------------|-----------------|-----------------|
+| Low traffic | 500 | 20M | $29.20 | $5.00 |
+| Moderate traffic | 500 | 250M | $29.20 | $62.50 |
+
+<!-- Source: throughput-serverless.md -->
+
+At 20 million RUs per month, serverless costs 83% less. At 250 million, it costs 114% more. The breakeven is somewhere around 90–100 million RUs/month depending on your provisioned RU/s setting.
+
+## Burst Capacity
+
+Provisioned throughput is evenly divided across physical partitions. If you have 1,000 RU/s and two partitions, each gets 500 RU/s. Exceed that on a single partition and you get a 429. That math can be punishing for workloads with small, occasional spikes.
+
+**Burst capacity** smooths this out. Each physical partition accumulates up to **5 minutes of idle capacity**, which can be consumed at a burst rate of up to **3,000 RU/s**. A partition with 100 RU/s provisioned that's been idle for 5 minutes accumulates 30,000 RU of burst capacity, enough to handle 3,000 RU/s for 10 seconds. <!-- Source: burst-capacity.md -->
+
+<!-- Source: burst-capacity.md -->
+
+Key facts about burst capacity:
+
+- **No additional charge.** It's free — you're just using capacity you already paid for but weren't consuming.
+- **Only for partitions with < 3,000 RU/s provisioned.** If your partition already has 3,000+ RU/s, burst capacity doesn't apply.
+- **Works with both manual and autoscale provisioned throughput.** Does not apply to serverless.
+- **Not guaranteed.** Burst capacity is best-effort. Cosmos DB may use it for background maintenance tasks, and availability depends on system resources. Don't architect around it as a guaranteed safety net. <!-- Source: burst-capacity.md -->
+
+To enable burst capacity, navigate to the **Features** page in your Cosmos DB account and toggle it on. It takes 15–20 minutes to take effect. <!-- Source: burst-capacity.md -->
+
+> **Gotcha:** Before relying on burst capacity, evaluate whether your partition layout can be *merged* to permanently give more RU/s per partition. Burst is a short-term buffer, not a substitute for right-sizing your throughput. <!-- Source: burst-capacity.md -->
+
+## Throughput Buckets (Preview)
+
+When multiple workloads share a container — say, your OLTP traffic and a nightly ETL job — resource contention is a real problem. The ETL job can consume all available throughput and starve your user-facing reads. **Throughput buckets** let you carve up a container's throughput into governed slices.
+
+<!-- Source: throughput-buckets.md -->
+
+Each bucket has a **maximum throughput percentage**, capping the fraction of the container's total throughput that workload can consume. You can configure up to **five buckets per container**, each identified by an ID from 1 to 5. Requests not assigned to a bucket consume throughput without restrictions. <!-- Source: throughput-buckets.md, throughput-buckets-faq.md -->
+
+Here's how you'd assign a request to a bucket in .NET:
 
 ```csharp
-CosmosClientOptions options = new CosmosClientOptions
-{
-    ApplicationPreferredRegions = new List<string>
-    {
-        Regions.WestUS2,
-        Regions.EastUS,
-        Regions.WestEurope
-    }
-};
+// ETL operations use Bucket 2, capped at 30% of container throughput
+ItemRequestOptions etlOptions = new ItemRequestOptions { ThroughputBucket = 2 };
+await container.UpsertItemAsync(item, partitionKey, etlOptions);
 ```
 
-The SDK sends reads to the first reachable region in the list. If West US 2 becomes unavailable, the SDK automatically falls back to East US, then West Europe — no code changes, no redeployment.
+<!-- Source: throughput-buckets.md -->
 
-For applications deployed across multiple regions (for example, App Service instances in several geographies), each deployment should list its local region first in the preferred regions list. This ensures reads always go to the co-located Cosmos DB replica, giving you single-digit-millisecond latency.
-
-With a single-write-region configuration, all writes still go to the designated write region regardless of the preferred regions list. The multi-region read pattern gives you 99.999% read availability SLA, while write availability remains at 99.99% (or 99.995% with zone redundancy). For many workloads — especially read-heavy ones — this is the sweet spot: global read performance without the complexity of multi-region writes.
-
-## Multi-Region Writes: The 99.999% Availability Story
-
-When you enable multi-region writes, every region in your account becomes a write region. Your application writes to the local region, and Cosmos DB handles the replication. This is the configuration that unlocks the **99.999% SLA** for both reads and writes — five nines of availability.
-
-Enabling multi-region writes requires two changes in your application:
-
-1. **Enable the feature on the account**: Toggle the multi-region writes setting in the portal, CLI, or ARM template.
-2. **Update the SDK configuration**: Set `ApplicationPreferredRegions` (as above) so the SDK knows to write locally.
-
-With this configuration, a user in Sydney writes to the Australia East replica, a user in London writes to UK South, and Cosmos DB asynchronously replicates those writes to all other regions.
-
-The tradeoff? You must use a consistency level weaker than strong (strong consistency is not supported with multi-region writes), and you must handle the possibility of write-write conflicts.
-
-### Conflict Resolution Policies
-
-When two users in different regions update the same item at roughly the same time, you have a write-write conflict. Cosmos DB provides two built-in conflict resolution policies, configured per container at creation time:
-
-#### Last-Write-Wins (LWW)
-
-This is the default. Cosmos DB compares a numeric property on each conflicting write — by default, the system-managed `_ts` (timestamp) property — and the write with the highest value wins. All regions converge to the same winner.
-
-You can customize the conflict resolution path to any numeric property on your documents. For example, if your application has its own logical timestamp or a priority field, you can tell Cosmos DB to use that instead:
+Or apply a bucket to *all* requests from a client:
 
 ```csharp
-ContainerProperties properties = new ContainerProperties("myContainer", "/partitionKey")
-{
-    ConflictResolutionPolicy = new ConflictResolutionPolicy
-    {
-        Mode = ConflictResolutionMode.LastWriterWins,
-        ResolutionPath = "/myCustomPriority"
-    }
-};
+CosmosClient etlClient = new CosmosClientBuilder(endpoint, credential)
+    .WithBulkExecution(true)
+    .WithThroughputBucket(2) // All requests from this client use Bucket 2
+    .Build();
 ```
 
-LWW is simple and sufficient for many workloads — especially when your application partitions writes geographically so conflicts are rare.
+<!-- Source: throughput-buckets.md -->
 
-#### Custom Merge Procedure
+A few things to know about throughput buckets:
 
-For scenarios where "highest timestamp wins" isn't acceptable — financial transactions, inventory counts, collaborative editing — you can register a server-side merge stored procedure. Cosmos DB invokes this procedure exactly once for each detected conflict, within a database transaction.
+- Throughput is **not reserved** for any bucket — it's shared. Buckets only set a *ceiling*, not a floor.
+- Bucket configurations can be changed once every **10 minutes**. <!-- Source: throughput-buckets-faq.md -->
+- **Not supported** for shared throughput databases or serverless accounts. <!-- Source: throughput-buckets.md -->
+- Requests assigned to a bucket **can't use burst capacity**. <!-- Source: throughput-buckets.md -->
+- This feature is in **preview**. You'll need to register via the Preview features page on your subscription in the Azure portal. <!-- Source: throughput-buckets.md -->
 
-If you configure the custom policy but don't register a merge procedure (or the procedure throws an exception), conflicting writes land in the **conflicts feed**. Your application can read this feed and resolve conflicts manually with application-specific logic.
+Throughput buckets are most useful for ISVs running multi-tenant workloads, bulk ETL jobs that shouldn't starve production traffic, and change feed processors that should yield to user-facing operations.
 
-> **Note:** Custom conflict resolution is available only for the NoSQL API and must be set at container creation time. You cannot change the policy on an existing container.
+## Scheduled Throughput Scaling
 
-#### Best Practices for Multi-Region Writes
+Autoscale handles reactive scaling beautifully, but sometimes you know *exactly* when your traffic will change. A retail site ramps up at 8 AM and dies at midnight. A dev/test database only needs throughput during business hours. Rather than paying for 24 hours of provisioned capacity, you can **scale on a schedule**.
 
-- **Keep local traffic local.** Don't send the same write to multiple regions "just in case." That creates unnecessary conflicts.
-- **Avoid dependency on replication lag.** If you write to Region A and immediately read from Region B, you may not see your write yet. Design for this.
-- **Be cautious with session tokens across regions.** Session tokens guarantee read-your-writes within a single region. Passing a session token from Region A to a write in Region B can cause that write to block until Region B catches up.
-- **Minimize rapid updates to the same document.** Frequent updates to the same document ID across regions amplify conflict resolution overhead.
+<!-- Source: scale-on-schedule.md -->
 
-## Automatic Failover and Regional Outage Scenarios
+Microsoft provides a sample Azure Functions project for exactly this: the [Azure Cosmos DB Throughput Scheduler](https://github.com/Azure-Samples/azure-cosmos-throughput-scheduler). It uses two timer-triggered functions:
 
-When a region goes down, what happens to your application depends on your configuration.
+- **ScaleUpTrigger** — runs at 8 AM UTC, sets throughput to your daytime level.
+- **ScaleDownTrigger** — runs at 6 PM UTC, drops throughput to a minimum.
 
-### Single-Write-Region with Service-Managed Failover
+The triggers execute a PowerShell script that calls the Azure Cosmos DB resource provider to update throughput for each resource listed in a `resources.json` file. You secure it using managed identity with the **Azure Cosmos DB Operator** RBAC role. <!-- Source: scale-on-schedule.md -->
 
-This is the configuration Microsoft recommends for most production workloads. You designate one region as the write region and one or more as read regions, and you enable **service-managed failover**.
+The schedules are defined in each function's `function.json` and use standard NCRONTAB expressions, so you can customize them to any pattern — weekday business hours, weekend reductions, holiday schedules.
 
-When a write-region outage occurs:
+> **Tip:** If you're already using autoscale, scheduled scaling can adjust the *autoscale max RU/s* on a schedule instead of switching to manual. This gives you the safety net of autoscale during business hours with a tighter max overnight.
 
-1. Cosmos DB detects the outage.
-2. It promotes a secondary region to become the new write region, following your configured failover priority order.
-3. The SDK detects the failover and redirects writes to the new region.
+## Limiting Total Account Throughput
 
-During this transition, there is a brief period of write unavailability — typically seconds to a few minutes, though in partial outage scenarios it could take up to an hour or more with manual intervention from the Cosmos DB service team.
+One of the most common Cosmos DB cost surprises comes from runaway throughput provisioning — someone creates a new container at 10,000 RU/s, someone else bumps an existing one, and suddenly your monthly bill has doubled. **Total account throughput limits** let you set a governance cap.
 
-When a read-region outage occurs, the SDK automatically redirects reads to the next available region in the preferred regions list. There is no read availability loss and no data loss.
+<!-- Source: limit-total-account-throughput.md -->
 
-> **Important:** After a service-managed failover promotes a secondary region to write, the original region is *not* automatically promoted back when it recovers. You must manually switch the write region back using the portal, CLI, or PowerShell once it's safe to do so.
+When you set a limit, any operation that would push the account's total provisioned throughput beyond it is **blocked and fails explicitly**. This includes creating new databases or containers, increasing throughput on existing resources, and even adding new regions (since each region multiplies your throughput cost).
 
-### Multi-Region Writes
+You can set this from the **Account Throughput** settings in the Azure portal. The options are:
 
-With multi-region writes, a regional outage is less disruptive. The affected region goes offline, but all other regions continue accepting both reads and writes. There may be a brief, temporary loss of write availability in the affected region only. Once the region recovers, Cosmos DB automatically reconciles any unreplicated data using the configured conflict resolution policy.
+- **Limit to free tier amount** (1,000 RU/s) — available on free tier accounts to guarantee zero throughput charges.
+- **Custom limit** — any amount you choose, as long as it's not below your currently provisioned total.
+- **No limit** — the default.
 
-### What You Should Not Do
+<!-- Source: limit-total-account-throughput.md -->
 
-- **Don't trigger a manual failover during an outage.** Manual failover requires connectivity between the source and destination regions for a consistency check. During an outage, this connectivity doesn't exist, and the failover will fail.
-- **Don't rely on a single region without zone redundancy for production.** It's the highest-risk configuration.
+For autoscale resources, the **maximum RU/s** counts toward the limit — not the current scaled value. This is the conservative, correct behavior: it prevents autoscale from scaling up and busting your budget. <!-- Source: limit-total-account-throughput.md -->
 
-## Per-Partition Automatic Failover (PPAF) — Preview
+Programmatically, set the `properties.capacity.totalThroughputLimit` property on your account resource via ARM templates, Bicep, or the resource provider API. Set it to `-1` to disable. <!-- Source: limit-total-account-throughput.md -->
 
-Traditional service-managed failover operates at the *account* level — when the write region is unhealthy, the entire account fails over. **Per-Partition Automatic Failover (PPAF)** is a preview feature that brings failover granularity down to the individual *partition* level.
+> **Note:** This feature isn't available on serverless accounts (since serverless doesn't provision throughput). <!-- Source: limit-total-account-throughput.md -->
 
-Instead of waiting for an entire region to be declared unhealthy, Cosmos DB can detect that specific partitions within a region are experiencing issues — perhaps a storage node failure or a hot partition scenario — and automatically fail over just those partitions to a healthy region. The remaining partitions continue operating in the original write region.
+## Best Practices for Scaling Provisioned Throughput
 
-### Why PPAF Matters
+Scaling RU/s isn't always instant. Understanding when it's fast and when it's slow saves you from unpleasant surprises during load spikes and migrations.
 
-Account-level failover is a blunt instrument. If 99% of your partitions are healthy in the write region but 1% are having issues, traditional failover moves *everything*. PPAF surgically moves only the affected partitions, minimizing disruption and recovery time.
+<!-- Source: scaling-provisioned-throughput-best-practices.md -->
 
-### Prerequisites and Limitations
+### Instant vs. Asynchronous Scaling
 
-PPAF is currently in **public preview** and comes with several requirements:
+- **Instant scale-up:** If your requested RU/s can be served by the current physical partition layout — meaning each partition stays at or below 10,000 RU/s — the change takes effect immediately. The maximum instant scale-up is `current physical partitions × 10,000 RU/s`.
+- **Asynchronous scale-up:** If the request requires new partitions (splits), the operation takes **4–6 hours**. Cosmos DB splits existing partitions in the background until it has enough to serve the requested RU/s.
+- **Scale-down** is always instant. No partitions need to be added or split.
 
-- **Multi-region account**: You need at least one read region in addition to the write region.
-- **NoSQL API only**: PPAF is available only for Core (SQL/NoSQL) API accounts.
-- **Supported consistency levels**: Strong, Session, Consistent Prefix, and Eventual are supported. Bounded Staleness is not supported in the current preview.
-- **SDK versions**: .NET SDK v3.54.0+ or Java SDK v4.75.0+.
-- **Azure public cloud only**: Sovereign clouds are not eligible during the preview.
-- **Business Critical tier pricing**: PPAF is part of the Business Critical Service Tier.
+<!-- Source: scaling-provisioned-throughput-best-practices.md -->
 
-### Testing PPAF
+### Keeping Partitions Even During Scale-Up
 
-You can simulate partition-level faults using a PowerShell script provided by the Cosmos DB team. The simulation injects faults on approximately 10% of partitions (up to 10, minimum 1) for a specified container, allowing you to validate that your application handles partition-level failover gracefully.
+When Cosmos DB splits partitions to handle higher throughput, it doesn't split them all — only enough to meet the new RU/s target. This can leave you with uneven data distribution: one unsplit partition holding 50% of the data, two new child partitions holding 25% each.
 
-## RPO and RTO by Configuration
+If your workload is evenly distributed (thanks to a good partition key — Chapter 5), you want *all* partitions to split. The trick: temporarily scale to a value that forces every partition to split (a power-of-2 multiple of your current partition count × 10,000), let the splits complete, then scale back down to your target.
 
-Recovery Point Objective (RPO) tells you how much data you could lose in a disaster. Recovery Time Objective (RTO) tells you how long you'll be without service. These numbers vary significantly depending on how you configure your Cosmos DB account.
+For example, with 2 partitions at 20,000 RU/s, scaling to 30,000 splits only one partition (giving you 3). Instead, scale to 40,000 (forcing both to split, giving you 4), then drop to 30,000 — each partition gets 7,500 RU/s with even data distribution. <!-- Source: scaling-provisioned-throughput-best-practices.md -->
 
-### RPO Reference Table
+### Minimum Throughput Floors
 
-| Regions | Replication Mode | Consistency Level | RPO |
-|---|---|---|---|
-| 1 | Single or multi-region writes | Any | < 240 minutes (depends on backup) |
-| >1 | Single write region | Session, Consistent Prefix, Eventual | < 15 minutes |
-| >1 | Single write region | Bounded Staleness | *K* updates or *T* seconds¹ |
-| >1 | Single write region | Strong | 0 |
-| >1 | Multi-region writes | Session, Consistent Prefix, Eventual | < 15 minutes |
-| >1 | Multi-region writes | Bounded Staleness | *K* updates or *T* seconds¹ |
+You can't scale down to zero. The minimum depends on your configuration:
 
-¹ For multi-region accounts, the minimum *K* is 100,000 write operations and the minimum *T* is 300 seconds.
+**Manual throughput minimum for a container:**
+`MAX(400 RU/s, current storage in GB × 1, highest RU/s ever provisioned ÷ 100)`
 
-### RTO Reference Table
+**Autoscale max RU/s minimum for a container:**
+`MAX(1,000, current storage in GB × 10, highest RU/s ever provisioned ÷ 10)`
 
-| Configuration | Outage Type | RTO |
-|---|---|---|
-| Single region, no zone redundancy | Region outage | Full duration of outage (no automatic recovery) |
-| Single region, with zone redundancy | Zone failure | 0 (transparent, no availability loss) |
-| Multi-region, single write, service-managed failover | Write region outage | Seconds to minutes (up to ~1 hour in partial outage scenarios) |
-| Multi-region, single write, service-managed failover | Read region outage | 0 (SDK redirects transparently) |
-| Multi-region writes | Any regional outage | ~0 for unaffected regions; brief disruption in the affected region |
-| Single node failure (any config) | Node outage | 0 (transparent, replica-set quorum handles it) |
+<!-- Source: concepts-limits.md -->
 
-### SLA Summary
+That "highest RU/s ever provisioned" factor is the sneaky one. If you once scaled a container to 100,000 RU/s for a bulk import, you can never go below 1,000 RU/s manual (or 10,000 autoscale max) on that container — even after you've deleted the data. Plan your bulk imports accordingly.
 
-| Configuration | Write Availability SLA | Read Availability SLA |
-|---|---|---|
-| Single region, no zone redundancy | 99.99% | 99.99% |
-| Single region, with zone redundancy | 99.995% | 99.995% |
-| Multi-region, single write region | 99.99% | 99.999% |
-| Multi-region, single write, with zone redundancy | 99.995% | 99.999% |
-| Multi-region writes (with or without zone redundancy) | 99.999% | 99.999% |
+## Changing Capacity Mode
 
-The jump from 99.99% to 99.999% may look small, but in annual downtime terms, it's the difference between about 52 minutes per year and about 5 minutes per year. That last nine is expensive — both in infrastructure cost and operational complexity — but for mission-critical global applications, it's worth it.
+Capacity mode (serverless vs. provisioned) is chosen at account creation, and the conversion rules are asymmetric:
 
-## Azure Government and Sovereign Cloud Regions
+- **Serverless → Provisioned:** Allowed, but **irreversible**. All containers are converted in place to manual provisioned throughput using the formula `number of partitions × 5,000 RU/s`. You can switch to autoscale afterward. <!-- Source: how-to-change-capacity-mode.md -->
+- **Provisioned → Serverless:** Not supported. If you need serverless, create a new account and migrate your data.
 
-Cosmos DB is deployed across all four Azure cloud environments:
+<!-- Source: how-to-change-capacity-mode.md -->
 
-- **Azure Public**: The standard global cloud, available in 60+ regions worldwide.
-- **Azure Government**: Available in multiple US regions for US government agencies and their partners. Supports the same global distribution features, but replication is constrained to government regions.
-- **Azure Government DoD**: Available in two US regions dedicated to the Department of Defense.
-- **Microsoft Azure operated by 21Vianet**: Available in China, operated by 21Vianet under a unique partnership with Microsoft.
+Within provisioned throughput, you can switch between **manual and autoscale** freely on any database or container, at any time. The initial values are calculated automatically:
 
-> **Note:** Azure Germany (Microsoft Cloud Deutschland) was retired on October 29, 2021, and is no longer available.
+- Manual → Autoscale: initial max RU/s = `MAX(1,000, current manual RU/s, highest ever ÷ 10, storage GB × 10)`, rounded to the nearest 1,000. <!-- Source: autoscale-faq.md -->
+- Autoscale → Manual: initial RU/s = current autoscale max RU/s. <!-- Source: autoscale-faq.md -->
 
-Sovereign cloud deployments support the same multi-region replication features, but regions are isolated within their cloud boundary. You cannot replicate between Azure Public and Azure Government, for example. When planning multi-region distribution for regulated workloads, work within the available regions in your cloud environment.
+## Choosing the Right Capacity Model
 
-One note on PPAF: the preview is currently limited to Azure public cloud regions. Sovereign cloud accounts are not eligible during the preview period.
+Here's the decision framework, distilled:
+
+| Factor | Manual Provisioned | Autoscale | Serverless |
+|--------|-------------------|-----------|------------|
+| **Traffic pattern** | Steady, predictable | Variable, spiky | Sporadic, long idle periods |
+| **Utilization** | >66% of provisioned capacity | <66% of max, or unpredictable | Low total volume |
+| **Regions** | Multiple | Multiple | Single only |
+| **Throughput SLA** | Yes | Yes | No (SLO only) |
+| **Billing** | Fixed per hour | Highest scaled RU/s per hour | Per RU consumed |
+| **Global distribution** | Full support | Full support | Not available |
+| **Best for** | High-volume production | Variable production | Dev/test, prototypes, lightweight apps |
+
+Use this table as a quick reference. For the step-by-step decision tree that puts these tradeoffs into action, jump to [Putting It All Together](#putting-it-all-together) at the end of the chapter.
+
+## Cost Optimization Strategies
+
+Cost optimization in Cosmos DB isn't a single knob — it's a portfolio of techniques applied together.
+
+### Right-Size Your Throughput
+
+The single biggest cost lever. Use the **Normalized RU Consumption** metric in Azure Monitor to see how much of your provisioned capacity you're actually using. If it's consistently below 50%, you're overpaying. Scale down, or switch to autoscale and let the system right-size for you. <!-- Source: how-to-choose-offer.md -->
+
+### Use TTL to Clean Up Stale Data
+
+Every gigabyte of stored data raises your minimum throughput floor (1 RU/s per GB for manual, 10 RU/s per GB for autoscale max). Expired data you're no longer querying is still costing you RUs. Set TTL on containers with transient data — session records, event logs, temporary caches — to automatically delete items and reduce both storage and minimum throughput. TTL is covered in depth in Chapter 6. <!-- Source: concepts-limits.md -->
+
+### Trim Your Indexing Policy
+
+Cosmos DB indexes every path by default, which consumes storage and adds RU cost to writes. If you're not querying on a property, exclude it from the index. An optimized indexing policy can significantly reduce write RUs — often 30% or more depending on how many paths you exclude and the shape of your documents — and shrink index storage substantially. Chapter 9 covers indexing policies in detail.
+
+### Prefer Point Reads Over Queries
+
+A point read (by `id` + partition key) is always the cheapest operation — typically 1 RU for a 1 KB item. A query that returns the same item costs more because it goes through the query engine. Design your data model so that your most common access patterns are point reads (Chapter 4). This is covered extensively in Chapter 10.
+
+### Use the Patch API for Partial Updates
+
+Replacing an entire document when you only need to change one field wastes RUs proportional to the full document size. The Patch API (Chapter 6) lets you update specific properties at a fraction of the cost.
+
+## Reserved Capacity
+
+If you've committed to Cosmos DB for production, **reserved capacity** is the single largest discount available — up to **63% off** pay-as-you-go pricing. You commit to a 1-year or 3-year reservation of a specific RU/s quantity, paid upfront or monthly, and the discount is applied automatically to matching usage. <!-- Source: free-tier.md, overview.md -->
+
+Reserved capacity works with both manual and autoscale throughput. For autoscale in single-write-region accounts, the reservation discount is applied at a **1.5× ratio** — meaning you need to purchase 15,000 RU/s of reserved capacity to cover 10,000 autoscale RU/s. Multi-region write reserved capacity works the same for both manual and autoscale. <!-- Source: autoscale-faq.md -->
+
+Reserved capacity does **not** cover serverless consumption or burst capacity usage. <!-- Source: burst-capacity-faq.md -->
+
+The decision is straightforward: if you're running a production workload on Cosmos DB that will exist for at least a year, buy reserved capacity. The 1-year reservation gives a meaningful discount; the 3-year reservation maximizes savings. The only risk is overcommitting — you'll pay for the reservation whether you use it or not.
+
+## The Free Tier
+
+Cosmos DB's **free tier** gives you **1,000 RU/s and 25 GB of storage** at no charge, for the lifetime of the account. Not a trial — *forever*. You get one free tier account per Azure subscription, and you must opt in at account creation (you can't add it later). <!-- Source: free-tier.md -->
+
+Free tier works with both manual and autoscale throughput, single or multiple write regions. The 1,000 free RU/s is applied as a discount — any throughput or storage beyond the free amount is billed at regular rates. <!-- Source: free-tier.md -->
+
+Some configurations that stay completely free:
+
+- One database with 1,000 RU/s shared throughput
+- Two containers: one at 400 RU/s, one at 600 RU/s
+- A two-region account with a single container at 500 RU/s
+
+<!-- Source: free-tier.md -->
+
+If you also have an **Azure free account**, the discounts stack: 1,400 RU/s and 50 GB for the first 12 months (1,000 + 400 RU/s, 25 + 25 GB). After 12 months, the Azure free account portion expires but the Cosmos DB free tier continues indefinitely. <!-- Source: free-tier.md -->
+
+To keep costs at zero, use the total account throughput limit (covered above) and set it to 1,000 RU/s. This prevents anyone from accidentally provisioning beyond the free tier. <!-- Source: limit-total-account-throughput.md -->
+
+Chapter 3 covered free tier setup in the context of creating your first account. Here we've covered the cost mechanics.
+
+## The Integrated Cache and Dedicated Gateway
+
+Every cost optimization strategy so far reduces the number of RUs you provision or consume. The **integrated cache** takes a different approach: it serves repeated reads for **zero RUs**.
+
+<!-- Source: integrated-cache.md -->
+
+The integrated cache is an in-memory LRU cache that lives inside a **dedicated gateway** — a compute layer you provision in front of your Cosmos DB account. When a point read or query hits the cache, it's served directly from memory. No RU charge. No backend hit. For read-heavy workloads with repeated access patterns, this can dramatically cut costs.
+
+### How It Works
+
+The integrated cache has two parts:
+
+- **Item cache** — caches point reads (key/value lookups by `id` + partition key). Populated by writes, updates, deletes, and cache-miss reads. Two exclusions: `ReadMany` requests populate the *query* cache as a set, not the item cache as individual items; and requests in transactional batch or bulk mode don't populate the item cache at all. <!-- Source: integrated-cache.md -->
+- **Query cache** — caches query results (the full result set, keyed by query text). Populated on cache miss. Different parameter values or request options are cached separately. <!-- Source: integrated-cache.md -->
+
+Both caches share the same capacity and use **Least Recently Used (LRU) eviction**. Each dedicated gateway node has its own independent cache — data cached on one node isn't necessarily available on another. <!-- Source: integrated-cache.md -->
+
+### Setting Up the Dedicated Gateway
+
+To use the integrated cache, you provision a dedicated gateway cluster. Choose a SKU and node count:
+
+| SKU | vCPU | Memory | ~Cache Size (50% of memory) |
+|-----|------|--------|---------------------------|
+| D4s | 4 | 16 GB | ~8 GB |
+| D8s | 8 | 32 GB | ~16 GB |
+| D16s | 16 | 64 GB | ~32 GB |
+
+<!-- Source: dedicated-gateway.md -->
+
+Approximately **50% of each node's memory** is available for the cache; the rest is used for metadata and request routing. For development, start with a single D4s node. For production, provision three or more nodes for high availability. <!-- Source: dedicated-gateway.md -->
+
+Your application connects to the dedicated gateway using a different endpoint — replace `documents.azure.com` with `sqlx.cosmos.azure.com` in your connection string — and must use **Gateway connectivity mode** (not Direct mode). Only requests routed through the dedicated gateway can hit the cache. <!-- Source: how-to-configure-integrated-cache.md -->
+
+```csharp
+CosmosClient client = new(
+    "https://your-account.sqlx.cosmos.azure.com",
+    credential,
+    new CosmosClientOptions { ConnectionMode = ConnectionMode.Gateway }
+);
+```
+
+<!-- Source: how-to-configure-integrated-cache.md -->
+
+### MaxIntegratedCacheStaleness
+
+The `MaxIntegratedCacheStaleness` property controls how old cached data can be before a request bypasses the cache and goes to the backend. The default is **5 minutes**. The minimum is 0 (always go to backend); the maximum is 10 years. <!-- Source: integrated-cache.md -->
+
+Set it at the request level:
+
+```csharp
+// Accept cached data up to 2 hours old
+ItemRequestOptions options = new()
+{
+    DedicatedGatewayRequestOptions = new DedicatedGatewayRequestOptions
+    {
+        MaxIntegratedCacheStaleness = TimeSpan.FromHours(2)
+    }
+};
+
+ItemResponse<Product> response = await container.ReadItemAsync<Product>(
+    id, partitionKey, options);
+```
+
+The staleness window is enforced at *read time*, not write time. Setting a 2-hour staleness doesn't mean data is cached for 2 hours — it means a read request will accept data up to 2 hours old. If the cached entry is older than your staleness window, the cache goes to the backend and refreshes. <!-- Source: integrated-cache.md -->
+
+Different clients and different requests can use different staleness values. A user-facing API might set 30 seconds; a reporting dashboard might tolerate 10 minutes.
+
+### Bypassing the Cache
+
+Not every read benefits from caching. One-off lookups that won't repeat just consume cache space and evict data that *would* be reused. The **bypass integrated cache** request option lets you route specific requests through the dedicated gateway without populating or reading from the cache. <!-- Source: integrated-cache.md -->
+
+### Consistency Requirements
+
+The integrated cache serves **read** requests only under Session or Eventual consistency. Reads at stronger levels — Consistent Prefix, Bounded Staleness, or Strong — bypass the cache entirely and are served from the backend with normal RU charges. However, write operations populate the cache regardless of consistency level. <!-- Source: integrated-cache.md -->
+
+This makes sense when you think about it: stronger consistency levels require reading from the backend to guarantee freshness, which is incompatible with serving potentially stale cached data. If your account default is Session (the most common setting), you're good.
+
+### When the Integrated Cache Makes Sense vs. External Caching
+
+The integrated cache is the right tool when:
+
+- Your workload has **many repeated point reads on the same items** or **repeated queries with the same parameters**
+- You want to reduce RU costs without changing application code beyond the connection string
+- Your hot read set fits within the dedicated gateway's memory
+
+It's *not* the right tool when:
+
+- Your reads rarely repeat (each request fetches different data)
+- You need caching for write-heavy workloads
+- You need cross-region cache coherency (each region's gateway nodes have independent caches)
+- You're reading the change feed (change feed requests don't use the cache)
+
+For workloads that need more sophisticated caching — custom eviction policies, cross-region replication, pub/sub invalidation — an external cache like **Azure Cache for Redis** is the better choice. But the integrated cache has one killer advantage: it requires almost no code changes and zero infrastructure to manage beyond the dedicated gateway itself. Chapter 21 covers SDK-level performance tips and points back here for the cache decision.
+
+<!-- Source: integrated-cache.md, dedicated-gateway.md -->
+
+### Monitoring the Integrated Cache
+
+Once you've deployed the dedicated gateway, keep an eye on three Azure Monitor metrics: <!-- Source: integrated-cache.md -->
+
+- **`IntegratedCacheItemHitRate`** and **`IntegratedCacheQueryHitRate`** — the percentage of point reads and queries served from the cache. If both are near zero, double-check that you're using the dedicated gateway connection string, Gateway mode, and Session or Eventual consistency. Values in the 0.7–0.8 range or higher mean the cache is earning its keep.
+- **`IntegratedCacheEvictedEntriesSize`** — the volume of data evicted via LRU. If this is consistently high while hit rates are low, your dedicated gateway SKU is too small for your hot working set. Scale up before adding more nodes.
+
+These metrics are aggregated across all dedicated gateway nodes — you can't break them down per node. Find them under **Metrics** in the Azure portal (not Metrics classic).
+
+### Dedicated Gateway in Multi-Region Accounts
+
+When you provision a dedicated gateway on a multi-region account, identical clusters are provisioned in **every region** automatically. A two-node D8s gateway on an account with East US and North Europe means four D8s nodes total (two per region). The dedicated gateway endpoint stays the same — routing is handled transparently. <!-- Source: dedicated-gateway.md -->
+
+The cost implication is obvious: multi-region accounts pay for gateway nodes in every region. Factor this into your ROI calculation — the gateway only saves money if the RU savings from cache hits exceed the gateway's compute cost.
 
 ## Putting It All Together
 
-Here's a practical decision framework for choosing your global distribution configuration:
+There's no universal "best" capacity model — there's the one that fits your workload. Here's the decision tree:
 
-1. **Start with multi-region, single write, service-managed failover.** This gives you 99.999% read availability, automatic failover for write outages, and keeps conflict resolution simple. It's the right choice for most production workloads.
+1. **Is this a dev/test, prototype, or very low-traffic workload?** → Serverless. Zero baseline cost, no planning needed.
+2. **Is traffic variable, unpredictable, or spiky?** → Autoscale. Let the system handle scaling.
+3. **Is traffic steady with >66% utilization of provisioned capacity?** → Manual provisioned. Cheapest per RU.
+4. **Are you running production for 1+ years?** → Add reserved capacity on top of whatever model you're using.
+5. **Is this a read-heavy workload with repeated access patterns?** → Evaluate the integrated cache.
+6. **Do you have multiple workloads sharing a container?** → Consider throughput buckets.
+7. **Do you have predictable on/off patterns?** → Add scheduled scaling.
 
-2. **Enable zone redundancy on your write region** — always, if supported. The availability improvement is significant and the cost is modest.
+The biggest mistake teams make is treating capacity model selection as a one-time decision at account creation. It's not. Your workload changes, your traffic grows, your understanding of access patterns sharpens. Revisit the decision quarterly. Use Azure Monitor's Normalized RU Consumption metric as your compass. And remember: the cheapest RU is the one you don't consume — so optimize your data model (Chapter 4), partition key (Chapter 5), indexing policy (Chapter 9), and query patterns (Chapter 10) before reaching for a bigger throughput number.
 
-3. **Move to multi-region writes only if you need it.** Specifically: if your application requires write latency below 10ms globally, or if you need 99.999% write availability. Accept the complexity of conflict resolution.
-
-4. **Consider PPAF** if you're running a mission-critical workload on the NoSQL API and want the most granular failover behavior available. Watch for it to move to general availability.
-
-5. **Test your failover behavior.** Use manual failover drills (temporarily disable service-managed failover, trigger a manual failover, observe your application, then re-enable). Don't wait for a real outage to discover that your application doesn't handle region switches gracefully.
-
-## What's Next
-
-Global distribution gets your data close to your users, but what guarantees do those users get when they read data that's replicated worldwide? In **Chapter 12**, we'll explore **consistency levels** — the five options from strong to eventual, how each affects latency and RU cost, per-request consistency overrides, and how consistency interacts with multi-region writes. Choosing the right consistency level is one of the most nuanced decisions in distributed database design.
+Chapter 12 takes us global — how multi-region distribution works, what it costs, and how it interacts with the capacity models you just learned.

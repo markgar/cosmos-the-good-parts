@@ -325,18 +325,18 @@ output "primary_key" {
 
 | Clause | Syntax | Notes |
 |---|---|---|
-| **SELECT** | `SELECT *`, `SELECT c.name`, `SELECT VALUE c.name` | `VALUE` unwraps the result to scalar/array |
+| **SELECT** | `SELECT *`, `SELECT c.name`, `SELECT VALUE c.name` | `VALUE` unwraps to scalar/array |
 | **SELECT DISTINCT** | `SELECT DISTINCT c.category` | De-duplicates results |
 | **SELECT TOP** | `SELECT TOP 10 *` | Limits result count |
-| **FROM** | `FROM c`, `FROM products p` | Alias is optional; container is the source |
-| **WHERE** | `WHERE c.price > 100` | Standard comparison, logical, and arithmetic operators |
+| **FROM** | `FROM c`, `FROM products p` | Alias optional; container is the source |
+| **WHERE** | `WHERE c.price > 100` | Standard comparison, logical, arithmetic |
 | **AND / OR / NOT** | `WHERE c.a = 1 AND (c.b = 2 OR c.c = 3)` | Parentheses control precedence |
 | **BETWEEN** | `WHERE c.price BETWEEN 10 AND 50` | Inclusive range |
 | **IN** | `WHERE c.status IN ("active", "pending")` | Set membership |
 | **LIKE** | `WHERE c.name LIKE "%bike%"` | `%` = any chars, `_` = single char |
 | **JOIN** | `FROM c JOIN t IN c.tags` | Intra-document join (flattens arrays) |
 | **EXISTS** | `WHERE EXISTS(SELECT VALUE t FROM t IN c.tags WHERE t.k = "v")` | Subquery existence check |
-| **GROUP BY** | `GROUP BY c.category` | Used with aggregate functions |
+| **GROUP BY** | `GROUP BY c.category` | With aggregate functions |
 | **ORDER BY** | `ORDER BY c.createdAt DESC` | `ASC` (default) or `DESC`; requires index |
 | **ORDER BY (multi)** | `ORDER BY c.cat ASC, c.price DESC` | Requires composite index |
 | **OFFSET…LIMIT** | `OFFSET 20 LIMIT 10` | Pagination (use with ORDER BY) |
@@ -440,7 +440,7 @@ output "primary_key" {
 
 | Function | Signature |
 |---|---|
-| `GETCURRENTDATETIME` | `GETCURRENTDATETIME()` — returns ISO 8601 UTC string |
+| `GETCURRENTDATETIME` | `GETCURRENTDATETIME()` — ISO 8601 UTC string |
 | `GETCURRENTDATETIMESTATIC` | Same value for all items in a query |
 | `GETCURRENTTIMESTAMP` | `GETCURRENTTIMESTAMP()` — ms since Unix epoch |
 | `GETCURRENTTIMESTAMPSTATIC` | Static version for consistent results |
@@ -476,14 +476,14 @@ output "primary_key" {
 | `FULLTEXTCONTAINS` | `FULLTEXTCONTAINS(path, keyword)` — bool |
 | `FULLTEXTCONTAINSALL` | `FULLTEXTCONTAINSALL(path, kw1, kw2, …)` — all keywords present |
 | `FULLTEXTCONTAINSANY` | `FULLTEXTCONTAINSANY(path, kw1, kw2, …)` — any keyword present |
-| `FULLTEXTSCORE` | `FULLTEXTSCORE(path, keyword1, keyword2, …)` — variadic keywords; BM25 relevance (use in ORDER BY RANK) |
+| `FULLTEXTSCORE` | `FULLTEXTSCORE(path, keyword1, keyword2, …)` — BM25 relevance (use in ORDER BY RANK) |
 | `RRF` | `RRF(score1, score2)` — reciprocal rank fusion for hybrid search |
 
 ### Vector Functions
 
 | Function | Signature |
 |---|---|
-| `VECTORDISTANCE` | `VECTORDISTANCE(vec1, vec2 [, brute_force_bool] [, {distanceFunction, dataType, ...}])` — the 4th parameter is a JSON options object, not a simple string |
+| `VECTORDISTANCE` | `VECTORDISTANCE(vec1, vec2 [, brute_force_bool] [, {distanceFunction, dataType, ...}])` |
 
 > **Distance functions:** `cosine` (default), `euclidean`, `dotproduct`
 
@@ -560,44 +560,24 @@ WHERE EXISTS (
 
 # Appendix C: Consistency Level Comparison Table
 
-## Five Consistency Levels at a Glance
-
 | Aspect | **Strong** | **Bounded Staleness** | **Session** | **Consistent Prefix** | **Eventual** |
 |---|---|---|---|---|---|
-| **Guarantee** | Linearizability — reads return most recent committed write | Reads lag behind writes by at most *K* versions or *T* time | Within a session: read-your-writes, monotonic reads | Reads never see out-of-order writes; no staleness guarantee | No ordering guarantee; replicas eventually converge |
-| **Staleness bound** | 0 | Configurable: *K* ops (min 10) or *T* seconds (min 5 s); single-region: *K* ≥ 10, *T* ≥ 5 s; multi-region: *K* ≥ 100,000, *T* ≥ 300 s | 0 (within session) | No bound (but ordered) | No bound |
-| **Read RU cost** | 2× a point read | 2× a point read | 1× | 1× | 1× |
-| **Write RU cost** | Standard (replicated synchronously) | Standard | Standard | Standard | Standard |
-| **Write latency** | Highest — waits for quorum in the farthest region | Higher — waits for quorum within staleness window | Low — acknowledges locally | Low — acknowledges locally | Lowest — acknowledges locally |
-| **Read latency** | Moderate — may route to specific replica | Moderate | Low — can serve from nearest | Low — can serve from nearest | Lowest — can serve from any replica |
-| **Availability (reads during regional outage)** | Reduced — requires quorum | Reduced (if outside staleness window) | High — serves from available replicas | High | Highest |
-| **Availability (writes during regional outage)** | Unavailable (single write region) | Unavailable (single write region) | Unavailable (single write region) | Unavailable (single write region) | Available (multi-region writes) |
-| **Multi-region writes** | ❌ Not supported | ⚠️ Supported but not recommended (anti-pattern) | ✅ Supported | ✅ Supported | ✅ Supported |
-| **Typical use case** | Financial transactions, inventory with strict accuracy | Applications needing near-strong with slightly relaxed latency | General-purpose web/mobile apps (default and recommended) | Dashboards, feeds — ordering matters but staleness tolerated | High-throughput, low-latency reads (counts, likes, IoT telemetry) |
-| **SLA availability** | 99.99% (single region), 99.999% (multi-region reads) | 99.99% (single region), 99.999% (multi-region reads) | 99.99% (single region), 99.999% (multi-region) | 99.99% (single region), 99.999% (multi-region) | 99.99% (single region), 99.999% (multi-region) |
+| **Guarantee** | Linearizability | Reads lag by at most *K* versions or *T* time | Read-your-writes within session | Reads never see out-of-order writes | No ordering; replicas eventually converge |
+| **Staleness bound** | 0 | *K* ops or *T* seconds (multi-region: *K* ≥ 100K, *T* ≥ 300s) | 0 (within session) | No bound (but ordered) | No bound |
+| **Read RU cost** | 2× | 2× | 1× | 1× | 1× |
+| **Write latency** | Highest (quorum in farthest region) | Higher (quorum within staleness window) | Low (local ack) | Low | Lowest |
+| **Read latency** | Moderate | Moderate | Low | Low | Lowest |
+| **Multi-region writes** | ❌ | ⚠️ Supported but not recommended | ✅ | ✅ | ✅ |
+| **Typical use case** | Financial transactions | Near-strong with relaxed latency | General-purpose web/mobile (default) | Dashboards, feeds | High-throughput reads (counts, likes, IoT) |
 
-### Key Decision Guidance
+### Decision Guidance
 
 ```
-Strong consistency:
-  ✓ Need: absolute latest data, linearizable reads
-  ✗ Cost: 2× read RUs, highest latency, single-write-region only
-
-Bounded Staleness:
-  ✓ Need: strong-like guarantees with configurable lag
-  ✗ Cost: 2× read RUs, slightly more latency, single-write-region only
-
-Session (DEFAULT — recommended for most workloads):
-  ✓ Need: read-your-own-writes within a user session
-  ✓ Cost: 1× read RUs, low latency, supports multi-region writes
-
-Consistent Prefix:
-  ✓ Need: ordered reads across all replicas (no stale ordering)
-  ✓ Cost: 1× read RUs, low latency, supports multi-region writes
-
-Eventual:
-  ✓ Need: maximum throughput & lowest latency, stale reads OK
-  ✓ Cost: 1× read RUs, lowest latency, supports multi-region writes
+Strong:       ✓ Absolute latest data, linearizable  ✗ 2× read RUs, highest latency, single-write only
+Bounded:      ✓ Strong-like with configurable lag    ✗ 2× read RUs, single-write only
+Session:      ✓ Read-your-own-writes (DEFAULT)       ✓ 1× RUs, low latency, multi-region writes
+Prefix:       ✓ Ordered reads, no stale ordering     ✓ 1× RUs, low latency, multi-region writes
+Eventual:     ✓ Max throughput, lowest latency        ✓ 1× RUs, multi-region writes
 ```
 
 ---
@@ -608,59 +588,52 @@ Eventual:
 
 | Operation | Approximate RU Cost | Notes |
 |---|---|---|
-| **Point read** (1 KB item, by ID + partition key) | **1 RU** | Cheapest operation; always prefer over queries |
-| **Point read** (strong/bounded staleness) | **2 RU** | 2× cost for strong or bounded staleness reads |
-| **Point write** (1 KB item, upsert/create) | **~5–6 RU** | Scales with item size and indexed properties |
-| **Point write** (replace existing 1 KB item) | **~10 RU** | Slightly higher due to old-index cleanup |
-| **Delete** (1 KB item) | **~5–6 RU** | Comparable to a write |
-| **Simple query** (single partition, indexed, few results) | **~3–5 RU** | With equality filter on indexed property |
-| **Query** (cross-partition fan-out) | **~5–50+ RU** | Multiplied by number of physical partitions hit |
-| **Query** (full scan, no applicable index) | **Hundreds+ RU** | Avoid in production; add indexes |
-| **Stored procedure execution** | **~5+ RU** | Varies with complexity and data touched |
-| **Transactional batch** (N operations, same partition) | **Sum of individual ops** | Atomically executed |
-| **Change feed read** (per page, per partition) | **~1–2 RU** | Very efficient for streaming workloads |
+| Point read (1 KB, by ID + PK) | **1 RU** | Cheapest; always prefer over queries |
+| Point read (strong/bounded) | **2 RU** | 2× for strong or bounded staleness |
+| Point write (1 KB, upsert/create) | **~5–6 RU** | Scales with size and indexed properties |
+| Point write (replace, 1 KB) | **~10 RU** | Slightly higher (old-index cleanup) |
+| Delete (1 KB) | **~5–6 RU** | Comparable to a write |
+| Simple query (single partition, indexed) | **~3–5 RU** | Equality filter on indexed property |
+| Cross-partition query | **~5–50+ RU** | Multiplied by physical partitions hit |
+| Full scan (no index) | **Hundreds+ RU** | Avoid in production |
+| Stored procedure | **~5+ RU** | Varies with complexity |
+| Transactional batch | **Sum of ops** | Atomically executed |
+| Change feed read (per page) | **~1–2 RU** | Very efficient |
 
-> **Scaling rule of thumb:** RU cost increases roughly linearly with item size. A 10 KB write ≈ 50–60 RU.
+> RU cost scales roughly linearly with item size. A 10 KB write ≈ 50–60 RU.
 
 ## Provisioned vs. Autoscale vs. Serverless
 
 | Aspect | **Provisioned (Manual)** | **Autoscale** | **Serverless** |
 |---|---|---|---|
-| **Throughput model** | Fixed RU/s set manually | Auto-scales between 10%–100% of max RU/s | Pay per RU consumed |
-| **Min RU/s** | 400 RU/s (container) | 100 RU/s (10% of 1,000 min max) | N/A |
-| **Max RU/s** | 1,000,000 RU/s ¹ | 1,000,000 RU/s ¹ (max setting) | 5,000 RU/s burst per partition |
-| **Scaling speed** | Instant (manual change) | Instant (automatic) | Instant (automatic) |
-| **Billing** | Per hour at provisioned RU/s | Per hour at highest RU/s reached that hour (min 10% of max) | Per RU consumed |
-| **Cost at steady load** | Most cost-effective (if well-tuned) | ~1.5× manual pricing at peak | Cheapest at low/sporadic load |
-| **Multi-region** | ✅ (RU × region count) | ✅ (RU × region count) | ❌ Single region only |
-| **SLA** | 99.99% (single region) / 99.999% (multi) | 99.99% / 99.999% | 99.99% (single region) |
-| **Max storage/container** | Unlimited | Unlimited | Unlimited |
-| **Max containers/account** | 500 | 500 | 500 |
-| **Best for** | Predictable, steady workloads | Variable workloads, production apps | Dev/test, sporadic/light workloads |
+| Throughput model | Fixed RU/s | 10%–100% of max | Pay per RU consumed |
+| Min RU/s | 400 (container) | 100 (10% of 1,000 min max) | N/A |
+| Max RU/s | 1,000,000 ¹ | 1,000,000 ¹ | 5,000 burst/partition |
+| Billing | Per hour at provisioned | Per hour at peak | Per RU consumed |
+| Cost at steady load | Most cost-effective (if tuned) | ~1.5× manual at peak | Cheapest at low/sporadic |
+| Multi-region | ✅ (RU × regions) | ✅ (RU × regions) | ❌ Single region |
+| Best for | Predictable, steady | Variable, production | Dev/test, sporadic |
 
-> ¹ Can be increased beyond 1,000,000 RU/s via Azure support request.
+> ¹ Increasable via Azure support request.
 
-## Free Tier Overview
+## Free Tier
 
-| Resource | Free Allowance |
+| Resource | Allowance |
 |---|---|
 | Accounts per subscription | 1 |
-| Discount duration | Lifetime of the account |
+| Duration | Lifetime |
 | Free throughput | 1,000 RU/s |
 | Free storage | 25 GB |
 | Max shared-throughput containers | 25 |
 
-> Free tier provides the first 1,000 RU/s and 25 GB at no charge. Usage above that is billed at standard rates.
-
 ## Reserved Capacity
 
-| Term | Discount vs. Pay-as-you-go | Payment |
+| Term | Discount | Payment |
 |---|---|---|
-| **1 year** | ~20% savings | Upfront or monthly |
-| **3 year** | ~30% savings | Upfront or monthly |
-| **Scope** | Applied to provisioned RU/s; covers all regions, APIs, and accounts | Single subscription or shared across billing scope |
+| 1 year | ~20% | Upfront or monthly |
+| 3 year | ~30% | Upfront or monthly |
 
-> Reserved capacity applies to **provisioned throughput only** (not serverless). It covers the RU/s cost; storage is billed separately.
+Applies to provisioned throughput only. Storage billed separately.
 
 ---
 
@@ -670,13 +643,11 @@ Eventual:
 
 | Resource | Limit |
 |---|---|
-| Maximum item size | **2 MB** (UTF-8 length of JSON) |
-| Maximum partition key value length | **2,048 bytes** (101 bytes without large PK enabled) |
-| Maximum ID value length | **1,023 bytes** |
-| ID allowed characters | All Unicode except `/` and `\` (recommend ASCII alphanumeric for SDK compatibility) |
-| Maximum properties per item | No practical limit |
-| Maximum property name length | No practical limit |
-| Maximum nesting depth (objects/arrays) | **128** levels |
+| Maximum item size | **2 MB** (UTF-8 JSON) |
+| Maximum partition key value length | **2,048 bytes** (101 bytes without large PK) |
+| Maximum ID length | **1,023 bytes** |
+| ID allowed characters | All Unicode except `/` and `\` |
+| Maximum nesting depth | **128** levels |
 | Maximum TTL value | **2,147,483,647** seconds (~68 years) |
 | Numeric precision | IEEE 754 double-precision 64-bit |
 
@@ -684,52 +655,48 @@ Eventual:
 
 | Resource | Limit |
 |---|---|
-| Maximum container/database name length | **255** characters |
-| Maximum stored procedures per container | **100** ¹ |
-| Maximum UDFs per container | **50** ¹ |
-| Maximum unique key constraints | **10** ¹ |
-| Maximum paths per unique key | **16** ¹ |
-| Maximum TTL value | **2,147,483,647** |
+| Max name length | **255** characters |
+| Max stored procedures | **100** ¹ |
+| Max UDFs | **50** ¹ |
+| Max unique key constraints | **10** ¹ |
+| Max paths per unique key | **16** ¹ |
 
 > ¹ Increasable via Azure support request.
 
 ## Throughput Limits
 
-| Resource | Provisioned (Manual) | Autoscale |
+| Resource | Provisioned | Autoscale |
 |---|---|---|
 | Min RU/s per container | 400 | 1,000 (max setting, scales to 100) |
 | Min RU/s per database (shared) | 400 (first 25 containers) | 1,000 (first 25 containers) |
-| Max RU/s per container | 1,000,000 ¹ | 1,000,000 ¹ (max setting) |
-| Max RU/s per database (shared) | 1,000,000 ¹ | 1,000,000 ¹ (max setting) |
+| Max RU/s per container | 1,000,000 ¹ | 1,000,000 ¹ |
 | Max RU/s per physical partition | 10,000 | 10,000 |
 | Max storage per logical partition | 20 GB ² | 20 GB ² |
-| Max distinct logical partition keys | Unlimited | Unlimited |
 | Max storage per container | Unlimited | Unlimited |
 
-> ¹ Increasable via Azure support request.  
-> ² Use hierarchical partition keys to exceed the 20 GB logical partition limit.
+> ¹ Increasable via Azure support request.
+> ² Use hierarchical partition keys to exceed.
 
 ## Per-Account Limits
 
 | Resource | Limit |
 |---|---|
-| Max databases + containers per account | **500** ¹ |
-| Max containers per shared-throughput database | **25** |
-| Max regions | Unlimited (all Azure regions) |
+| Max databases + containers | **500** ¹ |
+| Max containers per shared-throughput DB | **25** |
+| Max regions | Unlimited |
 | Max custom RBAC role definitions | **100** |
 | Max RBAC role assignments | **2,000** |
 
-> ¹ Increasable via Azure support request (up to 1,000).
+> ¹ Increasable to 1,000 via support request.
 
 ## Serverless-Specific Limits
 
 | Resource | Limit |
 |---|---|
-| Max RU/s burst per partition | **5,000 RU/s** |
+| Max RU/s burst per partition | **5,000** |
 | Max storage per logical partition | **20 GB** |
-| Max storage per container | Unlimited |
-| Max databases + containers per account | **500** |
-| Max regions | **1** (single region only) |
+| Max databases + containers | **500** |
+| Max regions | **1** (single region) |
 
 ## SQL Query Limits
 
@@ -739,9 +706,9 @@ Eventual:
 | Max JOINs per query | **10** ¹ |
 | Max UDFs per query | **10** ¹ |
 | Max points per polygon | **4,096** |
-| Max included index paths per container | **1,500** ¹ |
-| Max excluded index paths per container | **1,500** ¹ |
-| Max properties in a composite index | **8** |
+| Max included index paths | **1,500** ¹ |
+| Max excluded index paths | **1,500** ¹ |
+| Max properties in composite index | **8** |
 | Max composite indexes per container | **100** |
 
 > ¹ Increasable via Azure support request.
@@ -750,12 +717,12 @@ Eventual:
 
 | Resource | Limit |
 |---|---|
-| Max execution time per operation | **5 seconds** |
-| Max request size (stored proc, CRUD) | **2 MB** |
-| Max response size (paginated query) | **4 MB** |
-| Max operations in transactional batch | **100** |
+| Max execution time | **5 seconds** |
+| Max request size | **2 MB** |
+| Max response size (per page) | **4 MB** |
+| Max transactional batch operations | **100** |
 
-> Queries exceeding execution time or response size limits return a continuation token — there is no limit on total query duration across pages.
+> Queries exceeding limits return a continuation token — no limit on total duration across pages.
 
 ## Control Plane Rate Limits (per 5-minute window, per account)
 
@@ -766,19 +733,7 @@ Eventual:
 | Get / List databases or containers | **500** |
 | Update provisioned throughput | **25** |
 | Regional failover | **10 per hour** |
-| All other PUT / POST / PATCH / DELETE / GET | **500** |
-
-> Cache SDK client instances, keys, database, and container references to minimize control plane calls.
-
-## Free Tier Limits
-
-| Resource | Limit |
-|---|---|
-| Free tier accounts per subscription | **1** |
-| Free RU/s | **1,000 RU/s** |
-| Free storage | **25 GB** |
-| Max shared-throughput containers | **25** |
-| Duration | **Lifetime** (must opt in at account creation) |
+| All other operations | **500** |
 
 ## Authorization Token Limits
 
@@ -786,5 +741,5 @@ Eventual:
 |---|---|
 | Max primary token expiry | **15 minutes** |
 | Min resource token expiry | **10 minutes** |
-| Max resource token expiry | **24 hours** (default; increasable) |
+| Max resource token expiry | **24 hours** (default) |
 | Max clock skew for token auth | **15 minutes** |
