@@ -75,7 +75,7 @@ Every item in a Cosmos DB container carries a set of **system-generated properti
   "customerId": "cust-337",
   "status": "shipped",
   "_rid": "EHcYAPolTiABAAAAAAAAAA==",
-  "_self": "dbs/EHcYAA==/colls/EHcYAPolTiA=/docs/EHcYAPolTiABAAAAAAAAAA==/",
+  "_self": "dbs/EHcYAA==/colls/.../docs/.../",
   "_etag": "\"0000a1b2-0000-0700-0000-65f5c3a00000\"",
   "_ts": 1710627744
 }
