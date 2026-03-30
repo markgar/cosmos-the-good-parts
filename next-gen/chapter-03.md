@@ -562,7 +562,7 @@ Console.WriteLine($"RU charge: {response.RequestCharge}");
 A few things to note:
 
 - **`UpsertItemAsync`** is your friend for quickstarts and idempotent writes. It creates the item if it doesn't exist, or replaces it entirely if it does. For production code, you'll sometimes prefer `CreateItemAsync` (which throws if the item exists) or `ReplaceItemAsync` (which requires an ETag for concurrency control). We'll cover these patterns in Chapter 16.
-- You **must pass the partition key** as a separate parameter. The SDK doesn't infer it from the item's JSON — you tell it explicitly.
+- You **pass the partition key** as a separate parameter. The SDK can extract it from the item body if you omit it, but passing it explicitly is a best practice — it avoids the overhead of parsing and makes your intent clear.
 - The response includes the **RU charge** (`RequestCharge`). Get in the habit of checking this. It tells you exactly what that operation cost.
 
 **Read the item back:**
