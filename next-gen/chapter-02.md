@@ -181,8 +181,8 @@ Cosmos DB offers three capacity modes, each with a different relationship betwee
 
 | Mode | How It Works | Best For |
 |------|-------------|----------|
-| **Provisioned (manual)** | You set a fixed RU/s value. Operations exceeding that budget get throttled (HTTP 429). Billed hourly. | Steady, predictable workloads |
-| **Autoscale** | You set a maximum RU/s. The service scales between 10% of that max and the full max based on demand. Billed at the highest RU/s reached per hour. | Variable traffic with predictable peaks |
+| **Provisioned (manual)** | You set a fixed RU/s value. Operations exceeding that budget get throttled (HTTP 429). Billed at the highest provisioned RU/s **per hour** — if you scale up mid-hour and back down, you pay for the peak. | Steady, predictable workloads |
+| **Autoscale** | You set a maximum RU/s. The service scales between 10% of that max and the full max based on demand. Billed at the highest RU/s reached **per hour**. | Variable traffic with predictable peaks |
 | **Serverless** | No provisioning. You pay per RU consumed. | Dev/test, low-traffic, or sporadic workloads |
 
 <!-- Source: request-units.md -->
