@@ -133,6 +133,16 @@ When you create a container, you need to decide whether it gets its own throughp
 
 You can't switch a container between shared and dedicated throughput after creation. You'd have to create a new container and copy the data. Plan this up front. <!-- Source: resource-model.md -->
 
+### Seeding Sample Data
+
+The examples throughout this book use a fictional retail dataset called **CosmicWorks** — the same sample data Microsoft uses in its official quickstarts and tutorials. You have three ways to populate your account with it:
+
+- **One-click in the portal.** In Data Explorer, select **Quick Start** and choose the sample container option. This creates a `cosmicworks` database with a few hundred product documents — enough to follow along with most examples.
+- **The CosmicWorks CLI tool.** For a larger dataset, install the command-line generator from [Azure-Samples/cosmicworks](https://github.com/Azure-Samples/cosmicworks). It works with both cloud accounts and the local emulator.
+- **The CosmicWorks .NET library.** The [AzureCosmosDB/CosmicWorks](https://github.com/AzureCosmosDB/CosmicWorks) repository includes a data generator you can integrate into your own setup scripts. It's based on the Adventure Works schema, adapted for document modeling.
+
+Any of these will give you a working dataset to query against as you read.
+
 ### Creating via the SDK
 
 You can also create databases and containers programmatically. Here's the .NET approach:

@@ -37,7 +37,7 @@ The result is a book grounded in the same source of truth you'd consult on the j
 ## Conventions
 
 - **Code**: primarily C# (.NET SDK v3), with Python and JavaScript where noted.
-- **Sample data**: code examples use the `cosmicworks` database and `products` container from the official Microsoft quickstarts — a fictional retail store with categories, quantities, and prices.
+- **Sample data**: code examples use the `cosmicworks` database and `products` container from the official Microsoft quickstarts — a fictional retail store with categories, quantities, and prices. Chapter 3 walks you through seeding your account with this dataset. The data generators are open source at [AzureCosmosDB/CosmicWorks](https://github.com/AzureCosmosDB/CosmicWorks) and [Azure-Samples/cosmicworks](https://github.com/Azure-Samples/cosmicworks).
 - **Queries**: Cosmos DB NoSQL query language (SQL-like, operates on JSON).
 - **CLI**: bash syntax; PowerShell equivalents in Appendix A.
 - All service limits and behaviors verified against official Microsoft documentation as of early 2026.
