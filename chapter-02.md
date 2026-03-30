@@ -1,355 +1,287 @@
 # Chapter 2: Core Concepts and Architecture
 
-Before you write a single line of code against Azure Cosmos DB, you need a solid mental model of how the service is organized, how it charges you, and how it scales. This chapter gives you that foundation. We'll walk through the resource hierarchy, explain what a "document" actually is, demystify Request Units, and dig into the partitioning architecture that makes Cosmos DB tick. By the end, you'll understand why Cosmos DB makes the design choices it does — and how to think about your data in a way that sets you up for success.
+Before you write a single line of code against Cosmos DB, you need a mental model of how the service is put together. Not the marketing version — the real one. How data is organized, how the engine charges you for work, how it splits and replicates your data behind the scenes. This chapter gives you that foundation. Everything else in the book — modeling, querying, tuning, scaling — builds on the concepts here.
 
-## The Resource Model: From Account to Item
+## The Resource Model: Accounts, Databases, Containers, and Items
 
-Everything in Cosmos DB follows a clean four-level hierarchy. If you've worked with relational databases, think of this as a more flexible version of server → database → table → row. Here's how it maps:
-
-| Level | Cosmos DB Entity | NoSQL API Term | Relational Analogy |
-|-------|-----------------|----------------|-------------------|
-| 1 | **Account** | Account | Server instance |
-| 2 | **Database** | Database | Database / schema |
-| 3 | **Container** | Container | Table |
-| 4 | **Item** | Item (document) | Row |
+Cosmos DB organizes everything into a four-level hierarchy: **account → database → container → item**. Each level serves a distinct purpose, and understanding what lives where saves you from misconfigurations that are painful to undo later.
 
 ### Account
 
-Your Azure Cosmos DB account is the top-level resource. It lives under your Azure subscription and has a unique DNS name (something like `myaccount.documents.azure.com`). The account is where you configure global distribution — adding or removing Azure regions, setting your default consistency level, and managing access keys. You can create up to 250 Cosmos DB accounts per Azure subscription (more by request).
+An **account** is the top-level resource. It's what you create in the Azure portal (or via ARM/Bicep/Terraform), and it gives you a unique DNS endpoint — something like `https://your-account.documents.azure.com`. All configuration that applies globally lives at the account level: which Azure regions your data is replicated to, the default consistency level, whether multi-region writes are enabled, and your networking and security settings.
+
+You can create up to 250 accounts per Azure subscription by default, increasable to 1,000 via a support request. In practice, most applications use a single account. <!-- Source: concepts-limits.md -->
 
 ### Database
 
-A database in Cosmos DB is essentially a namespace — a logical grouping of containers. It's lightweight and doesn't have much configuration of its own, but it serves an important role: you can provision *shared throughput* at the database level and split it across up to 25 containers. This is a handy cost-saving measure when you have several containers with similar, modest workloads.
+A **database** is essentially a namespace — a logical grouping of containers. Think of it as an organizational bucket. If you're coming from relational databases, it maps roughly to a database in SQL Server or a keyspace in Cassandra. There's no compute or storage directly associated with a database; it's just a grouping.
+
+Where databases *do* matter is **shared throughput**. You can provision throughput at the database level and share it across up to 25 containers within that database. This is useful when you have many small containers with similar workloads and don't want to pay for dedicated throughput on each one. We'll cover throughput modes in detail in Chapter 11. <!-- Source: resource-model.md, set-throughput.md -->
 
 ### Container
 
-The container is where the action happens. It's the unit of scalability — where you define your partition key, configure throughput (dedicated or shared), set your indexing policy, and define optional features like time-to-live (TTL) and unique key constraints. Containers are *schema-agnostic*: you can store items with completely different shapes in the same container, as long as they share the same partition key property.
+The **container** is where the real action is. It's the fundamental unit of scalability — the thing you provision throughput for, define partition keys on, configure indexing policies for, and ultimately store data in.
 
-Under the hood, a container's data is distributed across one or more physical partitions, but you never interact with those directly. Your container is the abstraction you work with.
+A container in the NoSQL API maps to a *collection* in MongoDB, a *table* in Cassandra or Table API, and a *graph* in Gremlin. Regardless of what you call it, the underlying engine is the same.
+
+Containers are **schema-agnostic**. Items within a single container can have completely different structures — a customer profile and that customer's orders can live side by side, sharing the same partition key. There's no `CREATE TABLE` statement, no schema migration to run. You just write JSON. Whether that freedom helps or hurts you depends on your data modeling discipline (Chapter 4 covers that).
+
+Each container can hold an unlimited amount of data and throughput. When you hear "unlimited," there's always a catch — the catch here is that growth happens through partitioning, which we'll cover shortly.
+
+A heads-up: once you create a container, certain decisions are locked in. The partition key can't be changed. Unique key constraints can't be modified. Switching a container between shared and dedicated throughput requires creating a new container and copying the data. Plan before you provision. <!-- Source: resource-model.md, unique-keys.md -->
 
 ### Item
 
-An item is a single JSON document stored in a container. It's the lowest level of the hierarchy and the thing you actually read and write. Every item must have an `id` property that's unique within its logical partition. Beyond that, you can put whatever JSON you like in there.
+An **item** is an individual JSON document stored inside a container. It's the lowest level of the hierarchy — the actual data. In MongoDB terms it's a document; in Cassandra terms it's a row; in Gremlin it's a node or edge.
+
+Every item must have an `id` property, and that `id` must be unique *within its logical partition*. The combination of partition key + `id` uniquely identifies any item in the container. Two items *can* share the same `id` as long as they live in different logical partitions.
+
+The maximum item size is **2 MB** (measured as the UTF-8 length of the JSON representation). That's a hard limit for the NoSQL API. If you're storing blobs, images, or large payloads, store them in Azure Blob Storage and keep a reference in your Cosmos DB item. <!-- Source: concepts-limits.md -->
 
 ## What Is a "Document" in Cosmos DB?
 
-If you're coming from MongoDB or other document databases, the concept is familiar. If you're coming from relational databases, here's the key shift: **there is no schema enforced by the database**. Each item is a self-contained JSON document, and two items in the same container can have completely different structures.
-
-Here's a minimal valid item — the only required property is `id`:
+Each item is a self-contained JSON document. Nested objects, arrays, arrays of objects — all fair game. Here's a typical example:
 
 ```json
 {
-  "id": "unique-string-2309509"
-}
-```
-
-And here's something more realistic — a product catalog entry:
-
-```json
-{
-  "id": "product-1042",
-  "categoryId": "electronics",
-  "name": "Wireless Noise-Canceling Headphones",
-  "price": 249.99,
-  "tags": ["audio", "wireless", "noise-canceling"],
-  "specifications": {
-    "battery": "30 hours",
-    "weight": "250g",
-    "connectivity": "Bluetooth 5.2"
+  "id": "order-1042",
+  "customerId": "cust-337",
+  "status": "shipped",
+  "lineItems": [
+    { "sku": "WIDGET-A", "quantity": 3, "price": 12.99 },
+    { "sku": "GADGET-B", "quantity": 1, "price": 49.99 }
+  ],
+  "shippingAddress": {
+    "street": "123 Main St",
+    "city": "Seattle",
+    "state": "WA",
+    "zip": "98101"
   },
-  "inStock": true
+  "orderDate": "2025-03-15T08:30:00Z"
 }
 ```
 
-Notice a few things: you've got strings, numbers, booleans, arrays, and nested objects all living together. Cosmos DB is perfectly happy with all of this. The `categoryId` field here might serve as the partition key, but we'll get to that shortly.
+This is a valid Cosmos DB item. Nested objects, arrays, arrays of objects — all fine. The maximum nesting depth is 128 levels, which you'll never hit in a sane data model. <!-- Source: concepts-limits.md -->
 
-### System-Generated Properties
+The schema flexibility is genuinely useful for iterative development, polymorphic data (think: a container with multiple entity types), and domains where the shape of data varies per record. But flexibility doesn't mean "anything goes" — it means *you* own the schema discipline, not the database. Chapter 4 dives deep into when to embed vs. reference, how to handle schema evolution, and the anti-patterns that turn this freedom into a maintenance nightmare.
 
-When Cosmos DB stores your item, it adds several system properties that you'll see when you read the item back. These all start with an underscore:
+## System Properties
+
+Every item in a Cosmos DB container carries a set of **system-generated properties** alongside your application data. When you read an item back from the service, you'll see these properties injected into the JSON. Understanding them saves you from confusion the first time you inspect a document and wonder where all the underscore-prefixed fields came from.
 
 ```json
 {
-  "id": "product-1042",
-  "categoryId": "electronics",
-  "name": "Wireless Noise-Canceling Headphones",
-  "_rid": "d9RzAJRFKsd8AAAAAAAAAA==",
-  "_self": "dbs/d9RzAA==/colls/d9RzAJRFKsc=/docs/d9RzAJRFKsd8AAAAAAAAAA==/",
-  "_etag": "\"0000d98e-0000-0100-0000-64a5c3f20000\"",
-  "_ts": 1688650738
+  "id": "order-1042",
+  "customerId": "cust-337",
+  "status": "shipped",
+  "_rid": "EHcYAPolTiABAAAAAAAAAA==",
+  "_self": "dbs/EHcYAA==/colls/EHcYAPolTiA=/docs/EHcYAPolTiABAAAAAAAAAA==/",
+  "_etag": "\"0000a1b2-0000-0700-0000-65f5c3a00000\"",
+  "_ts": 1710627744
 }
 ```
 
-Here's what each one does:
+Here's what each property does:
 
-| Property | Purpose |
-|----------|---------|
-| `_rid` | A system-generated, unique resource identifier. Used internally for navigation. |
-| `_self` | An addressable URI for the item within the REST API. |
-| `_etag` | An entity tag used for optimistic concurrency control. Changes every time the item is updated. |
-| `_ts` | A Unix timestamp of the item's last modification. |
+| Property | Type | Purpose |
+|----------|------|---------|
+| `id` | String (user-defined or system-assigned) | Unique identifier within a logical partition. You set this. If you don't provide one, the SDK generates a GUID. Max length: 1,023 bytes. |
+| `_rid` | String (system-generated) | An internal, hierarchically encoded resource ID. Unique across the entire account. You'll rarely use this directly, but Cosmos DB uses it internally for addressing. |
+| `_self` | String (system-generated) | A self-link URI for the resource. A legacy from the REST API days — mostly irrelevant in modern SDK usage. |
+| `_etag` | String (system-generated) | An entity tag that changes every time the item is updated. Used for **optimistic concurrency control** — you pass the ETag with a write request, and the server rejects the write if the item has changed since you last read it. We'll cover this pattern in depth in Chapter 16. |
+| `_ts` | Integer (system-generated) | The Unix timestamp (seconds since epoch) of the last modification. Useful for debugging and ordering, but don't rely on it for business logic — it's updated on writes, not on reads. |
 
-There's also a `_lsn` (log sequence number) that shows up in change feed payloads, but you won't see it in normal reads. You don't set or modify any of these properties — Cosmos DB manages them for you.
+<!-- Source: resource-model.md (item system properties table) -->
 
-A quick note on the `id` property: while it's not underscored like the system properties, it occupies a special role. Every item **must** have an `id`, and it must be unique within its logical partition. If you don't provide one, some SDKs will auto-generate a GUID — but in practice, you'll want to assign meaningful IDs yourself (like `"order-5001"` or `"user-jane"`).
+A few practical notes:
 
-### When You'll Actually Use These Properties
+- **`_etag` is your concurrency primitive.** In a relational database, you might use `rowversion` or `timestamp` columns for optimistic concurrency. In Cosmos DB, `_etag` fills that role. The SDK exposes it through the response headers and the item itself.
+- **`_ts` is seconds, not milliseconds.** If you're used to JavaScript timestamps, remember to multiply by 1,000 before passing it to `new Date()`.
+- **`_rid` is not the same as `id`.** The `_rid` is an internal routing identifier. Your application should never need to parse or construct one. Use `id` (the one you control) for all application logic.
+- **System properties count toward the 2 MB item size limit.** They're small, but they're there.
 
-In day-to-day development, here's when each property matters:
+There's also `_lsn` (log sequence number), which appears in change feed payloads but not on regular item reads. We'll encounter it in Chapter 15 when we cover the change feed. <!-- Source: resource-model.md -->
 
-- **`id`** — Every point read requires it (along with the partition key). It's how you address a specific item. Choose IDs that are meaningful to your domain rather than relying on auto-generated GUIDs.
-- **`_etag`** — Essential for **optimistic concurrency control**. Pass it in an `If-Match` header on updates, and Cosmos DB will reject the write if the item has changed since you read it. We'll cover this pattern in depth in Chapter 15.
-- **`_ts`** — Useful for lightweight "last modified" logic, audit trails, or ordering items by recency without maintaining a separate timestamp field. It's a Unix epoch timestamp (seconds).
-- **`_rid`** and **`_self`** — Primarily used internally by the REST API and older SDKs. You'll rarely interact with these directly in modern SDK code, but they can show up in diagnostics and logs.
+## Unique Key Constraints
 
-### Unique Key Constraints
+By default, the only uniqueness guarantee within a Cosmos DB container is the combination of partition key + `id`. If you need to enforce uniqueness on *other* properties — say, ensuring no two users in the same company have the same email address — you define a **unique key policy** when creating the container.
 
-Before we leave the topic of items and containers, there's one more container-level feature worth understanding: **unique key constraints**. When you create a container, you can define a unique key policy that enforces uniqueness of one or more property paths *within each logical partition*.
+Key rules:
 
-For example, if you're building a user management system partitioned by `tenantId`, you might want to guarantee that no two users in the same tenant have the same `email`:
+- Unique keys are scoped to a **logical partition**. Two items in *different* logical partitions can have the same value for a unique key property. The constraint only prevents duplicates within the same partition.
+- You define unique keys **at container creation time only**. You can't add, modify, or remove them later. This is a one-shot decision. <!-- Source: unique-keys.md -->
+- There are hard limits on the number of unique key constraints and paths per constraint — see the Service Limits table later in this chapter. <!-- Source: concepts-limits.md -->
+- Values are case-sensitive. `/email` and `/Email` are different paths.
+- Sparse values aren't supported — missing properties are treated as `null`, and only one item per logical partition can have `null` for a given unique key.
+
+A composite unique key lets you enforce uniqueness across *combinations* of properties. For example, a constraint on `/firstName`, `/lastName`, `/email` ensures that the specific combination of all three is unique — not each property individually.
 
 ```json
 {
   "uniqueKeyPolicy": {
     "uniqueKeys": [
-      { "paths": ["/email"] }
+      { "paths": ["/email"] },
+      { "paths": ["/firstName", "/lastName", "/email"] }
     ]
   }
 }
 ```
 
-A few important rules to know:
+When a write violates a unique key constraint, the service returns a conflict error (`409`). The write is simply rejected — no partial updates, no silent overwriting.
 
-- **Scoped to the logical partition.** Two items in *different* partitions can have the same email — the constraint only enforces uniqueness within a single partition key value.
-- **Immutable after creation.** You set the unique key policy when you create the container, and you cannot change it afterward. If you need a different policy, you'll need to create a new container and migrate data.
-- **Composite unique keys are supported.** You can combine multiple paths into a single constraint (e.g., `/firstName` + `/lastName` + `/email`) — up to 16 paths per key and 10 unique key constraints per container.
-- **Sparse keys aren't supported.** If a property is missing from an item, it's treated as `null`, and only one item per partition can have `null` for that unique key.
-- **Slight RU overhead.** Writes to containers with unique key policies cost slightly more RUs because of the additional uniqueness check.
-
-Unique key constraints are different from the `id` property: `id` is always unique within a partition, but it's just one field. Unique keys let you enforce business-level uniqueness rules on *any* combination of properties.
-
-### Schema Flexibility: Power and Responsibility
-
-Schema flexibility is one of Cosmos DB's greatest strengths and, if you're not careful, one of its biggest pitfalls. There's nothing stopping you from storing a `Product` item next to an `Order` item in the same container. In fact, this is a common and recommended pattern when those items share a partition key (say, `customerId`). You distinguish item types by including a `type` or `discriminator` property:
-
-```json
-{ "id": "order-5001", "customerId": "cust-42", "type": "order", "total": 149.99 }
-{ "id": "cust-42",    "customerId": "cust-42", "type": "customer", "name": "Jane" }
-```
-
-The tradeoff is that **your application becomes responsible for schema validation**. Cosmos DB won't reject a document just because it's missing a field your app expects. Use your SDK's serialization layer, or a schema validation library, to enforce structure in your application code.
+One gotcha: unique key enforcement adds a small overhead to write operations (a few extra RUs). It's negligible for most workloads, but worth knowing if you're micro-optimizing a high-throughput write path.
 
 ## Request Units: The Universal Currency
 
-This is probably the single most important concept to internalize when working with Cosmos DB. Every operation you perform — reads, writes, queries, stored procedure executions — costs a certain number of **Request Units (RUs)**. An RU is a blended measure of CPU, IOPS, and memory consumed by that operation. You don't think about individual hardware resources; you think about RUs.
+This is the concept that makes or breaks your Cosmos DB experience. If you understand **Request Units (RUs)**, you can predict costs, diagnose performance problems, and design efficient applications. If you don't, you'll be surprised by your Azure bill and confused by throttling errors.
 
-The foundational benchmark is this:
+### What Is a Request Unit?
 
-> **A point read of a single 1 KB item by its `id` and partition key costs 1 RU.**
+A **Request Unit** is Cosmos DB's abstraction for the cost of a database operation. Every read, write, query, and stored procedure execution consumes some number of RUs. The RU charge rolls up CPU, memory, and IOPS into a single number, so you don't have to reason about individual hardware resources.
 
-Everything else is measured relative to that baseline.
+The baseline: **a point read of a single 1 KB item by its `id` and partition key costs 1 RU**. Everything else is measured relative to that. <!-- Source: request-units.md -->
 
-### How RUs Are Calculated
+| Operation | Approximate Cost |
+|-----------|-----------------|
+| Point read, 1 KB item | 1 RU |
+| Point read, 100 KB item | 10 RUs |
+| Write (insert/replace/upsert), 1 KB item | 5 RUs |
+| Write, 100 KB item | 50 RUs |
+| Query (varies by complexity) | Depends on result set, predicates, indexes |
 
-Here's a practical reference table for common operations on a 1 KB item with typical indexing:
+<!-- Source: key-value-store-cost.md -->
 
-| Operation | Approximate RU Cost | Notes |
-|-----------|-------------------|-------|
-| Point read (by `id` + partition key) | **1 RU** | The cheapest operation you can do |
-| Create (insert) an item | **~5.5 RUs** | Includes writing the item and updating indexes |
-| Replace / update an item | **~10 RUs** | Cost depends on how many properties change |
-| Delete an item | **~5 RUs** | |
-| Query (indexed, ≤100 results) | **~10 RUs** | Varies widely based on query complexity |
+These numbers come from the docs with automatic indexing turned off. In practice, with the default indexing policy enabled (which indexes every property), writes cost a bit more — a 1 KB insert typically lands between 5 and 7 RUs depending on how many properties the item has. The table above is still useful as a baseline; just know that your real numbers will be slightly higher on writes. <!-- Source: key-value-store-cost.md --> Change the consistency level, and the numbers shift too: reads at **strong** or **bounded staleness** consistency cost roughly **2x** the RUs of the more relaxed levels (session, consistent prefix, eventual). <!-- Source: request-units.md -->
 
-These are *estimates* for a 1 KB item with fewer than five indexed properties. Actual costs depend on several factors:
+### What Affects RU Cost?
 
-- **Item size**: Larger items cost more. A 10 KB point read costs roughly 3 RUs, not 1 — RU cost scales sub-linearly with document size.
-- **Property count and indexing**: More indexed properties means more work on writes.
-- **Query complexity**: Cross-partition fan-out queries, queries with multiple filters, or queries returning large result sets will cost significantly more. A complex analytical query could easily consume hundreds or thousands of RUs.
-- **Consistency level**: Reads at Strong or Bounded Staleness consistency cost roughly twice as much as reads at Session or Eventual consistency, because the system must contact more replicas.
+Several factors determine how many RUs an operation consumes: <!-- Source: request-units.md -->
 
-Every SDK response includes a header with the exact RU charge for that operation. In the .NET SDK, for example, you access it via `response.RequestCharge`. Always check this during development — it's the most reliable way to understand your costs.
+- **Item size.** Larger items cost more to read and write. The relationship is roughly linear.
+- **Indexing.** By default, every property is indexed. More indexed properties means more RUs on writes. You can customize the indexing policy to exclude properties you never query on (Chapter 9).
+- **Consistency level.** Strong and bounded staleness reads cost ~2x more than session or eventual.
+- **Query complexity.** A query that scans 10,000 items costs far more than one that uses an index to find 3. The number of predicates, cross-partition fan-out, and result set size all matter.
+- **Stored procedures and triggers.** They consume RUs proportional to the complexity of the operations they perform internally.
 
-### Why Thinking in RUs Matters
+The critical insight: **RU charges are deterministic**. The same query on the same data with the same index always costs the same number of RUs. This makes performance predictable and debuggable — you can measure the RU cost of any operation by inspecting the response headers.
 
-You provision throughput in RU/s (Request Units per second). If you provision 1,000 RU/s on a container, that means you can execute roughly 1,000 one-KB point reads per second, or about 200 one-KB writes per second, or some mix in between.
-
-If your operations exceed the provisioned throughput, Cosmos DB responds with an HTTP 429 ("Too Many Requests") status and tells you how long to wait before retrying. The SDKs handle this automatically with built-in retry logic, but sustained 429s mean you've underprovisioned — you're either burning money on inefficient queries or you need to scale up.
-
-This model has a profound implication: **the cost of every API call is knowable and deterministic.** You can profile your workload, predict your bill, and make informed optimization decisions. That's not something you get with most databases. The flip side is that you *must* think about RU cost. A poorly designed query that scans an entire container will drain your budget fast.
-
-There are three provisioning modes to choose from:
-
-- **Manual throughput**: You set a fixed RU/s value (minimum 400 RU/s per container). You pay for this whether you use it or not.
-- **Autoscale**: You set a maximum RU/s, and Cosmos DB scales between 10% of that maximum and the full value based on demand. Useful for variable workloads.
-- **Serverless**: No provisioning at all. You pay per RU consumed. Great for development, low-traffic workloads, or bursty applications, but with some limitations (no global distribution, no shared throughput databases).
-
-## Automatic Indexing: Everything Is Indexed by Default
-
-Here's something that surprises developers coming from relational databases or even MongoDB: **Cosmos DB automatically indexes every property of every item, by default.** You don't need to declare indexes up front. You don't need to know your query patterns at design time. You just write data, and the index is there waiting when you query it.
-
-The default indexing policy looks like this:
-
-```json
-{
-  "indexingMode": "consistent",
-  "includedPaths": [{ "path": "/*" }],
-  "excludedPaths": [{ "path": "/\"_etag\"/?" }]
-}
+```csharp
+ItemResponse<Order> response = await container.ReadItemAsync<Order>(
+    "order-1042",
+    new PartitionKey("cust-337")
+);
+Console.WriteLine($"This read cost {response.RequestCharge} RUs");
 ```
 
-That `/*` path means "index everything." The `_etag` system property is excluded by default since you rarely query on it.
+Every SDK surfaces `RequestCharge` on every response. Get in the habit of checking it during development. If a query costs 500 RUs and you're running it 100 times per second, you need 50,000 RU/s of provisioned throughput just for that one query pattern. The math is simple — that's the whole point.
 
-The indexing mode `consistent` means the index is updated synchronously with every write. Your reads always see a fully up-to-date index. There's also a `none` mode that disables indexing entirely — useful when you're using a container purely as a key-value store where you only do point reads, never queries.
+### How You Pay for RUs
 
-### Why Would You Customize Indexing?
+Cosmos DB offers three capacity modes, each with a different relationship between you and your RU budget:
 
-The automatic indexing overhead is modest — typically around **10–20%** of your item size in additional storage. But it also adds RU cost to every write, because every write has to update the index. If you have properties you never query on — say, a large `description` text field or a `metadata` blob — you can exclude them from indexing to reduce both storage and write RU costs.
+| Mode | How It Works | Best For |
+|------|-------------|----------|
+| **Provisioned (manual)** | You set a fixed RU/s value. Operations exceeding that budget get throttled (HTTP 429). Billed at the highest provisioned RU/s **per hour** — if you scale up mid-hour and back down, you pay for the peak. | Steady, predictable workloads |
+| **Autoscale** | You set a maximum RU/s. The service scales between 10% of that max and the full max based on demand. Billed at the highest RU/s reached **per hour**. | Variable traffic with predictable peaks |
+| **Serverless** | No provisioning. You pay per RU consumed. | Dev/test, low-traffic, or sporadic workloads |
 
-The customization is done through include/exclude paths in the indexing policy:
+<!-- Source: request-units.md -->
 
-```json
-{
-  "indexingMode": "consistent",
-  "includedPaths": [{ "path": "/*" }],
-  "excludedPaths": [
-    { "path": "/\"_etag\"/?" },
-    { "path": "/largeDescription/?" },
-    { "path": "/internalMetadata/*" }
-  ]
-}
-```
+Provisioned throughput is allocated in increments of 100 RU/s, with a minimum of 400 RU/s for a container with manual throughput. Autoscale starts at a minimum max of 1,000 RU/s. The maximum for any single container or database is 1,000,000 RU/s, which can be raised further via a support request. <!-- Source: concepts-limits.md -->
 
-You can also go the other way — start with nothing indexed and opt in to specific paths. The general recommendation from Microsoft is to start with the default (index everything) and exclude paths as needed. This way, any new property you add to your data model is automatically indexed without intervention.
+We'll go deep on capacity planning, cost optimization, and choosing between these modes in Chapter 11. For now, internalize the core idea: **everything you do in Cosmos DB has an RU cost, and that cost is how you plan capacity and budget.**
 
-## The Logical Partition: Cosmos DB's Fundamental Unit of Scale
+## Automatic Indexing
 
-If Request Units are the most important *cost* concept, then the **partition key** is the most important *design* concept. Every container requires a partition key — a property path you choose when you create the container — and every item's partition key value determines which **logical partition** that item belongs to.
+Cosmos DB indexes every property of every item in a container by default. Range indexes are created for all strings and numbers, so your queries work efficiently out of the box — no `CREATE INDEX` statements, no DBA reviewing query plans before production. When you insert an item, the index updates synchronously (in the default "consistent" indexing mode), so the item is immediately queryable. You can customize the indexing policy to include or exclude specific paths, and Chapter 9 covers indexing policies — including composite, spatial, and vector indexes — in full. <!-- Source: index-policy.md -->
 
-A logical partition is simply the set of all items that share the same partition key value. For example, if your partition key is `/categoryId`, then all items with `"categoryId": "electronics"` live in one logical partition, and all items with `"categoryId": "clothing"` live in another.
+## The Logical Partition: Cosmos DB's Unit of Scale
 
-Logical partitions matter for three reasons:
+A **logical partition** is the set of all items that share the same partition key value. If your container uses `customerId` as the partition key, then all items with `customerId = "cust-337"` form one logical partition.
 
-1. **Transaction scope**: Multi-item transactions (via stored procedures, triggers, or the transactional batch API) can only operate on items within a single logical partition.
-2. **Query efficiency**: Queries that include the partition key in the `WHERE` clause can be routed directly to the correct partition. Queries that don't must fan out across all partitions (called a *cross-partition query*), which is significantly more expensive.
-3. **Storage and throughput limits**: Each logical partition has a maximum data size of **20 GB** and a maximum throughput of **10,000 RU/s**. If you pick a partition key that funnels too much data into a single value, you'll hit these limits.
+Logical partitions matter because they define boundaries for several important behaviors:
 
-Choosing a good partition key means finding a property with **high cardinality** (many distinct values) that aligns with your most common access patterns. Once you create a container, the partition key can't be changed — you'd need to migrate your data to a new container. This is one of the few decisions in Cosmos DB that's hard to undo, so take it seriously. We'll cover partition key strategy in depth in a later chapter.
+- **Uniqueness.** The `id` property must be unique within a logical partition, not the whole container.
+- **Unique key constraints.** Enforced per logical partition.
+- **Transactions.** Multi-item ACID transactions (via stored procedures or transactional batch) are scoped to a single logical partition. You can't atomically update items across different partition key values. <!-- Source: partitioning.md, database-transactions-optimistic-concurrency.md -->
+- **Storage limit.** Each logical partition can hold up to **20 GB** of data. If a single partition key value accumulates more than 20 GB, writes to that partition will fail. This is the most common scaling wall people hit, and it's why partition key choice is the single most important design decision you'll make (Chapter 5). <!-- Source: concepts-limits.md, partitioning.md -->
 
-If your data model requires you to exceed the 20 GB logical partition limit, consider **hierarchical partition keys**. This feature allows up to three levels of partition key paths (for example, `/tenantId`, `/userId`, `/sessionId`), enabling finer-grained data distribution while still supporting efficient single-partition queries on the top-level key.
+There's no limit to the *number* of logical partitions in a container. You can have billions of distinct partition key values. The constraint is on the *size* of each individual one. <!-- Source: concepts-limits.md -->
 
-## Physical vs. Logical Partitions Explained
+## Physical vs. Logical Partitions
 
-Logical partitions are your abstraction. Physical partitions are Cosmos DB's reality. Understanding the distinction helps you reason about performance and scale.
+Behind the scenes, Cosmos DB maps your logical partitions onto **physical partitions** — actual storage and compute resources on the service's infrastructure. Multiple logical partitions can share a single physical partition. As your data grows, the service automatically splits physical partitions to maintain performance.
 
-A **physical partition** is an internal unit of storage and compute. Each physical partition:
+Each physical partition supports up to **10,000 RU/s** of throughput and up to **50 GB** of storage. When either limit is approached, Cosmos DB splits the physical partition, redistributing logical partitions across the new physical partitions. This happens transparently — your application sees no downtime and no behavior change. The mechanics of how splits work, what triggers them, and how the reverse operation (partition merge) can reclaim fragmented resources are covered in Chapter 5. <!-- Source: resource-model.md, partitioning.md -->
 
-- Can store up to **50 GB** of data
-- Can handle up to **10,000 RU/s** of throughput
-- Contains one or more logical partitions
-- Is managed entirely by Cosmos DB — you can't see or control physical partitions directly
+Provisioned throughput is divided evenly across physical partitions, which means an uneven partition key can create a "hot partition" that gets throttled even though the container has headroom overall. We'll explore the throughput math and partition key design strategies in Chapter 5, including hierarchical partition keys that help you break through the 20 GB logical partition limit.
 
-When you create a small container with 400 RU/s, it starts on a single physical partition. As your data grows or you increase throughput, Cosmos DB automatically splits physical partitions to accommodate. This is invisible to your application.
+## Replica Sets and High Availability
 
-Here's how the mapping works:
+Each physical partition isn't a single point of failure. It's backed by a **replica set** — a group of replicas that collectively make the data within that partition durable, highly available, and consistent. Each replica hosts an instance of the Cosmos DB database engine and maintains a copy of the data and indexes.
 
-```
-Physical Partition 1 (up to 50 GB, up to 10,000 RU/s)
-  ├── Logical Partition: categoryId = "electronics"
-  ├── Logical Partition: categoryId = "clothing"
-  └── Logical Partition: categoryId = "books"
+Every physical partition has at least **four replicas**, even for small containers that only need a single physical partition. One replica acts as the leader (handling writes), and the others serve reads and stand ready to take over if the leader fails. Writes are committed using a majority quorum — they must be acknowledged by a majority of replicas before the write is confirmed to the client. <!-- Source: partitioning.md, global-distribution.md -->
 
-Physical Partition 2 (up to 50 GB, up to 10,000 RU/s)
-  ├── Logical Partition: categoryId = "home"
-  ├── Logical Partition: categoryId = "sports"
-  └── Logical Partition: categoryId = "toys"
-```
+If your account spans *N* Azure regions, there are at least *N* × 4 copies of all your data. A three-region account means at least 12 replicas of every partition. This is how Cosmos DB delivers its high-availability SLAs without you configuring anything — the redundancy is baked into the architecture. <!-- Source: global-distribution.md -->
 
-Cosmos DB uses **hash-based partitioning** — it hashes your partition key value and uses that hash to determine which physical partition stores the data. Provisioned throughput is divided evenly across physical partitions. If you have 18,000 RU/s and three physical partitions, each physical partition gets 6,000 RU/s.
-
-This is where the concept of "hot partitions" comes in. If one partition key value receives a disproportionate share of traffic, it will exhaust its physical partition's throughput budget while the other partitions sit idle. The result: 429 throttling even though your *aggregate* throughput is well below what you provisioned. This is the single most common performance mistake in Cosmos DB.
-
-**Key takeaway**: A logical partition can never span multiple physical partitions. But a single physical partition can (and usually does) hold many logical partitions. Focus on choosing a partition key that distributes data and requests *evenly* across logical partitions, and the physical partition management will take care of itself.
-
-## Replica Sets and High Availability Within a Region
-
-Each physical partition doesn't store just a single copy of your data. Internally, it maintains a **replica set** — a group of replicas (at least four) that collectively manage the data for that partition. One replica is the leader (handling writes), and the others serve reads and provide redundancy.
-
-This architecture gives you:
-
-- **Durability**: Your data is written to multiple replicas before being acknowledged.
-- **High availability**: If one replica fails, the others continue serving requests. Azure Cosmos DB guarantees an RTO (Recovery Time Objective) of 0 and an RPO (Recovery Point Objective) of 0 for individual node outages — no data loss, no downtime.
-- **Consistency**: The replica set implements the various consistency levels (Strong, Bounded Staleness, Session, Consistent Prefix, Eventual) that we'll explore in a later chapter.
-
-Within a single Azure region, you get a **99.99% availability SLA** (about 52 minutes of allowed downtime per year). Enable **availability zones** (which spread replicas across physically separate datacenters within the region) and that jumps to **99.995%**. Add a second region and you reach **99.999%** for reads — five nines.
-
-The important thing to remember: this replication is invisible to you. You read and write to a single endpoint, and Cosmos DB handles replica coordination, failover, and quorum management behind the scenes. Smaller containers that only need a single physical partition still get at least four replicas.
+Replicas within a region are spread across fault domains (typically 10–20 per data center), so a rack failure or even a partial data center outage won't take down your data. We'll cover multi-region distribution, failover policies, and availability zone configuration in Chapter 12. <!-- Source: global-distribution.md -->
 
 ## Service Limits and Quotas
 
-Every cloud service has limits, and Cosmos DB is no exception. Knowing these numbers helps you design within the boundaries and avoid surprises in production. Here are the ones that matter most:
+Every service has limits. Knowing them upfront prevents nasty surprises at 2 AM. Here are the ones that matter most for day-to-day development:
 
-### Per-Item Limits
+### Item Limits
 
-| Limit | Value |
-|-------|-------|
-| Maximum item size | **2 MB** (UTF-8 length of JSON representation) |
-| Maximum `id` length | **1,023 bytes** |
-| Maximum partition key value length | **2,048 bytes** (101 bytes without large partition keys enabled) |
-| Maximum nesting depth | **128 levels** of embedded objects/arrays |
-| Maximum number of properties | No practical limit |
-| Maximum TTL value | **2,147,483,647** (max 32-bit integer) |
+| Resource | Limit |
+|----------|-------|
+| Maximum item size | 2 MB (UTF-8 length of JSON representation) |
+| Maximum `id` value length | 1,023 bytes |
+| Maximum partition key value length | 2,048 bytes (101 bytes without large partition keys enabled) |
+| Maximum nesting depth (objects/arrays) | 128 levels |
+| Maximum number of properties per item | No practical limit |
 
-### Per-Container / Database Limits
+<!-- Source: concepts-limits.md -->
 
-| Limit | Value |
-|-------|-------|
-| Maximum RU/s per container (dedicated) | **1,000,000 RU/s** (higher by request) |
-| Maximum RU/s per database (shared) | **1,000,000 RU/s** (higher by request) |
-| Maximum RU/s per physical partition | **10,000 RU/s** |
-| Maximum storage per logical partition | **20 GB** |
-| Maximum storage per physical partition | **50 GB** |
-| Maximum storage per container | **Unlimited** (scales via partition splits) |
-| Minimum RU/s (manual throughput) | **400 RU/s** |
+### Container and Database Limits
 
-### Per-Request Limits
+| Resource | Limit |
+|----------|-------|
+| Maximum databases and containers per account | 500 (total combined count) |
+| Maximum containers in a shared-throughput database | 25 |
+| Maximum stored procedures per container | 100 |
+| Maximum UDFs per container | 50 |
+| Maximum unique key constraints per container | 10 |
+| Maximum paths per unique key constraint | 16 |
+| Maximum database or container name length | 255 characters |
 
-| Limit | Value |
-|-------|-------|
-| Maximum request size | **2 MB** |
-| Maximum response size (single page) | **4 MB** |
-| Maximum execution time (single operation) | **5 seconds** |
-| Maximum operations in transactional batch | **100** |
+<!-- Source: concepts-limits.md -->
 
-The 2 MB item size limit is the one you'll bump into most often if you're not careful. If you're storing large blobs of text or embedded arrays that grow unboundedly, you'll need to model your data to keep items under this ceiling — typically by splitting large data into separate items and referencing them. We'll cover data modeling strategies in a later chapter.
+### Throughput Limits
 
-## The Cosmos DB Emulator for Local Development
+| Resource | Limit |
+|----------|-------|
+| Maximum RU/s per container or database | 1,000,000 (increasable via support request) |
+| Maximum RU/s per physical partition | 10,000 |
+| Minimum RU/s per container (manual throughput) | 400 |
+| Minimum autoscale max RU/s per container | 1,000 |
+| Maximum storage per logical partition | 20 GB |
+| Maximum storage per physical partition | 50 GB |
 
-You don't need an Azure subscription to start building with Cosmos DB. The **Azure Cosmos DB emulator** provides a local instance that mimics the cloud service on your development machine. It's a real database engine — not a mock — and it reports accurate RU charges for your operations, which is invaluable for cost estimation during development.
+<!-- Source: concepts-limits.md -->
 
-### Getting Started with the Emulator
+### Request Limits
 
-The emulator ships as a Windows application (with a Linux preview available) and exposes the same REST API and SDK endpoints as the cloud service. Once running, you connect to it using the well-known default credentials:
+| Resource | Limit |
+|----------|-------|
+| Maximum execution time for a single operation | 5 seconds |
+| Maximum request size | 2 MB |
+| Maximum response size (paginated query page) | 4 MB |
+| Maximum operations in a transactional batch | 100 |
+| Maximum SQL query length | 512 KB |
+| Maximum JOINs per query | 10 |
 
-| Setting | Value |
-|---------|-------|
-| Endpoint | `https://localhost:8081` |
-| Account Key | `C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==` |
+<!-- Source: concepts-limits.md -->
 
-Your code can switch between the emulator and the cloud service by simply changing the connection string — no code changes required.
+A full reference of all limits (including less common ones like composite index paths, token expiry times, and control plane rate limits) is in Appendix E.
 
-### Emulator Limitations
-
-The emulator is designed for development and testing, not production. Keep these constraints in mind:
-
-- **Throughput**: Supports up to 10 fixed-size containers at 400 RU/s, or 5 unlimited-size containers. Performance will degrade beyond that.
-- **Consistency**: Only supports Session and Strong consistency levels. It doesn't actually implement distributed consistency — it just flags the configured level for testing purposes.
-- **No geo-replication**: You can't simulate multi-region distribution. Only a single running instance is supported.
-- **No serverless mode**: The emulator only supports provisioned throughput.
-- **Data Explorer**: The built-in Data Explorer UI is only fully supported for the NoSQL and MongoDB APIs.
-- **Item ID limit**: The emulator constrains item IDs to 254 characters (versus 1,023 bytes in the cloud service).
-
-Despite these limitations, the emulator is the recommended way to develop locally. It saves you real money during the development cycle, gives you accurate RU feedback, and lets you iterate without network latency. Download it from the Azure Cosmos DB documentation or install it via Docker.
-
-## What's Next
-
-You now have a solid understanding of how Cosmos DB is structured, how it charges you, and how it scales under the hood. In **Chapter 3**, we'll put this knowledge to work. You'll create your first Cosmos DB account, set up a database and container, and start reading and writing data using the .NET SDK. We'll also explore the Azure portal's Data Explorer and see Request Units in action on real operations.
+With these fundamentals in place — the resource hierarchy, system properties, the RU model, partitioning, and service limits — you have the vocabulary to understand everything that follows. Chapter 3 puts it into practice: setting up your first Cosmos DB account, creating databases and containers, and writing your first item.

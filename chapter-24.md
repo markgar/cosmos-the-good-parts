@@ -1,522 +1,712 @@
-# Chapter 24: Vector Search and AI Applications
+# Chapter 24: Testing Cosmos DB Applications
 
-If there's a single theme defining modern application development right now, it's AI. Large language models, embedding-based retrieval, autonomous agents—these aren't far-off experiments anymore. They're the features your users expect. And here's the thing: every one of those AI capabilities needs a database behind it. Not just *any* database, but one that can store your operational data, your vector embeddings, your conversation histories, and your agent state—all in one place, with the performance and scale guarantees you'd expect from a globally distributed service.
+You wouldn't deploy a web API without tests. So why do so many Cosmos DB applications go to production with nothing but manual spot-checks against the cloud service? Usually it's because the team never figured out a clean way to isolate the database layer. The SDK's types feel too concrete to mock, the emulator feels too heavy to spin up in CI, and the change feed feels too asynchronous to assert against. All of those problems are solvable. This chapter gives you the patterns.
 
-That's exactly where Azure Cosmos DB steps in. Over the last few chapters, you've mastered queries, indexing, data modeling, and change feed. Now it's time to put all of that together in the context of AI. In this chapter, you'll learn how to turn Cosmos DB into the backbone of your AI applications—from vector search fundamentals to building full-blown RAG systems, managing AI agent memories, and integrating with every major AI framework on the market.
+## Testing Philosophy: What to Unit Test vs. Integration Test
 
-## Cosmos DB as a Unified AI Database
+The fastest way to waste time writing Cosmos DB tests is to test the wrong thing at the wrong level. Here's the split that works.
 
-Traditionally, building an AI-powered application meant stitching together multiple databases: an operational store for your transactional data, a separate vector database for embeddings, maybe a cache layer for conversation history, and yet another store for agent state. That architecture is fragile, expensive, and operationally painful.
+**Unit tests** verify *your* logic — the code that decides what to write, how to transform a query result, or when to retry. They should never touch a real Cosmos DB endpoint (cloud or emulator). They run in milliseconds, require zero infrastructure, and belong in every pull request build.
 
-Cosmos DB eliminates that sprawl. Because it's a schema-flexible document database with first-class vector search, you can store your documents *and* their embedding vectors in the same items. Your product catalog entry can sit alongside its 1536-dimensional embedding. Your support ticket can carry both its text content and a vector representation—all in a single JSON document, within a single container, managed by a single service.
+**Integration tests** verify that your code talks to Cosmos DB correctly — that your queries return the right documents, your indexing policy supports the access patterns you expect, and your partition key strategy doesn't produce unexpected cross-partition queries. These need the emulator (or a dedicated test account) and are slower. Run them in CI, not on every keystroke.
 
-This colocation matters. It means no synchronization pipelines between your "real" database and your vector store. No stale embeddings. No extra network hops. When you update a document, its vector is right there with it. When you query, you can combine vector similarity with traditional filters in a single operation. And because it's Cosmos DB, you get global distribution, guaranteed SLAs, and automatic scaling across all of that data.
+**End-to-end tests** verify the full pipeline — a write hits Cosmos DB, the change feed fires, a downstream consumer processes the event, and the result lands where it should. These are the most expensive to maintain, so keep them focused on critical paths.
 
-## What Is Vector Search?
+| Test type | What it proves | Infrastructure needed | Speed | When to run |
+|-----------|---------------|----------------------|-------|-------------|
+| **Unit** | Your business logic, transforms, retry decisions | None (mocks only) | Milliseconds | Every build |
+| **Integration** | Queries, indexing, partition behavior, SDK wiring | Emulator or test account | Seconds | CI pipeline |
+| **End-to-end** | Full pipeline (write → change feed → consumer) | Emulator + consumer runtime | Seconds to minutes | CI pipeline (nightly or per-PR) |
 
-Before we dive into configuration, let's make sure the fundamentals are solid.
+Don't unit-test the Cosmos DB SDK itself. You didn't write it, and Microsoft already tested it. Your unit tests should verify what *you* do with the data that comes back from the SDK.
 
-### Embeddings
+## Unit Testing with a Mocked Cosmos DB Client
 
-An *embedding* is a numerical representation of data—text, images, audio, or anything else—in a high-dimensional space. When you pass a sentence through an embedding model like OpenAI's `text-embedding-3-small`, you get back an array of floating-point numbers (say, 1536 of them). Each dimension captures some aspect of the meaning. Similar concepts end up as vectors that are close together in this space; dissimilar concepts are far apart.
+The Cosmos DB SDK's `CosmosClient`, `Container`, and `Database` classes are concrete types with internal constructors. You can't just `new` them up in a test. The solution is the same pattern you'd use for any external dependency: put an interface in front of it.
 
-### Similarity and Distance Functions
+### Abstracting the SDK Behind a Repository Interface
 
-To find "similar" items, you measure the distance between vectors. Cosmos DB supports three distance functions:
+Define a repository interface that describes the operations your application actually performs. Don't try to wrap every SDK method — wrap only the ones you use.
 
-- **Cosine similarity**: Measures the angle between two vectors. Values range from −1 (opposite) to +1 (identical direction). This is the most common choice for text embeddings.
-- **Dot product**: Measures the projection of one vector onto another. Values range from −∞ to +∞. Works well when vectors are normalized.
-- **Euclidean distance**: Measures the straight-line distance between two points in the vector space. Values range from 0 (identical) to +∞. Good for spatial data.
-
-### The RAG Pattern
-
-Retrieval-Augmented Generation (RAG) is the dominant pattern for grounding LLM responses in your own data. The flow goes like this:
-
-1. A user asks a question.
-2. You convert that question into a vector embedding.
-3. You search your database for documents whose embeddings are most similar to the question vector.
-4. You pass those documents as context to the LLM along with the original question.
-5. The LLM generates a response grounded in your actual data—not its training data alone.
-
-Cosmos DB is a natural fit for step 3, because it can serve as both your operational store *and* your vector store.
-
-## Configuring Vector Embeddings on a Container
-
-To use vector search, you need to configure two things when you create a container: a **vector embedding policy** and a **vector index** in the indexing policy.
-
-> **Important:** Vector embedding policies and vector indexes cannot be modified in place. To change settings, you must drop the existing vector policy and index, then re-add them with new configuration.
-
-### The Vector Embedding Policy
-
-The vector embedding policy tells Cosmos DB which properties contain vectors and how to handle them. Each entry specifies:
-
-| Parameter | Description | Default |
-|---|---|---|
-| `path` | The JSON property path containing the vector | (required) |
-| `dataType` | Element type: `float32`, `float16`, `int8`, or `uint8` | `float32` |
-| `dimensions` | Number of dimensions in the vector | `1536` |
-| `distanceFunction` | How to measure similarity: `cosine`, `dotproduct`, or `euclidean` | `cosine` |
-
-Here's a complete container definition with a vector embedding policy, a vector index, and the standard indexing policy:
-
-```json
+```csharp
+public interface IOrderRepository
 {
-  "vectorEmbeddingPolicy": {
-    "vectorEmbeddings": [
-      {
-        "path": "/contentVector",
-        "dataType": "float32",
-        "distanceFunction": "cosine",
-        "dimensions": 1536
-      }
-    ]
-  },
-  "indexingPolicy": {
-    "indexingMode": "consistent",
-    "automatic": true,
-    "includedPaths": [
-      { "path": "/*" }
-    ],
-    "excludedPaths": [
-      { "path": "/_etag/?" },
-      { "path": "/contentVector/*" }
-    ],
-    "vectorIndexes": [
-      {
-        "path": "/contentVector",
-        "type": "diskANN"
-      }
-    ]
+    Task<Order?> GetByIdAsync(string orderId, string customerId);
+    Task<IReadOnlyList<Order>> GetByCustomerAsync(string customerId);
+    Task UpsertAsync(Order order);
+    Task DeleteAsync(string orderId, string customerId);
+}
+```
+
+Your production implementation talks to Cosmos DB:
+
+```csharp
+public class CosmosOrderRepository : IOrderRepository
+{
+    private readonly Container _container;
+
+    public CosmosOrderRepository(Container container)
+    {
+        _container = container;
+    }
+
+    public async Task<Order?> GetByIdAsync(string orderId, string customerId)
+    {
+        try
+        {
+            var response = await _container.ReadItemAsync<Order>(
+                orderId, new PartitionKey(customerId));
+            return response.Resource;
+        }
+        catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
+    public async Task<IReadOnlyList<Order>> GetByCustomerAsync(string customerId)
+    {
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE c.customerId = @cid")
+            .WithParameter("@cid", customerId);
+
+        var results = new List<Order>();
+        using var iterator = _container.GetItemQueryIterator<Order>(
+            query, requestOptions: new QueryRequestOptions
+            {
+                PartitionKey = new PartitionKey(customerId)
+            });
+
+        while (iterator.HasMoreResults)
+        {
+            var batch = await iterator.ReadNextAsync();
+            results.AddRange(batch);
+        }
+
+        return results;
+    }
+
+    public async Task UpsertAsync(Order order)
+    {
+        await _container.UpsertItemAsync(order,
+            new PartitionKey(order.CustomerId));
+    }
+
+    public async Task DeleteAsync(string orderId, string customerId)
+    {
+        await _container.DeleteItemAsync<Order>(
+            orderId, new PartitionKey(customerId));
+    }
+}
+```
+
+Your service layer depends on `IOrderRepository`, not on `Container`. That one level of indirection makes everything testable.
+
+### Mocking CosmosClient, Container, and FeedIterator
+
+When you're testing code that consumes your repository interface, mocking is trivial — just mock `IOrderRepository`. But what about testing the repository *implementation* itself? Or code that works directly with the SDK?
+
+The SDK's `Container` methods are virtual, so mocking frameworks like Moq can intercept them. The tricky part is `FeedIterator<T>`, which is the type returned by `GetItemQueryIterator`. Here's how to mock a query that returns results:
+
+```csharp
+[Fact]
+public async Task GetByCustomer_ReturnsMatchingOrders()
+{
+    // Arrange: build a fake FeedResponse and FeedIterator
+    var expectedOrders = new List<Order>
+    {
+        new Order { Id = "ord-1", CustomerId = "cust-42", Total = 99.99m },
+        new Order { Id = "ord-2", CustomerId = "cust-42", Total = 45.00m }
+    };
+
+    var feedResponse = Mock.Of<FeedResponse<Order>>(r =>
+        r.GetEnumerator() == expectedOrders.GetEnumerator() &&
+        r.Count == expectedOrders.Count);
+
+    var feedIterator = Mock.Of<FeedIterator<Order>>();
+    var hasCalledOnce = false;
+    Mock.Get(feedIterator)
+        .Setup(i => i.HasMoreResults)
+        .Returns(() =>
+        {
+            if (!hasCalledOnce) { hasCalledOnce = true; return true; }
+            return false;
+        });
+    Mock.Get(feedIterator)
+        .Setup(i => i.ReadNextAsync(It.IsAny<CancellationToken>()))
+        .ReturnsAsync(feedResponse);
+
+    var container = Mock.Of<Container>();
+    Mock.Get(container)
+        .Setup(c => c.GetItemQueryIterator<Order>(
+            It.IsAny<QueryDefinition>(),
+            It.IsAny<string>(),
+            It.IsAny<QueryRequestOptions>()))
+        .Returns(feedIterator);
+
+    var repo = new CosmosOrderRepository(container);
+
+    // Act
+    var orders = await repo.GetByCustomerAsync("cust-42");
+
+    // Assert
+    Assert.Equal(2, orders.Count);
+    Assert.All(orders, o => Assert.Equal("cust-42", o.CustomerId));
+}
+```
+
+Yes, mocking `FeedIterator<T>` is verbose. That's the cost of the SDK's pagination model — and it's exactly why the repository abstraction pays for itself. Once you've tested your repository implementation with a few mocked-iterator tests, everything above it mocks the clean interface instead.
+
+**Python and JavaScript** don't have the same virtual-method constraint. In Python, you can monkey-patch the `ContainerProxy` methods or use `unittest.mock.AsyncMock`. In JavaScript, any mocking library (Jest, Sinon) can stub the container's methods directly since there's no type system to fight.
+
+```python
+# Python: mocking a point read with unittest.mock
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+
+@pytest.mark.asyncio
+async def test_get_order_by_id():
+    mock_container = MagicMock()
+    mock_container.read_item = AsyncMock(return_value={
+        "id": "ord-1",
+        "customerId": "cust-42",
+        "total": 99.99
+    })
+
+    repo = OrderRepository(mock_container)
+    order = await repo.get_by_id("ord-1", "cust-42")
+
+    assert order["id"] == "ord-1"
+    mock_container.read_item.assert_called_once_with(
+        item="ord-1",
+        partition_key="cust-42"
+    )
+```
+
+```javascript
+// JavaScript (Jest): mocking a query
+const container = {
+  items: {
+    query: jest.fn().mockReturnValue({
+      fetchAll: jest.fn().mockResolvedValue({
+        resources: [
+          { id: "ord-1", customerId: "cust-42", total: 99.99 },
+          { id: "ord-2", customerId: "cust-42", total: 45.00 }
+        ]
+      })
+    })
   }
-}
+};
+
+test("getByCustomer returns matching orders", async () => {
+  const repo = new OrderRepository(container);
+  const orders = await repo.getByCustomer("cust-42");
+
+  expect(orders).toHaveLength(2);
+  expect(container.items.query).toHaveBeenCalled();
+});
 ```
 
-Notice that `/contentVector/*` is in the `excludedPaths`. This is critical—if you don't exclude the vector path from the regular index, you'll pay significantly higher RU costs and latency on every insert. The vector index itself handles the vector data; the regular index doesn't need it.
+## Integration Testing with the Cosmos DB Emulator
 
-You can define multiple vector paths if your documents carry more than one embedding (say, one for the title and one for the full content):
+Unit tests with mocks prove your logic works. Integration tests prove your logic works *against a real Cosmos DB engine*. The emulator gives you that engine without cloud costs or network variability.
 
-```json
+Chapter 3 covers emulator installation and configuration in detail. This section focuses on how to use the emulator effectively in test workflows and CI pipelines.
+
+### Windows Emulator vs. Linux-Based vNext Docker Image
+
+Two emulators exist, and the choice affects your test setup.
+
+| Aspect | Windows (local) emulator | vNext Docker emulator (preview) |
+|--------|--------------------------|----------------------------------|
+| **Platform** | Windows only | Any OS with Docker |
+| **Image** | MSI installer | `mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview` |
+| **API support** | NoSQL, MongoDB, Cassandra, Gremlin, Table | NoSQL only (gateway mode) |
+| **Stored procedures / triggers / UDFs** | Supported | Not planned |
+| **Custom index policies** | Supported | Not yet implemented |
+| **RU reporting** | Approximate | Not yet implemented |
+| **Change feed** | Supported | Supported |
+| **CI-friendly** | Requires Windows runners | Runs on any Linux/Docker CI runner |
+| **Default protocol** | HTTPS | HTTP (must pass `--protocol https` for .NET/Java SDKs) |
+
+<!-- Source: emulator.md, emulator-linux.md -->
+
+For CI pipelines, the vNext Docker image is the clear winner — it starts faster, runs anywhere Docker runs, and GitHub Actions can manage its lifecycle as a service container. For local development on Windows when you need stored procedures or custom indexing policies, the Windows emulator is still necessary.
+
+### Configuring the Emulator for CI (Docker Image)
+
+The vNext Docker emulator slots into GitHub Actions as a service container. GitHub starts it before your job, your tests hit `localhost:8081` with the well-known key, and GitHub tears it down when the job completes. <!-- Source: emulator-linux.md -->
+
+```yaml
+name: Integration Tests
+
+on: [push, pull_request]
+
+jobs:
+  integration-tests:
+    runs-on: ubuntu-latest
+
+    services:
+      cosmosdb:
+        image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview
+        ports:
+          - 8081:8081
+        env:
+          PROTOCOL: https
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Run integration tests
+        env:
+          COSMOS_ENDPOINT: https://localhost:8081
+          COSMOS_KEY: "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw=="
+        run: dotnet test --filter Category=Integration
+```
+
+<!-- Source: emulator-linux.md, emulator.md -->
+
+A few CI-specific tips:
+
+**Disable TLS validation in test code** (or import the emulator's self-signed certificate). The emulator's HTTPS certificate isn't trusted by default. How you handle this depends on your language ecosystem: <!-- Source: emulator-linux.md -->
+
+- **.NET** — Set `CosmosClientOptions.HttpClientFactory` to supply an `HttpClient` that ignores certificate errors.
+- **Java** — Export the emulator's certificate and import it into the Java keystore (the GitHub Actions example in the emulator docs shows exactly how).
+- **Python** — Configure `REQUESTS_CA_BUNDLE` to point to the exported certificate, or adjust your SSL context to trust it.
+- **Node.js** — Set the environment variable `NODE_TLS_REJECT_UNAUTHORIZED=0` for test runs.
+
+**Keep the connection string in environment variables**, not in test code. This makes it trivial to swap between the emulator and a real account for different CI stages.
+
+**Azure DevOps pipelines** follow the same pattern — use a Docker container resource or a `docker run` step before your test task.
+
+### Seeding and Tearing Down Test Data Between Runs
+
+Integration tests need predictable data. Here's the pattern that works reliably:
+
+1. **Before each test class** (or test suite): create a fresh database and container with a unique name (e.g., `test-{guid}`). This guarantees isolation between parallel test runs.
+2. **Before each test**: seed the exact documents your test needs.
+3. **After each test class**: delete the database.
+
+```csharp
+public class OrderIntegrationTests : IAsyncLifetime
 {
-  "vectorEmbeddings": [
+    private CosmosClient _client = null!;
+    private Database _database = null!;
+    private Container _container = null!;
+    private readonly string _databaseName = $"test-{Guid.NewGuid():N}";
+
+    public async Task InitializeAsync()
     {
-      "path": "/titleVector",
-      "dataType": "float32",
-      "distanceFunction": "cosine",
-      "dimensions": 1536
-    },
-    {
-      "path": "/contentVector",
-      "dataType": "int8",
-      "distanceFunction": "dotproduct",
-      "dimensions": 256
+        _client = new CosmosClient(
+            Environment.GetEnvironmentVariable("COSMOS_ENDPOINT")!,
+            Environment.GetEnvironmentVariable("COSMOS_KEY")!,
+            new CosmosClientOptions
+            {
+                HttpClientFactory = () =>
+                {
+                    var handler = new HttpClientHandler
+                    {
+                        ServerCertificateCustomValidationCallback =
+                            HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+                    };
+                    return new HttpClient(handler);
+                },
+                ConnectionMode = ConnectionMode.Gateway
+            });
+
+        _database = (await _client.CreateDatabaseAsync(_databaseName)).Database;
+        _container = (await _database.CreateContainerAsync(
+            "orders", "/customerId", 400)).Container;
     }
-  ]
-}
-```
 
-The `int8` and `uint8` data types are useful when you have quantized embeddings—they use less storage and can improve throughput, though at some cost to precision.
-
-## Vector Indexing with DiskANN
-
-Not all vector indexes are equal. Cosmos DB gives you three options, and choosing the right one matters enormously for performance:
-
-### Flat Index
-
-The `flat` index stores vectors alongside other indexed properties. Searches are brute-force (exact k-nearest neighbors), so you get 100% recall—but at the cost of scanning every vector. It's limited to 505 dimensions and best suited for very small datasets or when combined with tight `WHERE` clause filters that drastically narrow the search space.
-
-### Quantized Flat Index
-
-The `quantizedFlat` index compresses vectors using quantization before storing them. It's still a brute-force search, but over compressed data—so it's faster and cheaper than `flat` while sacrificing minimal accuracy. Good for up to roughly 50,000 vectors per physical partition. Supports up to 4,096 dimensions.
-
-### DiskANN Index
-
-`diskANN` is the powerhouse. Built on Microsoft Research's [DiskANN algorithms](https://www.microsoft.com/research/publication/diskann-fast-accurate-billion-point-nearest-neighbor-search-on-a-single-node/), it's an approximate nearest-neighbor (ANN) index optimized for high throughput, low latency, and cost efficiency at massive scale. When you have more than 50,000 vectors per physical partition—which is most production scenarios—DiskANN is the clear winner.
-
-Both `quantizedFlat` and `diskANN` require at least 1,000 vectors before the index becomes effective. Below that threshold, the engine falls back to a full scan.
-
-You can tune DiskANN's accuracy-vs-performance trade-off with optional parameters:
-
-- **`quantizationByteSize`** (1–512): Controls compression level. Larger values improve accuracy at the cost of higher RU consumption.
-- **`indexingSearchListSize`** (10–500, default 100): Controls how many vectors are considered during index construction. Larger values yield better recall but slower index builds.
-
-### Sharded DiskANN for Multi-Tenant Scenarios
-
-In multi-tenant applications, you often want to search within a single tenant's data. Sharded DiskANN lets you partition the DiskANN index by a property (like `tenantId`), creating separate mini-indexes per shard:
-
-```json
-{
-  "vectorIndexes": [
+    public async Task DisposeAsync()
     {
-      "path": "/contentVector",
-      "type": "diskANN",
-      "vectorIndexShardKey": ["/tenantId"]
+        await _database.DeleteAsync();
+        _client.Dispose();
     }
-  ]
-}
-```
 
-Then, when you query with a `WHERE c.tenantId = "tenant-abc"` filter, Cosmos DB searches only that tenant's shard—resulting in lower latency, lower cost, and higher recall compared to searching a single global index and filtering afterward.
-
-## Running Vector Similarity Search Queries
-
-Once your container is configured and data is loaded, you search using the `VectorDistance` system function:
-
-```sql
-SELECT TOP 10
-    c.id,
-    c.title,
-    c.category,
-    VectorDistance(c.contentVector, @queryVector) AS similarityScore
-FROM c
-ORDER BY VectorDistance(c.contentVector, @queryVector)
-```
-
-A few things to note:
-
-- **Always use `TOP N`**: Without it, the engine tries to return all results, driving up RUs and latency dramatically.
-- **Combine with filters**: You can add `WHERE` clauses to narrow the search. For example, `WHERE c.category = "electronics"` restricts the vector search to electronics items.
-- **Project the score**: Aliasing `VectorDistance(...)` as `similarityScore` lets you inspect how close each result is.
-- **Use `ORDER BY`**: The `ORDER BY VectorDistance(...)` clause sorts results by similarity (most similar first for cosine).
-
-You can also apply a similarity threshold:
-
-```sql
-SELECT TOP 10 *
-FROM c
-WHERE VectorDistance(c.contentVector, @queryVector) > 0.8
-ORDER BY VectorDistance(c.contentVector, @queryVector)
-```
-
-## Hybrid Search: Combining Vector + Keyword + Filters
-
-Vector search is powerful for semantic similarity, but sometimes you also want exact keyword matching—a product name, a specific error code, an exact phrase. *Hybrid search* fuses both approaches using the Reciprocal Rank Fusion (RRF) function.
-
-Hybrid search requires both a **vector index** and a **full-text index** on your container. You also need a **full-text policy**:
-
-```json
-{
-  "defaultLanguage": "en-US",
-  "fullTextPaths": [
+    [Fact]
+    public async Task UpsertAndRead_RoundTrips()
     {
-      "path": "/content",
-      "language": "en-US"
+        var order = new Order
+        {
+            Id = "ord-1",
+            CustomerId = "cust-42",
+            Total = 99.99m
+        };
+
+        await _container.UpsertItemAsync(order,
+            new PartitionKey(order.CustomerId));
+
+        var response = await _container.ReadItemAsync<Order>(
+            "ord-1", new PartitionKey("cust-42"));
+
+        Assert.Equal(99.99m, response.Resource.Total);
     }
-  ]
 }
 ```
 
-And the corresponding indexing policy:
+The `test-{guid}` database name is the key trick. It means two CI jobs running in parallel against the same emulator (or the same shared test account) won't collide. The disposal step cleans up after itself so you don't accumulate orphaned databases.
 
-```json
+In Python, use `pytest` fixtures with `autouse` or session scope:
+
+```python
+import pytest
+import uuid
+from azure.cosmos.aio import CosmosClient
+
+@pytest.fixture(scope="module")
+async def cosmos_container():
+    client = CosmosClient(
+        url=os.environ["COSMOS_ENDPOINT"],
+        credential=os.environ["COSMOS_KEY"]
+    )
+    db_name = f"test-{uuid.uuid4().hex}"
+    database = await client.create_database(db_name)
+    container = await database.create_container(
+        id="orders",
+        partition_key={"paths": ["/customerId"]},
+        offer_throughput=400
+    )
+    yield container
+    await client.delete_database(db_name)
+    await client.close()
+```
+
+### Verifying Indexing Policy Behavior in Tests
+
+If you've tuned your indexing policy (Chapter 9), integration tests should verify that queries relying on those indexes actually work. The Windows emulator supports custom indexing policies; the vNext emulator does not yet support them as of this writing. <!-- Source: emulator-linux.md -->
+
+For the Windows emulator (or the cloud), create the container with your production indexing policy and then assert that your queries succeed without excessive RU charges:
+
+```csharp
+[Fact]
+public async Task RangeQuery_UsesCompositeIndex()
 {
-  "indexingMode": "consistent",
-  "automatic": true,
-  "includedPaths": [{ "path": "/*" }],
-  "excludedPaths": [
-    { "path": "/_etag/?" },
-    { "path": "/contentVector/*" }
-  ],
-  "fullTextIndexes": [
-    { "path": "/content" }
-  ],
-  "vectorIndexes": [
-    { "path": "/contentVector", "type": "diskANN" }
-  ]
-}
-```
-
-Then you run a hybrid query using `RRF`:
-
-```sql
-SELECT TOP 10 *
-FROM c
-ORDER BY RANK RRF(
-    VectorDistance(c.contentVector, @queryVector),
-    FullTextScore(c.content, "machine", "learning", "transformer")
-)
-```
-
-The `RRF` function merges the rankings from both scoring methods into a single, unified ranking. Documents that score well on *both* vector similarity and keyword relevance float to the top.
-
-### Weighted Hybrid Search
-
-You can weight the two signals differently. For example, to make vector search twice as important:
-
-```sql
-SELECT TOP 10 *
-FROM c
-ORDER BY RANK RRF(
-    VectorDistance(c.contentVector, @queryVector),
-    FullTextScore(c.content, "machine", "learning"),
-    [2, 1]
-)
-```
-
-The weights array `[2, 1]` assigns weight 2 to the vector score and weight 1 to the full-text score.
-
-## Semantic Reranker (Preview)
-
-Even with hybrid search, the top results might not be ordered by *true relevance* to the user's intent. The Semantic Reranker—currently in gated preview—uses a Microsoft AI model to rescore and reorder your query results based on semantic relevance to a provided search phrase or context.
-
-The reranker works with any query results—vector, full-text, or hybrid. It's integrated directly into the Cosmos DB SDKs (Python and .NET) with minimal code changes. Each reranked document receives a relevancy score from 0 to 1, and the results are reordered accordingly.
-
-The trade-off is latency: the reranker adds an extra network call and model inference time. It's worth evaluating whether the improved relevancy justifies the added latency for your specific workload. For RAG applications where precision matters—support bots, legal search, medical Q&A—it can significantly improve the quality of the context passed to your LLM.
-
-## Full-Text Search Indexing Policy
-
-We briefly covered full-text configuration above, but let's go deeper. Full-text search in Cosmos DB includes tokenization, stemming, stop-word removal, and BM25 scoring—the same ranking algorithm used by most search engines.
-
-The full-text query functions include:
-
-- **`FullTextContains(c.text, "phrase")`**: Returns true if the phrase appears in the property. Use in `WHERE` clauses.
-- **`FullTextContainsAll(c.text, "term1", "term2")`**: Returns true only if *all* terms appear.
-- **`FullTextContainsAny(c.text, "term1", "term2")`**: Returns true if *any* term appears.
-- **`FullTextScore(c.text, "term1", "term2")`**: Returns a BM25 relevance score. Used only in `ORDER BY RANK`.
-
-Multi-language support (preview) covers English, German, Spanish, French, Italian, and Portuguese, with language-specific tokenization and stemming.
-
-## Building a RAG Application with Cosmos DB and Azure OpenAI
-
-Let's put it all together. Here's the high-level architecture of a RAG application:
-
-1. **Ingest**: Load your documents into Cosmos DB. For each document, call Azure OpenAI's embedding API to generate a vector, and store both the text and the vector in the same item.
-2. **Index**: Your container's DiskANN vector index handles the indexing automatically.
-3. **Query**: When a user asks a question, embed the question using the same model, then run a vector search (or hybrid search) to retrieve the top-K most relevant documents.
-4. **Generate**: Pass the retrieved documents as context to an Azure OpenAI chat completion model (like GPT-4o) along with the user's question. The model generates an answer grounded in your data.
-
-A simplified document might look like:
-
-```json
-{
-  "id": "doc-001",
-  "title": "Return Policy",
-  "content": "Items may be returned within 30 days of purchase...",
-  "category": "policies",
-  "contentVector": [0.0123, -0.0456, 0.0789, ...]
-}
-```
-
-The query step:
-
-```sql
-SELECT TOP 5
-    c.id, c.title, c.content,
-    VectorDistance(c.contentVector, @questionVector) AS relevance
-FROM c
-WHERE c.category = "policies"
-ORDER BY VectorDistance(c.contentVector, @questionVector)
-```
-
-Then you feed `c.content` from the top results into your LLM prompt as context. The result is a conversational AI that answers questions accurately from your own data.
-
-## Using Cosmos DB for LLM Conversation History
-
-Every chat-based AI application needs to maintain conversation history. The LLM itself is stateless—you must pass the full conversation context with each request. Cosmos DB is an excellent store for this.
-
-The recommended data model stores **one document per turn**, where each turn represents a complete exchange (user prompt + agent response):
-
-```json
-{
-  "id": "turn-00a1b2c3",
-  "threadId": "thread-5678",
-  "turnIndex": 3,
-  "messages": [
+    // Create container with production indexing policy
+    var containerProps = new ContainerProperties("orders-indexed", "/customerId")
     {
-      "role": "user",
-      "content": "What's our refund policy for accessories?",
-      "timestamp": "2025-09-24T10:14:25Z"
-    },
+        IndexingPolicy = new IndexingPolicy
+        {
+            CompositeIndexes =
+            {
+                new Collection<CompositePath>
+                {
+                    new CompositePath
+                        { Path = "/customerId", Order = CompositePathSortOrder.Ascending },
+                    new CompositePath
+                        { Path = "/orderDate", Order = CompositePathSortOrder.Descending }
+                }
+            }
+        }
+    };
+
+    var container = (await _database.CreateContainerAsync(containerProps, 400)).Container;
+
+    // Seed data
+    for (int i = 0; i < 10; i++)
     {
-      "role": "agent",
-      "content": "Accessories can be returned within 30 days...",
-      "timestamp": "2025-09-24T10:14:27Z"
+        await container.UpsertItemAsync(new
+        {
+            id = $"ord-{i}",
+            customerId = "cust-42",
+            orderDate = DateTime.UtcNow.AddDays(-i),
+            total = 10.00m * i
+        }, new PartitionKey("cust-42"));
     }
-  ],
-  "embedding": [0.013, -0.092, 0.551, ...]
+
+    // Query with ORDER BY matching the composite index
+    var query = new QueryDefinition(
+        "SELECT * FROM c WHERE c.customerId = @cid ORDER BY c.orderDate DESC")
+        .WithParameter("@cid", "cust-42");
+
+    var options = new QueryRequestOptions { PartitionKey = new PartitionKey("cust-42") };
+    double totalRUs = 0;
+
+    using var iterator = container.GetItemQueryIterator<dynamic>(query, requestOptions: options);
+    var results = new List<dynamic>();
+    while (iterator.HasMoreResults)
+    {
+        var response = await iterator.ReadNextAsync();
+        totalRUs += response.RequestCharge;
+        results.AddRange(response);
+    }
+
+    Assert.Equal(10, results.Count);
+    // Composite index should keep RU cost low for sorted queries
+    Assert.True(totalRUs < 10, $"Expected < 10 RUs but got {totalRUs:F2}");
 }
 ```
 
-Use `threadId` as your partition key so all turns in a conversation are colocated. Retrieving the last N turns for context injection is a simple query:
+The RU assertion is a sanity check, not a precise benchmark — emulator RU charges are approximate. The real value is proving the query *runs* against your indexing policy without errors. If you accidentally exclude a path that a query depends on, the query will either fail or produce an unexpected scan. Your integration test catches that before production does.
 
-```sql
-SELECT TOP @k c.messages, c.turnIndex
-FROM c
-WHERE c.threadId = @threadId
-ORDER BY c.turnIndex DESC
+## End-to-End Testing Strategies for Change Feed Consumers
+
+The change feed processor is covered in depth in Chapter 15 — here we focus on how to test it.
+
+Change feed consumers are asynchronous by nature — a write happens, then *eventually* a consumer processes it. That "eventually" makes testing awkward. Here's a pattern that tames it.
+
+The trick is to use the change feed processor's own SDK in your test, with a `TaskCompletionSource` (or equivalent) as the signal that processing occurred.
+
+```csharp
+[Fact]
+public async Task ChangeFeed_ProcessesNewOrders()
+{
+    // Arrange: seed a lease container
+    var leaseContainer = (await _database.CreateContainerAsync(
+        $"leases-{Guid.NewGuid():N}", "/id", 400)).Container;
+
+    var processedOrders = new ConcurrentBag<Order>();
+    var allProcessed = new TaskCompletionSource<bool>();
+    int expectedCount = 3;
+
+    // Build a change feed processor that captures processed items
+    var processor = _container
+        .GetChangeFeedProcessorBuilder<Order>(
+            "test-processor",
+            async (context, changes, ct) =>
+            {
+                foreach (var order in changes)
+                    processedOrders.Add(order);
+
+                if (processedOrders.Count >= expectedCount)
+                    allProcessed.TrySetResult(true);
+            })
+        .WithInstanceName("test-instance")
+        .WithLeaseContainer(leaseContainer)
+        .WithStartTime(DateTime.UtcNow)
+        .Build();
+
+    await processor.StartAsync();
+
+    // Act: insert documents
+    for (int i = 0; i < expectedCount; i++)
+    {
+        await _container.UpsertItemAsync(
+            new Order
+            {
+                Id = $"cf-ord-{i}",
+                CustomerId = "cust-99",
+                Total = 10.00m * i
+            },
+            new PartitionKey("cust-99"));
+    }
+
+    // Wait for the change feed to deliver, with a timeout
+    var completed = await Task.WhenAny(
+        allProcessed.Task,
+        Task.Delay(TimeSpan.FromSeconds(30)));
+
+    await processor.StopAsync();
+
+    // Assert
+    Assert.True(allProcessed.Task.IsCompletedSuccessfully,
+        $"Change feed only delivered {processedOrders.Count}/{expectedCount} items within timeout.");
+    Assert.Equal(expectedCount, processedOrders.Count);
+}
 ```
 
-You can also store an embedding per turn to enable *semantic caching*—if a new question is very similar to a previous one, you can return the cached response without calling the LLM again, saving both latency and token costs.
+The key elements:
 
-## Building AI Agent State Stores
+- **`WithStartTime(DateTime.UtcNow)`** tells the processor to only read changes from now forward, ignoring any leftover data from previous tests.
+- **`TaskCompletionSource` with a timeout** gives you a clean pass/fail without sleeping for arbitrary durations.
+- **`ConcurrentBag`** handles the thread-safety of the delegate being called from multiple threads.
 
-AI agents go beyond simple Q&A. They plan, use tools, make decisions, and execute multi-step workflows. All of that requires persistent state—and Cosmos DB's schema-flexible, globally distributed nature makes it an ideal agent state store.
+The same pattern works in Python and JavaScript — replace `TaskCompletionSource` with `asyncio.Event` in Python or a `Promise` wrapper in JavaScript.
 
-You can store:
+One caveat: the change feed processor's poll interval defaults to a few seconds. In tests against the emulator, you might wait 5–10 seconds for the first batch to arrive. That's normal — don't set your timeout lower than 15–20 seconds or you'll get flaky failures.
 
-- **Current task state**: What step the agent is on, what tools it has called, intermediate results.
-- **Tool call logs**: The inputs and outputs of every tool invocation, for debugging and replay.
-- **Planning context**: The agent's goals, sub-goals, and decision history.
-- **Multi-agent coordination**: In multi-agent systems, shared state that multiple agents read from and write to.
+## Testing Throughput and Partition Key Distribution with Load Tools
 
-The partition key strategy matters here. For single-agent apps, partition by `threadId` or `sessionId`. For multi-tenant agent platforms, consider hierarchical partition keys like `["/tenantId", "/threadId"]` to balance isolation with performance.
+Integration tests prove correctness. Load tests prove your data model holds up under pressure. Two areas matter most: throughput consumption and partition key distribution.
 
-## Managing AI Agent Memories
+### Verifying Partition Key Distribution
 
-Agent memory is a step beyond conversation history. It's about giving agents the ability to *learn* and *remember* across interactions.
+A bad partition key creates hot partitions that throttle under load (Chapter 5 covers the theory). You can validate distribution in a test by writing a representative dataset and checking the spread.
 
-### Short-Term (Working) Memory
+```csharp
+[Fact]
+public async Task PartitionKey_DistributesEvenly()
+{
+    // Seed 1,000 documents with realistic partition key values
+    var random = new Random(42); // deterministic seed for reproducibility
+    var customerIds = Enumerable.Range(1, 50)
+        .Select(i => $"cust-{i}").ToArray();
 
-Short-term memory holds the current context: recent conversation turns, in-progress tool call results, and intermediate reasoning steps. It's ephemeral—you might expire it with TTL after the session ends, or summarize it into long-term memory.
+    for (int i = 0; i < 1000; i++)
+    {
+        var customerId = customerIds[random.Next(customerIds.Length)];
+        await _container.UpsertItemAsync(new
+        {
+            id = $"load-{i}",
+            customerId,
+            amount = random.NextDouble() * 100
+        }, new PartitionKey(customerId));
+    }
 
-### Long-Term Memory
+    // Query the count per partition key value
+    var query = new QueryDefinition(
+        "SELECT c.customerId, COUNT(1) AS cnt FROM c GROUP BY c.customerId");
 
-Long-term memory persists across sessions and conversations. It captures user preferences ("User prefers bullet-point responses"), learned facts ("User is based in Seattle"), and historical summaries of past interactions. This memory makes agents feel personalized and intelligent over time.
+    using var iterator = _container.GetItemQueryIterator<dynamic>(query);
+    var distribution = new Dictionary<string, int>();
+    while (iterator.HasMoreResults)
+    {
+        var batch = await iterator.ReadNextAsync();
+        foreach (var item in batch)
+        {
+            distribution[(string)item.customerId] = (int)item.cnt;
+        }
+    }
 
-### Memory Retrieval Patterns
-
-Cosmos DB supports multiple retrieval strategies for agent memories:
-
-**Recency-based**: Get the most recent turns.
-
-```sql
-SELECT TOP @k c.content, c.timestamp
-FROM c
-WHERE c.threadId = @threadId
-ORDER BY c.timestamp DESC
+    // Assert: no single partition key holds more than 5% of total documents
+    int maxCount = distribution.Values.Max();
+    Assert.True(maxCount <= 50,
+        $"Hottest partition key has {maxCount} docs — distribution is too skewed.");
+}
 ```
 
-**Semantic search**: Find the most contextually relevant memories, regardless of when they occurred.
+This isn't a substitute for monitoring in production (Chapter 18), but it catches obviously bad partition key choices during development.
 
-```sql
-SELECT TOP @k c.content, VectorDistance(c.embedding, @queryVector) AS relevance
-FROM c
-WHERE c.threadId = @threadId
-ORDER BY VectorDistance(c.embedding, @queryVector)
+### Load Testing with the Benchmarking Tool
+
+For throughput testing against the *cloud service* (not the emulator — the emulator doesn't accurately reflect production throughput limits), use a dedicated load testing tool. Microsoft's `azure-cosmos-dotnet-v3` repo includes a benchmarking tool, and tools like `k6`, `Locust`, or `NBomber` work well for custom scenarios.
+
+The pattern: write a load test that simulates your production read/write mix, run it against a test account with production-equivalent throughput, and measure:
+
+- **RU consumption per operation** — are your queries costing what you expect?
+- **429 (throttling) rate** — are you hitting partition-level throughput limits?
+- **P99 latency** — does it stay within your SLA requirements?
+
+Keep load tests separate from your regular CI pipeline. They require provisioned throughput, take minutes to run, and cost real money. Run them before major releases or after significant data model changes.
+
+## Common Testing Pitfalls
+
+### Singleton Client Leaks in Tests
+
+The Cosmos DB SDK best practices are explicit: use a single `CosmosClient` instance for the lifetime of your application. Each `CosmosClient` manages its own connection pool — HTTP connections in gateway mode, TCP connections in direct mode. Creating a new client per test (or worse, per test method) burns through connections and causes port exhaustion. <!-- Source: best-practice-dotnet.md, conceptual-resilient-sdk-applications.md -->
+
+In test suites, create the `CosmosClient` once per test class (or per test session) and share it across tests. In xUnit, use `IAsyncLifetime` on a collection fixture. In NUnit, use `[OneTimeSetUp]`. In pytest, use a session-scoped fixture.
+
+```csharp
+// BAD: new client per test
+[Fact]
+public async Task SomeTest()
+{
+    using var client = new CosmosClient(endpoint, key); // DON'T
+    // ...
+}
+
+// GOOD: shared client via fixture
+public class CosmosFixture : IAsyncLifetime
+{
+    public CosmosClient Client { get; private set; } = null!;
+
+    public Task InitializeAsync()
+    {
+        Client = new CosmosClient(
+            Environment.GetEnvironmentVariable("COSMOS_ENDPOINT")!,
+            Environment.GetEnvironmentVariable("COSMOS_KEY")!,
+            new CosmosClientOptions { ConnectionMode = ConnectionMode.Gateway });
+        return Task.CompletedTask;
+    }
+
+    public Task DisposeAsync()
+    {
+        Client.Dispose();
+        return Task.CompletedTask;
+    }
+}
+
+[CollectionDefinition("Cosmos")]
+public class CosmosCollection : ICollectionFixture<CosmosFixture> { }
+
+[Collection("Cosmos")]
+public class OrderIntegrationTests
+{
+    private readonly CosmosClient _client;
+
+    public OrderIntegrationTests(CosmosFixture fixture)
+    {
+        _client = fixture.Client;
+    }
+
+    // Tests use _client...
+}
 ```
 
-**Hybrid retrieval**: Combine semantic similarity with keyword matching for the best of both worlds.
+### Emulator Cold-Start Latency
 
-```sql
-SELECT TOP @k c.content
-FROM c
-WHERE c.threadId = @threadId
-ORDER BY RANK RRF(
-    VectorDistance(c.embedding, @queryVector),
-    FullTextScore(c.content, @searchTerms)
-)
-```
+The vNext Docker emulator's gateway endpoint is typically available immediately according to the docs. In our experience, though, the first request can still take a few seconds while internal components finish initializing. A readiness check is still good practice — if your CI test runner starts executing tests the instant the container is "healthy," the first test may time out. <!-- Source: emulator-linux.md -->
 
-**Keyword filtering**: Find memories that mention specific terms.
-
-```sql
-SELECT TOP 10 *
-FROM c
-WHERE c.threadId = @threadId
-  AND FullTextContains(c.content, "refund policy")
-```
-
-## Building Knowledge Graphs with Cosmos DB
-
-Sometimes vector similarity and keyword search aren't enough. When your data has rich, structured relationships—organizational hierarchies, dependency trees, supply chains—you need graph traversal. That's where knowledge graphs come in.
-
-The **CosmosAIGraph** project (available at [aka.ms/cosmosaigraph](https://aka.ms/cosmosaigraph)) demonstrates how to build AI-powered knowledge graphs using Cosmos DB. It combines three retrieval methods:
-
-- **Database RAG**: Traditional document queries for factual lookups.
-- **Vector RAG**: Semantic similarity for finding conceptually related items.
-- **Graph RAG**: Graph traversal for relationship and path queries.
-
-CosmosAIGraph features *OmniRAG*, which dynamically selects the best retrieval method based on user intent. A question like "What is Flask?" triggers a database query. "What are its dependencies?" triggers a graph traversal. "Find libraries similar to Flask" triggers vector search. This multi-modal approach yields more comprehensive and accurate answers than any single method alone.
-
-You can model graph-like data directly in Cosmos DB for NoSQL using document references and adjacency lists, or use Cosmos DB for Apache Gremlin for native graph operations. The choice depends on your query patterns and whether you need full graph traversal capabilities or simpler relationship lookups.
-
-## Integrating with AI Frameworks
-
-Cosmos DB offers official integrations with the three major AI/LLM orchestration frameworks. You don't need to build the plumbing from scratch.
-
-### Semantic Kernel
-
-Microsoft's [Semantic Kernel](https://learn.microsoft.com/semantic-kernel/overview/) provides a Cosmos DB connector for:
-
-- **Vector store**: Use Cosmos DB as the backing store for Semantic Kernel's memory and vector search abstractions.
-- **Chat history**: Persist conversation state through the Cosmos DB chat history connector.
-- **Agent memory**: Store and retrieve agent memories using Semantic Kernel's memory pipeline.
-
-Available for both .NET and Python.
-
-### LangChain
-
-[LangChain](https://www.langchain.com/) integrates with Cosmos DB through:
-
-- **Vector store**: The `AzureCosmosDBVectorSearch` class in LangChain connects directly to Cosmos DB for NoSQL for vector storage and similarity search.
-- **Chat history**: The `CosmosDBChatMessageHistory` class manages conversation history.
-- **Caching**: Use Cosmos DB as an LLM response cache to reduce token costs.
-
-Available for Python and JavaScript/TypeScript.
-
-### LlamaIndex
-
-[LlamaIndex](https://www.llamaindex.ai/) provides a Cosmos DB integration for:
-
-- **Vector store**: The `AzureCosmosDBNoSQLVectorSearch` class enables vector storage and retrieval.
-- **Document storage**: Use Cosmos DB as a document store backing LlamaIndex's data ingestion pipeline.
-
-Available for Python.
-
-All three frameworks let you swap in Cosmos DB with minimal configuration changes, so you can experiment and choose the orchestration layer that fits your team best.
-
-## Model Context Protocol (MCP) Toolkit for Cosmos DB
-
-The [Azure Cosmos DB MCP Toolkit](https://github.com/AzureCosmosDB/MCPToolKit) is an open-source solution that enables AI agents and agentic applications to interact with Cosmos DB through the **Model Context Protocol (MCP)**. MCP is an emerging standard for how AI tools and agents communicate with external data sources.
-
-The toolkit provides enterprise-ready tools that let AI agents:
-
-- Query and search your Cosmos DB data (including vector search).
-- Read and write documents.
-- Manage containers and databases.
-- Execute transactional operations.
-
-This is particularly useful when you're building agents that need to *act* on data in Cosmos DB—not just read it, but create, update, and query it dynamically as part of their reasoning process. The MCP toolkit bridges the gap between your agent's decision-making layer and your database, using a standardized protocol that works across different agent frameworks.
-
-## AI Coding Assistants: Agent Kit
-
-The [Azure Cosmos DB Agent Kit](https://github.com/AzureCosmosDB/cosmosdb-agent-kit) is a different kind of AI tool—it's not for your application's end users, but for *you* as a developer. It's an open-source collection of 45+ curated rules that teaches AI coding assistants expert-level Cosmos DB best practices.
-
-Built on the [Agent Skills](https://agentskills.io/) format, it works with:
-
-- **GitHub Copilot** (VS Code, Visual Studio, JetBrains)
-- **Claude Code**
-- **Gemini CLI**
-- Any other Agent Skills-compatible tool
-
-Install with one command:
+Fix this with a readiness check before running tests:
 
 ```bash
-npx skills add AzureCosmosDB/cosmosdb-agent-kit
+# Wait for the emulator to respond (GitHub Actions step)
+- name: Wait for Cosmos DB Emulator
+  run: |
+    for i in $(seq 1 30); do
+      curl -sk https://localhost:8081/ && break || sleep 2
+    done
 ```
 
-Once installed, the skills activate automatically when your AI assistant detects Cosmos DB-related code. Ask it to review your data model, optimize a query, or check your SDK usage patterns, and it applies production-tested best practices covering:
+Or in code, add a retry loop in your test fixture's initialization:
 
-| Category | Priority |
-|---|---|
-| Data Modeling | Critical |
-| Partition Key Design | Critical |
-| Query Optimization | High |
-| SDK Best Practices | High |
-| Indexing Strategies | Medium-High |
-| Throughput & Scaling | Medium |
-| Global Distribution | Medium |
-| Monitoring & Diagnostics | Low-Medium |
+```csharp
+public async Task InitializeAsync()
+{
+    _client = new CosmosClient(/* ... */);
 
-Think of it as having a Cosmos DB expert sitting next to you while you code—except the expert never sleeps and is always up to date with the latest guidance.
+    // Retry until the emulator is ready
+    for (int i = 0; i < 15; i++)
+    {
+        try
+        {
+            await _client.ReadAccountAsync();
+            break;
+        }
+        catch (Exception) when (i < 14)
+        {
+            await Task.Delay(2000);
+        }
+    }
 
-## Putting It All Together
+    // Now create the database...
+}
+```
 
-The AI landscape is moving fast, but the data layer underneath it all follows a clear pattern: you need a database that can store your operational data, your vectors, your conversation history, and your agent state—with low latency, high throughput, and global availability. Cosmos DB checks every one of those boxes.
+### Testing Against the Emulator vs. the Cloud
 
-Whether you're building a simple RAG chatbot or a complex multi-agent system with long-term memory and knowledge graphs, the building blocks are here. Vector search with DiskANN gives you the retrieval performance. Hybrid search and the semantic reranker give you the relevancy. The integrations with Semantic Kernel, LangChain, and LlamaIndex give you the developer experience. And the MCP toolkit and Agent Kit give you the operational tooling to build and maintain it all.
+The emulator is a development tool, not a miniature Cosmos DB. As the comparison table earlier in this chapter shows, the two emulator variants differ in API coverage, protocol defaults, and feature completeness — and *neither* fully replicates the cloud service. Here's what that means for your test strategy:
 
-The key insight is this: by consolidating your AI data layer into Cosmos DB, you eliminate an entire category of operational complexity. No more synchronizing data between stores. No more managing separate vector databases. No more worrying about consistency between your transactional data and your AI retrieval layer. One database. One set of SLAs. One operational story.
+- **Consistency and geo-replication** can't be meaningfully tested on a single-instance emulator. If your application relies on Bounded Staleness, Consistent Prefix, or multi-region failover, those tests need a cloud account. <!-- Source: emulator.md -->
+- **RU-based assertions are unreliable.** Emulator RU numbers are approximate at best (Windows) or not yet implemented (vNext). Don't gate CI on exact RU costs. <!-- Source: emulator.md, emulator-linux.md -->
+- **Throughput throttling isn't representative.** In our practical experience, the emulator is not designed to replicate production throughput constraints — this isn't documented behavior, but load testing should always happen against a real account.
+- **Server-side execution** (stored procedures, triggers, UDFs) is not planned for the vNext emulator, so test those paths with the Windows emulator or a cloud account. <!-- Source: emulator-linux.md -->
 
-## What's Next
+The practical strategy: run correctness tests (queries, CRUD, change feed) against the emulator in CI. Run performance tests, consistency tests, and failover tests against a dedicated cloud account in a separate pipeline stage.
 
-In **Chapter 25**, we'll shift our focus to **multi-tenancy patterns** — the isolation spectrum from shared containers to dedicated accounts, partition key strategies for tenant isolation, hierarchical partition keys for high-cardinality tenant scenarios, enforcing data isolation with RBAC and resource tokens, per-tenant throughput management, and orchestrating multi-account deployments at scale with Cosmos DB Fleets.
+### Forgetting to Dispose the FeedIterator
+
+In .NET, `FeedIterator<T>` implements `IDisposable`. If you iterate through query results without a `using` block, you leak HTTP connections. In unit tests this might not matter, but in integration tests that run hundreds of queries, it causes timeouts and socket exhaustion.
+
+```csharp
+// Always wrap FeedIterator in a using block
+using var iterator = container.GetItemQueryIterator<Order>(query);
+while (iterator.HasMoreResults)
+{
+    var batch = await iterator.ReadNextAsync();
+    // ...
+}
+```
+
+### Non-Deterministic Test Data
+
+If your test seeds random data without a fixed seed, you'll get flaky failures that can't be reproduced. Always use a deterministic seed (`new Random(42)`) or static test data. Your future self, debugging a CI failure at 11 PM, will thank you.
+
+With these patterns in place, you've got a testing strategy that covers the full spectrum — from fast, isolated unit tests to change-feed-aware end-to-end tests — without requiring a cloud account for every build. Chapter 25 shifts gears to a different kind of search: vector embeddings and building AI-powered applications on top of Cosmos DB.

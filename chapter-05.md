@@ -1,282 +1,442 @@
 # Chapter 5: Partition Keys — The Most Important Decision You'll Make
 
-Every distributed database has a mechanism for deciding where data lives. In Azure Cosmos DB, that mechanism is the **partition key** — and choosing the right one is the single most consequential design decision you'll make for your application. A good partition key unlocks near-limitless scale, sub-millisecond reads, and cost-efficient throughput. A bad one creates hot spots, throttling, and a ceiling you can't raise without migrating your data to an entirely new container.
+You can change your indexing policy. You can switch between autoscale and manual throughput. You can add regions, adjust consistency, even reshape your documents with the Patch API. But once you create a container, you cannot change its partition key. If you got it wrong, your options are creating a new container and migrating all your data — or living with a performance ceiling that no amount of RUs can fix.
 
-This chapter gives you the mental model to get it right the first time.
+That's why this is the most important decision you'll make in Cosmos DB. Your data model (Chapter 4) shapes how your documents look. Your partition key determines how they scale.
 
-## How Partitioning Works Under the Hood
+## Why Partition Key Choice Defines Your Performance Ceiling
 
-Before you can choose a good key, you need to understand the two-level system Cosmos DB uses to organize your data (see Chapter 2 for a refresher on logical and physical partitions).
+Chapter 2 introduced logical and physical partitions briefly. Now we go deep.
 
-### Logical Partitions
+When you create a container and specify a partition key path — say, `/customerId` — you're telling Cosmos DB how to distribute your data. Every item you write gets hashed on that property's value and assigned to a **logical partition**: the set of all items sharing the same partition key value. Cosmos DB then maps logical partitions to **physical partitions**, which are the actual compute and storage units running behind the scenes.
 
-A **logical partition** is the set of all items that share the same partition key value. If your container uses `/customerId` as its partition key and you have 50,000 customers, you have 50,000 logical partitions — one per customer.
+<!-- Source: partitioning.md -->
 
-Logical partitions are the unit of transactional scope. Stored procedures, triggers, and transactional batch operations all execute within a single logical partition. You cannot span a transaction across two different partition key values.
+Here's what you need to internalize:
 
-The critical limit here: **each logical partition can store up to 20 GB of data**. There is no limit on the *number* of logical partitions in a container, but any single partition key value cannot exceed that 20 GB ceiling.
+- Each **logical partition** can store up to **20 GB** of data. Hit that ceiling and writes for that partition key value are rejected with an HTTP 403 — you'll need to delete data or migrate to a new partition key to resume writing.
+- Each **physical partition** can store up to **50 GB** and serve up to **10,000 RU/s**. Since each logical partition maps to exactly one physical partition, a single logical partition is also capped at 10,000 RU/s.
+- Provisioned throughput is divided **evenly** across physical partitions. If you provision 30,000 RU/s and have three physical partitions, each gets 10,000 RU/s — regardless of how much traffic each partition actually receives.
 
-### Physical Partitions
+<!-- Source: partitioning.md -->
 
-Behind the scenes, Cosmos DB maps your logical partitions onto **physical partitions** — the actual compute and storage units managed by the service. You don't create or manage physical partitions directly; Cosmos DB handles them transparently.
+That last point is the kicker. If 80% of your traffic targets one partition key value, that value's physical partition gets 80% of the load but only a third of the throughput. The other two partitions sit mostly idle while users hitting the hot partition get throttled. No amount of provisioned RU/s fixes a bad partition key — you're just buying capacity that goes unused.
 
-Each physical partition has hard limits:
-
-- **Up to 50 GB of storage**
-- **Up to 10,000 RU/s of throughput**
-
-Multiple logical partitions can (and typically do) live on the same physical partition. When a physical partition runs out of room — either because storage exceeds 50 GB or throughput demand warrants it — Cosmos DB automatically **splits** it, redistributing logical partitions across the new physical partitions without any downtime.
-
-Provisioned throughput is divided **evenly** across all physical partitions. If you provision 30,000 RU/s and your container has three physical partitions, each one gets 10,000 RU/s. This is the root cause of hot partition problems — if 80% of your traffic targets data on one physical partition, the other two partitions' allocated throughput goes to waste while the hot one throttles.
+Your partition key doesn't just organize data. It sets the upper bound on how fast and how large any single slice of your application can grow.
 
 ## Properties of a Good Partition Key
 
-Choosing a partition key means balancing three properties. A great key nails all three; a good key nails at least two.
+The docs list the criteria, and they're right. But they read like a checklist without context. Let's add the *why*.
+
+<!-- Source: partitioning.md -->
 
 ### High Cardinality
 
-Your partition key should have a **wide range of distinct values** — hundreds, thousands, or millions. High cardinality means your data spreads across many logical partitions, which in turn spread across many physical partitions. This gives Cosmos DB room to distribute load.
+**Cardinality** means the number of distinct values the partition key can take. You want a lot of them — hundreds, thousands, ideally millions.
 
-Think about an e-commerce application with three candidate keys:
+Why? Because Cosmos DB can only distribute data and throughput across physical partitions at the logical-partition boundary. If you have 5 distinct partition key values, you can never use more than 5 logical partitions, which limits how many physical partitions your data can spread across. Even if you provision 100,000 RU/s, each partition key value is constrained to the throughput of its single physical partition (10,000 RU/s max), and splits can only help at the physical partition level — not the logical one.
 
-| Candidate Key | Distinct Values | Cardinality |
-|---|---|---|
-| `/categoryId` | ~50 product categories | Low |
-| `/customerId` | ~500,000 customers | High |
-| `/orderId` | ~10,000,000 orders | Very High |
-
-With `/categoryId`, you have at most 50 logical partitions. One popular category like "Electronics" could easily dominate both storage and throughput, creating a hot partition. With `/customerId` or `/orderId`, you have far more values to spread data across.
+A property like `customerId` (millions of distinct values) has high cardinality. A property like `status` ("active," "inactive," "suspended") does not. A property like `country` (around 200 values) is borderline — it might work for a small dataset but becomes a bottleneck at scale.
 
 ### Even Write Distribution
 
-High cardinality is necessary but not sufficient. You also need your **write traffic to be evenly distributed** across those values. If 90% of your writes target a single customer (say, a batch import job for one large enterprise tenant), having 500,000 unique customer IDs doesn't help — that one logical partition still gets hammered.
+High cardinality isn't enough if traffic isn't evenly spread. A partition key with a million distinct values still creates a hot partition if one value generates 90% of the writes.
 
-The 10,000 RU/s physical partition limit means any single partition key value is also capped at 10,000 RU/s, since a logical partition maps to exactly one physical partition. If one value needs more than that, you'll hit throttling no matter how much total throughput you've provisioned.
+Think about a multi-tenant SaaS application where `tenantId` is the partition key. If you have 10,000 tenants but one enterprise customer generates half the traffic, that customer's logical partition absorbs half the write load while receiving only a fraction of the total throughput. The other 9,999 tenants' partitions sit underutilized.
+
+The ideal partition key distributes *work* — not just *data* — roughly evenly across values.
 
 ### Efficient Single-Partition Reads
 
-For read-heavy workloads, you want your most common queries to include the partition key in the `WHERE` clause. This turns a potentially expensive **cross-partition query** into a cheap **single-partition query** that Cosmos DB routes directly to the one physical partition holding your data.
+The cheapest read in Cosmos DB is a **point read**: you provide the `id` and the partition key, and the service goes directly to the correct physical partition and fetches the item. About 1 RU for a 1 KB document. No query engine, no index scan — just a direct lookup.
 
-Ask yourself: "What property do I almost always filter by?" If you frequently run `SELECT * FROM c WHERE c.customerId = @id`, then `/customerId` is a strong candidate — your reads go straight to the right partition every time.
+The cheapest query is an **in-partition query**: you include the partition key in the `WHERE` clause, and Cosmos DB routes the query to a single physical partition. It searches only that partition's index.
 
-### Putting It Together: The E-Commerce Example
+Both of these operations require knowing the partition key. If your most common read patterns don't naturally include the partition key, every read becomes a **cross-partition query** that fans out to every physical partition. That's not catastrophic for small containers, but the per-partition overhead adds up fast as your container grows. We'll quantify the exact cost in the Cross-Partition Queries section later in this chapter.
 
-For our e-commerce application, let's evaluate the tradeoffs:
+<!-- Source: how-to-query-container.md -->
 
-- **`/orderId`** — Very high cardinality and perfectly even distribution (one item per partition). Ideal for point reads by order ID. But terrible for "get all orders for customer X" queries, which become expensive cross-partition fan-outs.
-- **`/customerId`** — High cardinality, reads by customer are efficient single-partition queries, and most customers have manageable data volumes (well under 20 GB). However, a handful of enterprise customers with millions of orders could create hot partitions.
-- **`/categoryId`** — Low cardinality, uneven distribution, creates hot partitions. This is almost never the right choice.
+The best partition key aligns with your hottest read path. Ask yourself: *what property do I almost always know when I'm fetching data?*
 
-For most e-commerce workloads, **`/customerId`** is the best compromise. Your dominant access pattern ("show me this customer's orders") hits a single partition, cardinality is high, and distribution is reasonably even. For the outlier enterprise tenants, you have escape hatches — hierarchical partition keys or synthetic keys — which we'll cover shortly.
+### The Decision Matrix
+
+Here's the three-part test, summarized:
+
+| Criterion | What to Look For | Red Flag |
+|-----------|-----------------|----------|
+| High cardinality | Hundreds of thousands+ distinct values | Fewer than 100 distinct values |
+| Even distribution | No single value dominates writes or storage | One value >5% of total traffic or data |
+| Read alignment | Most queries include this property in `WHERE` | Most queries filter on a *different* property |
+
+A property that passes all three is your partition key. When no single property qualifies, you'll need synthetic keys or hierarchical partition keys — both covered later in this chapter.
 
 ## Partition Key Anti-Patterns and Their Consequences
 
-Understanding what *not* to do is just as important as knowing best practices.
-
 ### Hot Partitions and Throughput Throttling
 
-A **hot partition** occurs when a disproportionate share of requests targets a single physical partition. Since throughput is divided evenly across physical partitions, a hot partition hits its 10,000 RU/s ceiling while other partitions sit idle.
+A **hot partition** occurs when one logical partition (or a small number of them) receives a disproportionate share of requests. Because throughput is divided evenly across physical partitions, the hot partition's physical partition runs out of RU/s while the others have capacity to spare. The result: `429 Too Many Requests` errors on the hot partition, even though your container-level throughput isn't fully consumed.
 
-Imagine you provision 40,000 RU/s across four physical partitions (10,000 RU/s each). If 70% of your writes hit one partition, that partition needs 28,000 RU/s but only has 10,000. You get HTTP 429 (rate limited) responses while 75% of your provisioned throughput goes unused. You're paying for 40,000 RU/s but can effectively use only about 16,000.
+<!-- Source: partitioning.md -->
 
-### Sequential IDs and Timestamps
+Imagine you've provisioned 18,000 RU/s across three physical partitions — 6,000 RU/s each. If one partition receives 12,000 RU/s of traffic, half those requests are throttled. Meanwhile, the other two partitions are using maybe 2,000 RU/s each. You're paying for 18,000 RU/s but can only use 10,000. The "fix" of doubling your throughput to 36,000 RU/s just creates more physical partitions with more unused capacity on each one.
 
-Using a sequentially increasing value — an auto-increment integer, a timestamp, or a date — is one of the most common mistakes developers make.
+> **Gotcha:** Throughput redistribution (preview) and burst capacity can provide some relief for uneven workloads, but they're band-aids, not cures. The root cause is always the partition key choice. Chapter 27 covers remediation strategies for hot partitions in production.
 
-If your partition key is `/createdDate` and every new item gets today's date, *all* of today's writes funnel into a single logical partition. Yesterday's partition is cold, today's is on fire, and tomorrow's doesn't exist yet. You've created a perpetual hot partition where only the "current" partition key value does any work.
+### Sequential IDs or Timestamps as Partition Keys
 
-The same applies to sequential IDs. If your values are `1, 2, 3, ... N` and each item has a unique partition key, writes will distribute evenly across physical partitions — but you lose the ability to perform single-partition queries on groups of related items and cannot use transactional batch across items.
+Using a timestamp like `/createdAt` or a sequential ID like `/orderNumber` as your partition key is one of the most common mistakes. It feels logical — new orders get new IDs, new events get new timestamps — but it creates a *write-hot* pattern where all current writes funnel into the same logical partition (the latest time bucket or the highest ID range).
 
-**The fix:** If you need to query by time range, use time as part of a synthetic or hierarchical partition key — not as the sole key.
+Consider a time-based key with month granularity (`2025-06`). All writes for the entire month go to a single logical partition. If you've provisioned 100,000 RU/s across 10 physical partitions, only the one partition holding the current month is doing work — capping your effective write throughput at 10,000 RU/s.
 
-### Low-Cardinality Keys
+<!-- Source: design-partitioning-iot.md -->
 
-Using a property with only a handful of values — like `/status` (pending, active, completed) or `/country` (maybe 200 values) — is another anti-pattern. With only three logical partitions for status values, Cosmos DB can never split your data across more than three physical partitions, regardless of how much throughput you provision. You're capping your container's scalability at 30,000 RU/s total (3 partitions × 10,000 RU/s each).
+Increase the granularity (daily, hourly, by-the-minute) and you spread writes better, but now every query that spans a time range becomes a cross-partition query hitting many physical partitions. You've traded one problem for another.
+
+The same logic applies to monotonically increasing IDs. If your `id` values are sequential (1, 2, 3, …), all current writes pile up on whatever logical partition handles the latest range.
+
+> **Tip:** If you need to query by time range, store the timestamp as a regular indexed property and use a different property (or a synthetic/hierarchical key) as the partition key. You get the time-range queries *and* even write distribution.
 
 ## Synthetic Partition Keys: Combining Properties for Better Distribution
 
-Sometimes no single property in your data makes a good partition key. The solution is to **construct one** by concatenating multiple properties into a synthetic value.
+Sometimes no single property in your documents satisfies all three criteria. That's where **synthetic partition keys** come in — you compute a new property by concatenating or hashing existing ones, and use that as the partition key.
 
-### Concatenating Properties
+<!-- Source: synthetic-partition-keys.md -->
 
-Suppose you have IoT device telemetry with `deviceId` and `date` fields. Neither is ideal alone — `deviceId` gives you per-device reads but a few high-traffic devices may dominate writes, while `date` gives you a daily hot partition. A synthetic key combines them:
+### Concatenation
+
+The simplest approach: combine two or more properties into a single value.
 
 ```json
 {
-  "deviceId": "sensor-42",
-  "date": "2024-03-15",
-  "partitionKey": "sensor-42-2024-03-15"
+  "deviceId": "sensor-4521",
+  "date": "2025-06-15",
+  "partitionKey": "sensor-4521-2025-06-15",
+  "temperature": 22.5,
+  "humidity": 61.3
 }
 ```
 
-Now your data distributes across (devices × days) logical partitions. The dominant query pattern "give me today's readings for this device" still hits a single partition.
+Here, neither `deviceId` alone (risk of exceeding 20 GB over time) nor `date` alone (all devices' data for a day lands on one partition) is a great partition key. But concatenating them gives you a value with high cardinality and good write distribution — each device-day combination gets its own logical partition.
 
-Your application computes this synthetic value before writing each item. It adds a small amount of client-side logic, but the benefits to distribution are significant.
+The trade-off: queries that only know the `deviceId` can't target a single partition. They'll fan out across all partitions because the partition key includes the date. This is where hierarchical partition keys (covered next) shine — they give you the data distribution of a synthetic key without the cross-partition query penalty for prefix matches.
 
-### Random Suffix Strategy
+### Random Suffix
 
-For extreme write-heavy scenarios (like logging or event ingestion), you can append a random number to the partition key:
+For truly hot partition keys — say, a high-volume event that many users trigger on the same date — you can append a random number:
 
-```
-2024-03-15.1, 2024-03-15.2, ... 2024-03-15.400
-```
-
-This fans out writes for a single date across 400 logical partitions instead of one. The tradeoff: reading all items for a given date now requires querying across all 400 suffix values.
-
-### Precalculated Suffix Strategy
-
-A smarter variation: instead of a random suffix, compute a hash of a property you'll query on later. For example, hash the `vehicleId` to a number between 1 and 400, and append it to the date:
-
-```
-partitionKey = "2024-03-15." + (hash(vehicleId) % 400)
+```json
+{
+  "eventDate": "2025-06-15",
+  "partitionKey": "2025-06-15.237",
+  "payload": { ... }
+}
 ```
 
-Now writes are evenly distributed *and* you can deterministically calculate the partition key when reading a specific vehicle's data for a given date. You get the write distribution of random suffixes without sacrificing read efficiency.
+If you choose a random number between 1 and 400, writes for a single date spread across 400 logical partitions. Throughput distribution is excellent.
+
+The downside: reading a specific item requires knowing the suffix, and querying all items for a date means hitting up to 400 logical partitions. This strategy favors write-heavy workloads where reads are either by exact key or are batch/analytical operations that can tolerate fan-out.
+
+### Precalculated Suffix
+
+A middle ground between random and concatenation: compute a deterministic hash of some queryable property and append it to the partition key. For example, hash the `vehicleId` to a number between 1 and 400 and append it to the date:
+
+```json
+{
+  "vehicleId": "VIN-98765",
+  "date": "2025-06-15",
+  "partitionKey": "2025-06-15.42",
+  "mileage": 58231
+}
+```
+
+<!-- Source: synthetic-partition-keys.md -->
+
+Since the hash is deterministic, you can always recompute it at read time. If you know the vehicle ID, you know the suffix, which means you can build the full partition key and do a point read. Writes are evenly distributed; reads by vehicle + date are single-partition. The only penalty is queries spanning all vehicles for a date — those still fan out across the suffix range.
+
+> **Tip:** Synthetic keys add complexity to your application. You own the concatenation or hashing logic in your write path and read path. Before reaching for a synthetic key, check whether hierarchical partition keys solve the same problem more cleanly.
+
+## Large Partition Keys: Values Up to 2 KB
+
+Before May 2019, Cosmos DB hashed only the first 101 bytes of a partition key value. Containers created with this older hash function treat partition key values that share the same first 101 bytes as the same logical partition — a **partition key collision** that leads to data skew, incorrect unique key enforcement, and uneven storage distribution.
+
+<!-- Source: large-partition-keys.md -->
+
+**Large partition keys** fix this by enabling an enhanced hash function that uses up to **2,048 bytes** (2 KB) of the partition key value. This is important when your partition key is a long string — a URL, a concatenated synthetic key, or a fully qualified tenant identifier.
+
+The practical details:
+
+- Containers created via the Azure portal use large partition keys **by default**.
+- Containers created via the .NET SDK v3 use large partition keys by default. The older .NET SDK v2 does not — you must explicitly set `PartitionKeyDefinitionVersion.V2`.
+- Large partition key support can only be enabled at **container creation time**. If your existing container doesn't support it, you'll need to create a new container and migrate.
+
+<!-- Source: large-partition-keys.md -->
+
+Unless you're working with legacy SDKs or an application that predates May 2019, always use large partition keys. There's no downside.
 
 ## Hierarchical Partition Keys (Subpartitioning)
 
-Introduced to address the limitations of single-value partition keys, **hierarchical partition keys** let you define up to **three levels** of partition key hierarchy. Cosmos DB uses these levels to create a tree of subpartitions, enabling individual tenants or entities to exceed the 20 GB logical partition limit.
+This is the feature that solves the hardest partition key problems. If synthetic keys feel like a workaround, **hierarchical partition keys** (HPK) are the platform-level answer.
 
-### How They Work
+<!-- Source: hierarchical-partition-keys.md -->
 
-Instead of specifying a single path like `/customerId`, you define an ordered list of paths:
+### The Problem HPK Solves
+
+Consider a multi-tenant SaaS application. You want to partition by `tenantId` so that queries for a specific tenant's data stay within a single physical partition — no fan-out. But your largest tenant has 50 GB of data, far exceeding the 20 GB logical partition limit. Partitioning by `tenantId` alone will block writes for that tenant once it hits the ceiling.
+
+You could use a synthetic key like `tenantId-userId`, but now *every* query for a tenant (without specifying the user) becomes a cross-partition fan-out. You've traded a storage problem for a query performance problem.
+
+Hierarchical partition keys let you have both: partition by `TenantId` first, then subdivide by `UserId` (and optionally a third level). The logical partition is now defined by the *full path* — `TenantId + UserId` — so the 20 GB limit applies to each `TenantId + UserId` combination, not to the `TenantId` alone. But queries that only specify `TenantId` are still routed to just the subset of physical partitions that hold that tenant's data — no full fan-out.
+
+### How It Works
+
+With HPK, you define up to **three levels** of partition key paths at container creation time. Cosmos DB uses a `MultiHash` partitioning kind with version 2 of the partition key definition.
 
 ```csharp
-List<string> subpartitionKeyPaths = new List<string> {
-    "/TenantId",
-    "/UserId",
-    "/SessionId"
+// Create a container with hierarchical partition keys
+List<string> keyPaths = new List<string> {
+    "/tenantId",
+    "/userId",
+    "/sessionId"
 };
 
-ContainerProperties containerProperties = new ContainerProperties(
+ContainerProperties properties = new ContainerProperties(
     id: "events",
-    partitionKeyPaths: subpartitionKeyPaths
+    partitionKeyPaths: keyPaths
+);
+
+Container container = await database.CreateContainerIfNotExistsAsync(
+    properties,
+    throughput: 10000
 );
 ```
 
-Cosmos DB uses `MultiHash` partitioning under the hood. The key insight is that queries specifying a **prefix** of the hierarchy are efficiently routed to only the relevant physical partitions. A query filtering on just `TenantId` doesn't fan out to all 1,000 physical partitions — it targets only the subset that actually holds that tenant's data.
+<!-- Source: hierarchical-partition-keys.md -->
+
+Under the hood, Cosmos DB tries to co-locate all items with the same first-level key (`tenantId`) on the same physical partition. When a physical partition exceeds 50 GB, the service splits it — but it does so intelligently, using the second-level key to decide how to divide the data. A single `tenantId` can now span multiple physical partitions if needed, breaking through the 20 GB logical partition limit of traditional partitioning.
+
+### Query Routing with HPK
+
+The routing behavior follows the key hierarchy from left to right:
+
+| Filter in Query | Routing Behavior |
+|----------------|-----------------|
+| `tenantId` + `userId` + `sessionId` | Single logical/physical partition — most efficient |
+| `tenantId` + `userId` | Targeted subset of physical partitions holding that tenant + user |
+| `tenantId` only | Targeted subset of physical partitions holding that tenant's data |
+| `userId` only (no `tenantId`) | Full fan-out to all physical partitions |
+| `sessionId` only | Full fan-out to all physical partitions |
+
+<!-- Source: hierarchical-partition-keys.md -->
+
+The key insight: specifying a *prefix* of the hierarchy gives you targeted routing. Specifying a property from the "middle" or "bottom" of the hierarchy without the prefix gives you a full fan-out. Always structure your hierarchy so the property you most commonly query on is the first level.
 
 ### Use Case: Multi-Tenant Applications
 
-Hierarchical keys were designed with multi-tenancy in mind. Consider a SaaS platform where:
+Multi-tenancy is the canonical use case for HPK. Consider a B2B platform storing events per tenant:
 
-- You partition first by `/tenantId` — queries for a specific tenant's data are efficient.
-- Large tenants can exceed 20 GB because Cosmos DB subpartitions within that tenant by `/userId`.
-- If even a single user within a large tenant generates massive data, the third level (`/sessionId`) provides further subdivision.
+```json
+{
+  "id": "evt-00482",
+  "tenantId": "contoso",
+  "userId": "user-8812",
+  "sessionId": "sess-a1b2c3",
+  "eventType": "page_view",
+  "timestamp": "2025-06-15T09:23:41Z",
+  "payload": { ... }
+}
+```
 
-Without hierarchical keys, you'd face an impossible choice: partition by `/tenantId` and risk the 20 GB limit for large tenants, or partition by `/userId` and make every tenant-scoped query a cross-partition fan-out. Hierarchical keys eliminate this tradeoff.
+With hierarchical keys `/tenantId` → `/userId` → `/sessionId`:
+
+- Small tenants with a few users fit entirely within one physical partition. Queries on `tenantId` hit a single partition — zero fan-out overhead.
+- Large tenants (think: an enterprise with 100,000 users) can span multiple physical partitions. Queries on `tenantId` fan out only to the specific partitions holding that tenant's data, not to every partition in the container.
+- The 20 GB logical partition limit applies to each unique combination of `tenantId + userId + sessionId`, not to `tenantId` alone. A single tenant can effectively store unlimited data.
+
+Chapter 26 covers multi-tenancy patterns in depth — tenant isolation strategies, shared vs. dedicated containers, noisy-neighbor mitigation. HPK is one piece of that puzzle.
 
 ### Use Case: High-Cardinality Time-Series Data
 
-For time-series workloads like IoT telemetry or application logging, a hierarchical key of `/deviceId` → `/year` → `/month` works well:
+IoT telemetry is the other classic case. Imagine tens of thousands of sensors each logging data every second. A single device can blow past the 20 GB logical partition limit within months if you partition by `deviceId` alone. HPK solves this neatly: use `/deviceId` as the first level and `/timestamp` (at date-hour-minute granularity) as the second. Each `deviceId + timestamp` combination stays well under 20 GB, device-scoped queries target only the relevant partitions, and writes distribute naturally because the timestamp is always changing.
 
-- Queries for a specific device's data route to a small set of physical partitions.
-- Within a device, data is further subdivided by time, preventing any single device from becoming a hot partition.
-- A device that generates terabytes of data over years can scale beyond 20 GB seamlessly.
+We'll evaluate this scenario step by step — comparing partition key candidates in a decision table and walking through the full document model — in the IoT Telemetry walk-through later in this chapter.
 
-This is a cleaner alternative to the synthetic key approach for time-series data, since you don't need to compute and manage a concatenated value client-side.
+<!-- Source: design-partitioning-iot.md -->
 
-### When Not to Use Hierarchical Keys
+### Important HPK Considerations
 
-Hierarchical keys aren't a universal upgrade. If your first-level key has **low cardinality** (say, only 5 tenants), all writes for a given tenant are initially scoped to a single physical partition until it accumulates enough data (50 GB) to trigger a split. For write-heavy ingestion scenarios with few first-level values, this can bottleneck you at 10,000 RU/s per tenant during the initial load.
+A few things the docs bury that you should know up front:
 
-The rule of thumb: your first-level key should have high cardinality (at least thousands of distinct values) for write-heavy workloads. For read-heavy workloads with occasional writes, lower cardinality at the first level is acceptable.
+**First-level cardinality matters for write-heavy workloads.** Cosmos DB optimizes HPK by co-locating all items with the same first-level key on the same physical partition (until splits happen). If your first level has only 5 distinct values, all your writes are funneled through at most 5 physical partitions — severely limiting throughput. For write-heavy workloads, the first-level key needs at least thousands of unique values.
 
-## Cross-Partition Queries: When They're Unavoidable and How to Tame Them
+<!-- Source: hierarchical-partition-keys.md -->
 
-A **cross-partition query** is any query whose `WHERE` clause doesn't include the partition key. Without knowing which partition holds the relevant data, Cosmos DB must **fan out** the query to every physical partition, execute it in parallel, and merge the results.
+**You can't add HPK to existing containers.** It's a creation-time decision. If you need to switch, create a new container with HPK and migrate your data using container copy jobs.
 
-### The Cost
+<!-- Source: hierarchical-partition-keys-faq.md -->
 
-Cross-partition queries aren't forbidden — they're just more expensive:
+**SDK version requirements exist.** HPK requires .NET SDK ≥ 3.33.0, Java SDK ≥ 4.42.0, JavaScript SDK ≥ 4.0.0, or Python SDK ≥ 4.6.0. Older SDKs can't create or interact with HPK containers.
 
-- The query runs independently against each physical partition's index, then results are merged.
-- The RU cost scales with the number of physical partitions. Each additional physical partition adds overhead to the query's RU cost (the exact amount depends on query complexity and data distribution).
-- Latency increases because the overall response time is bounded by the slowest partition.
+<!-- Source: hierarchical-partition-keys.md -->
 
-For a container with 5 physical partitions, the overhead is negligible. For a container with 500 physical partitions, a cross-partition query that would cost 5 RU as a single-partition query might cost 1,000+ RU.
+### HPK vs. Synthetic Keys: When to Choose Which
 
-### Strategies to Minimize Cross-Partition Queries
+| Factor | Hierarchical Partition Keys | Synthetic Keys |
+|--------|---------------------------|----------------|
+| Prefix queries (e.g., by tenant only) | Targeted routing — no full fan-out | Full fan-out — partition key includes all components |
+| 20 GB logical partition limit | Overcome by the full key path | Overcome by including a differentiating component |
+| Application complexity | Low — SDK handles key building | Medium — you manage concatenation/hashing logic |
+| SDK requirements | Recent SDK versions required | Works with all SDK versions |
+| Query patterns | Must query from left to right in hierarchy | Must provide exact synthetic value |
 
-1. **Choose your partition key based on your dominant query pattern.** If 80% of your reads filter by `customerId`, make that your partition key.
+For most new workloads, HPK is the better choice when you need multi-property partitioning. Use synthetic keys when you're working with older SDKs, need backward compatibility, or when your key structure doesn't naturally form a hierarchy.
 
-2. **Include the partition key in queries wherever possible.** Even if you're also filtering by other fields, adding the partition key to the `WHERE` clause turns a cross-partition query into a targeted one.
+## Cross-Partition Queries: Cost Warning and When They're Unavoidable
 
-3. **Use hierarchical partition keys for prefix matching.** If you partition by `/tenantId/userId/sessionId`, a query filtering on just `/tenantId` routes only to that tenant's physical partitions — not all partitions in the container.
+A **cross-partition query** (also called a fan-out query) is any query that doesn't include the partition key in its filter. Cosmos DB has to send the query to every physical partition, collect the results, and merge them. Each physical partition's index is checked independently — there's no global index.
 
-4. **Consider global secondary indexes (preview).** If your workload has multiple distinct query patterns that can't be served by a single partition key, global secondary indexes let you create additional copies of your data with different partition keys, each optimized for a specific access pattern. The tradeoff is additional storage and RU cost, and the secondary index data is eventually consistent with the source.
+<!-- Source: how-to-query-container.md -->
 
-5. **Denormalize and duplicate.** Store the same data in multiple containers with different partition keys, each optimized for a specific query pattern. This is a manual version of what global secondary indexes automate. You trade storage cost for query efficiency.
+The cost: approximately **2.5 RUs of overhead per physical partition** checked, even if that partition returns zero results. For a container with 50 physical partitions, that's 125 RUs of overhead *before* the actual query work.
 
-### When Cross-Partition Queries Are Acceptable
+The latency impact is real too. Although the SDK parallelizes cross-partition queries, the total wall-clock time increases with partition count because you're waiting for the slowest partition to respond.
 
-Not every cross-partition query is a crisis. They're perfectly fine when:
+**When cross-partition queries are unavoidable:**
 
-- Your container has a small number of physical partitions (fewer than 5–10).
-- The query runs infrequently (analytics, admin dashboards, nightly reports).
-- You're using them for background processes where latency isn't critical.
+- **Ad hoc analytics.** Searching across all customers for a specific behavior, or aggregating data across all tenants. These are inherently cross-partition.
+- **Secondary access patterns.** Your partition key is `customerId`, but you also need to query by `email` or `productSku`. Without a global secondary index, these are cross-partition.
+- **`ORDER BY` across all data.** Sorting results across the entire container requires visiting every partition.
 
-The goal isn't to eliminate cross-partition queries entirely — it's to ensure your **hot path** (the queries that run thousands of times per second) targets single partitions.
+**When they should be avoided:**
 
-## Partition Merge: Recombining Physical Partitions
+- Your hot read path — the query your application runs most frequently — should always be an in-partition or targeted query. If it isn't, your partition key is wrong.
+- Don't "accept" cross-partition queries on a container with 30,000+ RU/s or 100+ GB of data without understanding the cost. At that scale, fan-out overhead adds up fast.
 
-Cosmos DB automatically splits physical partitions as your data and throughput grow. But what happens when you scale *down*? After a large data migration, you might have provisioned 100,000 RU/s (creating 10+ physical partitions), then scaled back to 5,000 RU/s for steady state. Now each physical partition gets a tiny slice of your throughput — perhaps only 500 RU/s each — and you're more likely to hit per-partition rate limits even though total throughput should be sufficient.
+Chapter 8 covers cross-partition query mechanics, parallelism tuning, and optimization strategies in depth.
 
-**Partition merge** (currently in preview) solves this by allowing Cosmos DB to **recombine physical partitions**, reducing their count so that each one gets a larger share of provisioned throughput.
+## Partition Merge: Recombining Physical Partitions After Scale-Down
 
-### When to Consider Merge
+Cosmos DB automatically splits physical partitions as your throughput or data grows. But what about the other direction? If you scaled up throughput for a big data ingestion and then scaled back down, or if you deleted a large volume of data via TTL, you can end up with many physical partitions that are each underutilized — low RU/s per partition, low storage per partition.
 
-Your container is a good candidate for merge when:
+**Partition merge** (preview) lets you recombine physical partitions to reverse this fragmentation.
 
-- **RU/s per physical partition is below ~3,000 RU/s** — typically after scaling down from a peak.
-- **Average storage per physical partition is under ~20 GB** — often after bulk deletion or TTL expiration clears out data.
+<!-- Source: merge.md -->
 
-For example, you scaled to 50,000 RU/s for a one-time data migration, creating 10 physical partitions. After migration, you dropped to 4,000 RU/s. Each partition now has only 400 RU/s — well below the 10,000 RU/s capacity. A single burst of activity on one partition could trigger throttling. Merging those 10 partitions down to 2 gives each partition 2,000 RU/s, dramatically reducing throttling risk.
+### Why Merge Matters
 
-### How to Trigger a Merge
+Consider a container where you temporarily scaled to 100,000 RU/s for a data migration, creating 10 physical partitions. After the migration, you scale down to 10,000 RU/s. Each physical partition now gets only 1,000 RU/s — potentially less than your application needs for its hottest partition. Merge lets you consolidate back to fewer physical partitions so each one gets a larger share of the provisioned throughput.
 
-Merge is initiated through PowerShell or Azure CLI, not automatically. You can preview the result before committing:
+Containers that benefit from merge typically meet both of these conditions:
 
-```powershell
-# Preview the merge (no changes made)
-Invoke-AzCosmosDBSqlContainerMerge `
-    -ResourceGroupName "myResourceGroup" `
-    -AccountName "myCosmosAccount" `
-    -DatabaseName "myDatabase" `
-    -Name "myContainer" `
-    -WhatIf
+- Current RU/s per physical partition is **less than 3,000 RU/s**
+- Average storage per physical partition is **less than 20 GB**
 
-# Execute the merge
-Invoke-AzCosmosDBSqlContainerMerge `
-    -ResourceGroupName "myResourceGroup" `
-    -AccountName "myCosmosAccount" `
-    -DatabaseName "myDatabase" `
-    -Name "myContainer"
+<!-- Source: merge.md -->
+
+### The Caveats
+
+Partition merge is still in preview, and the constraints are significant:
+
+- **Single-region write accounts only.** Multi-region write isn't supported.
+- **SDK version requirements.** When merge is enabled on your account, *all* requests must come from supported SDK versions (.NET ≥ 3.27.0, Java ≥ 4.42.0, Python ≥ 4.14.2, JavaScript ≥ 4.3, or the Cosmos DB Spark connector ≥ 4.18.0). Requests from older SDKs or unsupported connectors are blocked entirely — even requests unrelated to the merge.
+- **Feature exclusions.** Accounts using point-in-time restore, customer-managed keys, or per-partition automatic failover can't use merge.
+- **It's a long-running operation.** Plan for at least 5–6 hours. Changing container settings (TTL, indexing policy) while a merge is in progress cancels it.
+
+<!-- Source: merge.md -->
+
+Merge is a useful tool for specific situations, but it's not something you'll use routinely. The better strategy is to choose a partition key that distributes data well enough that you don't accumulate empty or underutilized partitions in the first place.
+
+## Real-World Partition Key Walk-Throughs
+
+Theory is useful. Let's apply it.
+
+### IoT Telemetry Platform
+
+**The scenario:** 50,000 sensors across 10 districts, each logging environmental data every second. That's 4.32 billion records per day. Document size is roughly 1 KB.
+
+**Access patterns:**
+- Real-time readings for a specific device (high frequency)
+- Historical data for a device over a time range (moderate frequency)
+- Aggregate readings across a district (low frequency, analytics)
+
+**Evaluating partition key candidates:**
+
+| Candidate | Cardinality | Write Distribution | Hot Read Path | 20 GB Risk | Verdict |
+|-----------|-------------|-------------------|---------------|------------|---------|
+| `/deviceId` | 50,000 ✅ | Good ✅ | Device queries ✅ | ~30 GB/year per device ❌ | Risk of hitting limit |
+| `/districtId` | 10 ❌ | Terrible — 10 hot partitions | District queries ✅ | Guaranteed ❌ | Don't do this |
+| `/timestamp` (month) | 12/year ❌ | All writes to one partition ❌ | Time queries ✅ | Guaranteed ❌ | Don't do this |
+| `/deviceId` + `/timestamp` (synthetic) | Millions ✅ | Excellent ✅ | Device queries ❌ (fan-out) | Safe ✅ | Works, but device queries are expensive |
+| `/deviceId` → `/timestamp` (HPK) | Millions ✅ | Excellent ✅ | Device queries ✅ (targeted) | Safe ✅ | **Best choice** |
+
+<!-- Source: design-partitioning-iot.md -->
+
+The winner is a hierarchical partition key with `/deviceId` as the first level and `/timestamp` (at date-hour-minute granularity) as the second. Device-scoped queries target only the partitions holding that device's data. The 20 GB limit applies to each `deviceId + timestamp` combination, not the device as a whole. Writes distribute across many logical partitions because the timestamp is always changing.
+
+```json
+{
+  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "deviceId": "sensor-67890",
+  "timestamp": "2025-06-15T09:23",
+  "districtId": "district-05",
+  "temperature": 22.5,
+  "humidity": 55.2,
+  "airQualityIndex": 42,
+  "noiseLevel": 35
+}
 ```
 
-### Limitations to Know
+What about district-level queries? Those are cross-partition by nature. For a real-time dashboard aggregating data across a district, push the data to an analytical store (Azure Synapse Link, Chapter 22) rather than fighting the transactional partition model.
 
-Partition merge is a preview feature with important constraints:
+### E-Commerce Catalog
 
-- Available only for **single-write-region** accounts using the **NoSQL or MongoDB API**.
-- Requires specific SDK versions (.NET ≥ 3.27.0, Java ≥ 4.42.0, JavaScript ≥ 4.3.0, Python ≥ 4.14.2). Older SDKs are **blocked entirely** while the feature is enabled.
-- Not compatible with point-in-time restore, customer-managed keys, or per-partition automatic failover.
-- Merge is a long-running operation — plan for at least 5–6 hours and avoid changing container settings while it runs.
+**The scenario:** An online marketplace with 2 million products across 5,000 categories. Products have reviews, pricing, and inventory data.
 
-Merge is a powerful tool, but treat it as an operational procedure rather than an everyday feature. Plan your partition key well upfront, and you'll rarely need it.
+**Access patterns:**
+- Product detail page: load a single product by ID (very high frequency)
+- Category browsing: list products in a category, sorted by popularity (high frequency)
+- Seller dashboard: show all products for a seller (moderate frequency)
+- Search results: filtered by multiple attributes (moderate frequency)
 
-## Choosing a Partition Key: A Decision Framework
+**Document structure:**
 
-When you're staring at your data model and aren't sure where to start, work through these questions:
+```json
+{
+  "id": "prod-88421",
+  "type": "product",
+  "categoryId": "cat-electronics-phones",
+  "sellerId": "seller-2049",
+  "name": "ProPhone X200",
+  "price": 899.99,
+  "rating": 4.6,
+  "reviewCount": 1247,
+  "inStock": true,
+  "attributes": {
+    "brand": "ProTech",
+    "color": "midnight blue",
+    "storage": "256GB"
+  }
+}
+```
 
-1. **What is your most common query filter?** That property is your starting candidate.
-2. **Does it have high cardinality?** If not, can you combine it with another property (synthetic key) or use hierarchical keys?
-3. **Is write volume evenly distributed across its values?** If a few values dominate writes, you'll create hot partitions.
-4. **Will any single value exceed 20 GB?** If so, consider hierarchical partition keys.
-5. **Is the value immutable?** Partition key values cannot be updated — you'd have to delete and recreate the item.
+**Evaluating partition key candidates:**
 
-Remember: once you set a partition key, **you can't change it** without migrating to a new container (using container copy jobs or manual migration). Getting this decision right upfront saves you from a painful data migration later.
+| Candidate | Cardinality | Write Distribution | Hot Read Path | Verdict |
+|-----------|-------------|-------------------|---------------|---------|
+| `/id` (product ID) | 2M ✅ | Perfect ✅ | Product detail ✅, category browsing ❌ | Good for point reads, bad for category queries |
+| `/categoryId` | 5,000 ✅ | Decent (popular categories skewed) ⚠️ | Category browsing ✅ | Risk if "electronics" has 500K products |
+| `/sellerId` | Thousands ✅ | Uneven (mega-sellers) ⚠️ | Seller dashboard ✅ | Same skew problem |
 
-## What's Next
+For an e-commerce catalog, the dominant access pattern is the product detail page — a point read by `id`. That makes `/id` a strong partition key choice. Every point read is a direct lookup: you know the product ID, and since it *is* the partition key, the read targets a single partition for ~1 RU.
 
-You now understand how partition keys shape the performance, scalability, and cost profile of your Cosmos DB containers. In **Chapter 6**, we'll build on that foundation with **advanced data modeling patterns** — the item type pattern for colocating entities, TTL for automatic data expiration, the Patch API for surgical updates, optimistic concurrency with ETags, and strategies for modeling hierarchical structures, many-to-many relationships, and event-sourced architectures.
+But what about category browsing? That becomes a cross-partition query. For a catalog with only a few physical partitions, this might be acceptable. For a large catalog, you have options:
+
+- **Materialize category views.** Use the change feed (Chapter 15) to maintain a separate container partitioned by `/categoryId` with denormalized product summaries. Writes to the product catalog automatically update the category view.
+- **Use a global secondary index (preview).** Create a secondary index partitioned by `/categoryId` that's automatically synchronized with the source container.
+
+The right answer depends on your scale and query volume. For most e-commerce platforms, `/id` as the partition key plus a materialized category view gives you the best of both worlds: cheap point reads on the hot path and efficient category browsing without cross-partition queries.
+
+---
+
+Your partition key is your contract with Cosmos DB's scaling engine. Get it right, and the service works *with* your access patterns — distributing data evenly, routing queries efficiently, and scaling transparently. Get it wrong, and you'll spend months working around hot partitions, throttling, and cross-partition query overhead.
+
+The good news: with hierarchical partition keys, synthetic keys, and the decision framework in this chapter, you have the tools to get it right the first time. The next chapter builds on this foundation, covering advanced data modeling patterns — the item type pattern, TTL, the Patch API — that determine how your documents live and evolve inside the partitions you've just designed.

@@ -1,602 +1,618 @@
-# Chapter 7: Querying with the NoSQL API
+# Chapter 7: Using the Cosmos DB SDKs
 
-If data modeling is the foundation of a well-designed Cosmos DB application, querying is how you put that foundation to work. The NoSQL API ships with a powerful, SQL-like query language that will feel immediately familiar if you've ever written a `SELECT` statement—but with important adaptations for working with schema-free JSON documents. In this chapter, you'll learn everything from basic filtering to full-text search, geospatial queries, and the tools Cosmos DB provides to help you understand and optimize query performance.
+You've created an account, designed your documents, chosen your partition key. Now it's time to write code. This chapter is the canonical reference for connecting to Cosmos DB, performing CRUD operations, and managing your client correctly in production. We'll work primarily in C#, Python, and JavaScript/Node.js — the three most popular SDK ecosystems — with notes on where the others differ.
 
-## The Cosmos DB SQL Query Language
+If you followed the quickstart in Chapter 3, you've already written your first item through the SDK. Here, we go deeper: the object model, the patterns that matter in production, and the gotchas that will bite you if you learn them the hard way.
 
-Cosmos DB's query language borrows heavily from SQL syntax but is purpose-built for hierarchical JSON data. There's no fixed schema—properties can be missing or have different types across documents—and the language is case-sensitive. A typical query uses the familiar `SELECT`, `FROM`, and `WHERE` clauses:
+## Overview of Supported SDKs
 
-```sql
-SELECT p.name, p.price
-FROM products p
-WHERE p.price > 20
-ORDER BY p.price ASC
+Azure Cosmos DB for NoSQL has official SDKs for six languages:
+
+<!-- Source: quickstart-dotnet.md, quickstart-python.md, quickstart-nodejs.md, quickstart-go.md, quickstart-rust.md -->
+
+| Language | Package | Install Command |
+|----------|---------|----------------|
+| **.NET** | `Microsoft.Azure.Cosmos` | `dotnet add package Microsoft.Azure.Cosmos` |
+| **Java** | `com.azure:azure-cosmos` | Maven/Gradle dependency |
+| **Python** | `azure-cosmos` | `pip install azure-cosmos` |
+| **JavaScript/Node.js** | `@azure/cosmos` | `npm install @azure/cosmos` |
+| **Go** | `azcosmos` | `go install github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos` |
+| **Rust** | `azure_data_cosmos` | `cargo add azure_data_cosmos` |
+
+> **Gotcha:** The Rust SDK is in **public preview** — no SLA, not recommended for production workloads. Everything else is GA. <!-- Source: quickstart-rust.md -->
+
+All six SDKs follow the same conceptual model: you create a client, navigate to a database and container, and perform operations on items. The API surface names differ slightly by language, but the structure is identical. Once you understand the pattern in one SDK, you can translate it to any other.
+
+The .NET SDK gets new features first and has the deepest integration (Direct mode, LINQ, partition-level circuit breaker). If you're choosing a stack for a new project and have flexibility, .NET gives you the most knobs to turn. But the Python and JavaScript SDKs are fully capable for production workloads — the choice should be driven by your team's expertise, not Cosmos DB feature gaps.
+
+## SDK Fundamentals: CosmosClient, Database, Container
+
+Every SDK mirrors the Cosmos DB resource hierarchy you learned in Chapter 2: **account → database → container → item**. The SDK maps this to three core objects.
+
+### The Object Model
+
+| .NET | Python | JavaScript | Role |
+|------|--------|------------|------|
+| `CosmosClient` | `CosmosClient` | `CosmosClient` | Entry point. Connects to your account. |
+| `Database` | `DatabaseProxy` | `Database` | Reference to a database. |
+| `Container` | `ContainerProxy` | `Container` | Where you perform item operations. |
+
+<!-- Source: how-to-dotnet-get-started.md, how-to-python-get-started.md, how-to-javascript-get-started.md -->
+
+The `CosmosClient` is the top of the chain. You create one, then navigate down to a database and container. The database and container objects are lightweight references — creating them doesn't make a network call. They're validated server-side only when you actually perform an operation.
+
+Here's what the setup looks like in all three languages:
+
+**C#**
+```csharp
+using Microsoft.Azure.Cosmos;
+
+CosmosClient client = new(
+    accountEndpoint: "https://your-account.documents.azure.com:443/",
+    tokenCredential: new DefaultAzureCredential()
+);
+
+Database database = client.GetDatabase("cosmicworks");
+Container container = database.GetContainer("products");
 ```
 
-The `FROM` clause identifies the container (aliased here as `p`), not a table. Since every item in a container is a JSON document, you project individual properties with dot notation. `SELECT *` returns the entire document, while explicit projections give you control over the shape of results.
+**Python**
+```python
+from azure.cosmos import CosmosClient
+from azure.identity import DefaultAzureCredential
 
-## Basic SELECT, FROM, and WHERE
+client = CosmosClient(
+    url="https://your-account.documents.azure.com:443/",
+    credential=DefaultAzureCredential()
+)
 
-The `SELECT` clause controls what appears in results. You can project specific fields, rename them with aliases, or use `VALUE` to return a raw scalar or array instead of wrapping the result in an object:
-
-```sql
-SELECT p.name, p.description AS copy
-FROM products p
-WHERE p.price > 500
+database = client.get_database_client("cosmicworks")
+container = database.get_container_client("products")
 ```
 
-The `WHERE` clause supports the comparison operators you'd expect (`=`, `!=`, `<`, `>`, `<=`, `>=`), logical operators (`AND`, `OR`, `NOT`), arithmetic, and string matching. You can access nested properties using dot notation or bracket notation:
+**JavaScript**
+```javascript
+const { CosmosClient } = require("@azure/cosmos");
+const { DefaultAzureCredential } = require("@azure/identity");
 
-```sql
-SELECT p.manufacturer.name, p["metadata"].sku
-FROM products p
-WHERE p.category = "Electronics"
+const client = new CosmosClient({
+    endpoint: "https://your-account.documents.azure.com:443/",
+    aadCredentials: new DefaultAzureCredential()
+});
+
+const database = client.database("cosmicworks");
+const container = database.container("products");
 ```
 
-## Keywords: DISTINCT, TOP, BETWEEN, LIKE, and IN
+<!-- Source: quickstart-dotnet.md, quickstart-python.md, quickstart-nodejs.md -->
 
-Several SQL keywords help you narrow results without complex logic:
+Notice that all three examples use `DefaultAzureCredential` from Azure Identity rather than connection strings or master keys. This is the recommended approach — it supports managed identities in Azure, service principals in CI/CD, and your developer credentials locally. We'll cover the security implications in detail in Chapter 17; for now, just adopt the pattern.
 
-- **`DISTINCT`** removes duplicates from the result set.
-- **`TOP N`** limits the number of results returned.
-- **`BETWEEN`** filters on a range (inclusive).
-- **`IN`** checks membership in a list of values.
-- **`LIKE`** enables wildcard pattern matching with `%` (any characters) and `_` (single character).
+> **Tip:** You can still use a connection string or account key for local development and the emulator. But for anything that touches a real Azure account, prefer Microsoft Entra ID authentication via `DefaultAzureCredential`.
 
-```sql
--- Unique categories
-SELECT DISTINCT VALUE p.category
-FROM products p
+## CRUD Operations in Code
 
--- Five most expensive products
-SELECT TOP 5 *
-FROM products p
-ORDER BY p.price DESC
+With a `Container` object in hand, you're ready to work with data. Let's walk through every fundamental operation.
 
--- Price range with category filter
-SELECT *
-FROM products p
-WHERE p.category IN ("Accessories", "Clothing")
-  AND p.price BETWEEN 10 AND 50
+### Creating and Upserting Items
 
--- Pattern matching on name
-SELECT *
-FROM products p
-WHERE p.name LIKE "%bike%"
+The most common write operation is an **upsert**: create the item if it doesn't exist, replace it if it does. This is the default in the quickstart samples for a reason — it's idempotent, which makes it safe to retry.
+
+**C#**
+```csharp
+var product = new Product(
+    id: "prod-1001",
+    category: "gear-surf-surfboards",
+    name: "Yamba Surfboard",
+    quantity: 12,
+    price: 850.00m,
+    clearance: false
+);
+
+ItemResponse<Product> response = await container.UpsertItemAsync(
+    item: product,
+    partitionKey: new PartitionKey("gear-surf-surfboards")
+);
+
+Console.WriteLine($"Upsert cost: {response.RequestCharge} RUs");
 ```
 
-## Parameterized Queries
+**Python**
+```python
+product = {
+    "id": "prod-1001",
+    "category": "gear-surf-surfboards",
+    "name": "Yamba Surfboard",
+    "quantity": 12,
+    "price": 850.00,
+    "clearance": False,
+}
 
-Never concatenate user input directly into query strings. Parameterized queries prevent SQL injection, and they also enable the query engine to reuse execution plans across calls with different parameter values—saving both RU cost and latency.
-
-Parameters use the `@` prefix. Here's how it looks in the Cosmos DB query language and with the .NET SDK:
-
-```sql
-SELECT * FROM products p WHERE p.price > @minPrice AND p.category = @category
+response = container.upsert_item(product)
 ```
 
+**JavaScript**
+```javascript
+const product = {
+    id: "prod-1001",
+    category: "gear-surf-surfboards",
+    name: "Yamba Surfboard",
+    quantity: 12,
+    price: 850.00,
+    clearance: false
+};
+
+const { resource, headers } = await container.items.upsert(product);
+console.log(`Upsert cost: ${headers["x-ms-request-charge"]} RUs`);
+```
+
+<!-- Source: quickstart-dotnet.md, quickstart-python.md, quickstart-nodejs.md -->
+
+A few things to notice:
+
+- **You always pass the partition key** with write operations. The SDK needs it to route the request to the correct physical partition. If you forget it, the SDK will try to extract it from the item body — but being explicit is better practice. Chapter 5 explained why partition key routing matters; this is where that theory becomes code.
+- **The response includes the RU charge.** We'll cover how to read it systematically later in this chapter, but notice it's available right here on every response.
+- **Upsert vs. Create:** As you saw in Chapter 3, upsert is idempotent — it creates or replaces. Use `CreateItemAsync` (C#) or `create_item` (Python) when you specifically need insert-only semantics; it returns HTTP 409 if the item already exists.
+
+### Reading Items (Point Read)
+
+The cheapest operation in Cosmos DB is the **point read**: fetch a single item by its `id` and partition key. No query engine, no index scan — just a direct lookup to the correct physical partition. About 1 RU for a 1 KB document. Chapter 10 will quantify exactly how RU costs scale with document size.
+
+**C#**
+```csharp
+ItemResponse<Product> response = await container.ReadItemAsync<Product>(
+    id: "prod-1001",
+    partitionKey: new PartitionKey("gear-surf-surfboards")
+);
+
+Product product = response.Resource;
+double ruCost = response.RequestCharge;
+```
+
+**Python**
+```python
+product = container.read_item(
+    item="prod-1001",
+    partition_key="gear-surf-surfboards"
+)
+```
+
+**JavaScript**
+```javascript
+const { resource: product } = await container
+    .item("prod-1001", "gear-surf-surfboards")
+    .read();
+```
+
+<!-- Source: quickstart-dotnet.md, quickstart-python.md, quickstart-nodejs.md -->
+
+This is the operation you should reach for whenever you know the `id` and partition key. If your most frequent access pattern can't be served by a point read, that's a signal to reconsider your data model (Chapter 4) or your partition key (Chapter 5).
+
+> **Gotcha:** A point read requires *both* `id` and partition key. If you only have the `id`, you have to run a query — which is significantly more expensive. Design your access patterns so your hot path always has both values available.
+
+### Partial Document Update with the Patch API
+
+Sometimes you need to update a single field without replacing the entire document. The **Patch API** lets you do exactly that — send just the changes, saving both bandwidth and RU cost compared to a full read-modify-write cycle.
+
+**C#**
+```csharp
+ItemResponse<Product> response = await container.PatchItemAsync<Product>(
+    id: "prod-1001",
+    partitionKey: new PartitionKey("gear-surf-surfboards"),
+    patchOperations: new[] {
+        PatchOperation.Replace("/price", 799.00),
+        PatchOperation.Increment("/quantity", -1)
+    }
+);
+```
+
+<!-- Source: partial-document-update-getting-started.md -->
+
+You can combine up to 10 patch operations in a single call. The supported operations are **Add**, **Set**, **Replace**, **Remove**, **Increment**, and **Move**. You can also apply a conditional predicate so the patch only executes if the item matches a filter.
+
+<!-- Source: partial-document-update.md -->
+
+This is just a taste — Chapter 6 is the canonical home for the Patch API, covering all six operations, conditional patching, RU savings, and transactional batch integration. If you're deciding between Patch and a full Replace, start there.
+
+### Querying with FeedIterator and Async Paging
+
+Point reads are great when you know exactly which item you want. When you need multiple items that match a condition, you write a query. Cosmos DB's query language looks like SQL (covered in depth in Chapter 8), and the SDK returns results through a **paged iterator** pattern.
+
+Results come back in pages because a single query might match thousands of items across multiple partitions. The SDK gives you a page at a time; you loop until there are no more pages.
+
+**C#**
 ```csharp
 var query = new QueryDefinition(
-        "SELECT * FROM products p WHERE p.price > @minPrice AND p.category = @category")
-    .WithParameter("@minPrice", 25.00)
-    .WithParameter("@category", "Electronics");
+    "SELECT * FROM products p WHERE p.category = @category"
+).WithParameter("@category", "gear-surf-surfboards");
 
 using FeedIterator<Product> feed = container.GetItemQueryIterator<Product>(query);
 
+List<Product> results = new();
 while (feed.HasMoreResults)
 {
     FeedResponse<Product> page = await feed.ReadNextAsync();
     foreach (Product item in page)
     {
-        Console.WriteLine($"{item.name}: {item.price}");
+        results.Add(item);
     }
 }
 ```
 
-The `QueryDefinition` class is fluent—chain as many `.WithParameter()` calls as your query requires.
+**Python**
+```python
+query = "SELECT * FROM products p WHERE p.category = @category"
+parameters = [{"name": "@category", "value": "gear-surf-surfboards"}]
 
-## Querying Nested Objects and Arrays
+results = container.query_items(
+    query=query,
+    parameters=parameters,
+    enable_cross_partition_query=False
+)
 
-Because Cosmos DB stores denormalized JSON, your documents will frequently contain nested objects and arrays. Dot notation handles nested objects directly:
-
-```sql
-SELECT
-    p.name,
-    p.manufacturer.name AS brand,
-    p.manufacturer.country
-FROM products p
+items = [item for item in results]
 ```
 
-For arrays, you can reference a specific index:
+**JavaScript**
+```javascript
+const querySpec = {
+    query: "SELECT * FROM products p WHERE p.category = @category",
+    parameters: [{ name: "@category", value: "gear-surf-surfboards" }]
+};
 
-```sql
-SELECT p.name, p.sizes[0].description AS defaultSize
-FROM products p
+const { resources: items } = await container.items
+    .query(querySpec)
+    .fetchAll();
 ```
 
-But hard-coding indexes is fragile. To work with all elements in an array, use a `JOIN` (covered in detail below) or a subquery with `EXISTS`:
+<!-- Source: how-to-dotnet-query-items.md, quickstart-python.md, quickstart-nodejs.md -->
 
-```sql
-SELECT VALUE p.name
-FROM products p
-WHERE EXISTS (
-    SELECT VALUE s FROM s IN p.sizes WHERE s.description LIKE "%Large"
+A few things to highlight:
+
+- **Always use parameterized queries.** The `@category` syntax prevents SQL injection and enables query plan reuse on the server. Never concatenate user input into query strings.
+- **The C# `FeedIterator` is the most explicit.** You control the page-by-page loop with `HasMoreResults` and `ReadNextAsync`. Each `FeedResponse` contains a page of results plus metadata (RU charge, continuation token, diagnostics).
+- **Python and JavaScript abstract the paging.** The Python SDK returns an iterable that pages transparently. The JavaScript `fetchAll()` drains all pages into one array — convenient for small result sets, but be cautious with large ones since it loads everything into memory.
+- **Cross-partition queries require a flag in Python.** Set `enable_cross_partition_query=True` when your query can't be scoped to a single partition. We'll explore the cost implications of cross-partition queries in Chapter 8.
+
+For large result sets, you'll want to page through results using **continuation tokens** rather than loading everything at once. The `FeedResponse` includes a continuation token that you can store (in a cookie, URL parameter, or cache) and pass back to resume iteration later. Chapter 8 covers pagination strategies in depth.
+
+### Deleting Items
+
+Deleting an item also requires `id` and partition key — same as a point read.
+
+**C#**
+```csharp
+await container.DeleteItemAsync<Product>(
+    id: "prod-1001",
+    partitionKey: new PartitionKey("gear-surf-surfboards")
+);
+```
+
+**Python**
+```python
+container.delete_item(
+    item="prod-1001",
+    partition_key="gear-surf-surfboards"
 )
 ```
 
-## Aggregate Functions
-
-Cosmos DB supports the standard aggregate functions: `COUNT`, `SUM`, `MIN`, `MAX`, and `AVG`. They can operate over the entire result set or within groups:
-
-```sql
-SELECT
-    COUNT(1) AS totalProducts,
-    MIN(p.price) AS cheapest,
-    MAX(p.price) AS mostExpensive,
-    AVG(p.price) AS averagePrice
-FROM products p
+**JavaScript**
+```javascript
+await container.item("prod-1001", "gear-surf-surfboards").delete();
 ```
 
-You can also use aggregate scalar subqueries to compute per-document aggregations—for example, counting the elements of a nested array:
+There's no soft delete built into Cosmos DB. Once it's gone, it's gone — unless you have continuous backup with point-in-time restore enabled (Chapter 19). For time-based expiration, Chapter 6 covers TTL (time-to-live), which lets items delete themselves automatically after a set duration. For bulk server-side deletion of all items sharing a partition key, Chapter 6 also covers the delete-by-partition-key feature.
 
-```sql
-SELECT
-    p.name,
-    (SELECT VALUE COUNT(1) FROM s IN p.sizes) AS sizeCount
-FROM products p
+## Connection Management: The Singleton Client Pattern
+
+This is the single most impactful performance decision in your SDK usage, and it's the one developers most often get wrong.
+
+**Use a single `CosmosClient` instance for the lifetime of your application.** One client per Cosmos DB account, shared across all requests. Do not create a new client per request, per controller, or per function invocation.
+
+<!-- Source: performance-tips-dotnet-sdk-v3.md, best-practice-dotnet.md, best-practice-python.md -->
+
+Why does this matter so much? The `CosmosClient` is thread-safe and manages its own internal connection pool. When you create one, it:
+
+1. **Resolves account metadata** — fetches container information and partition key definitions from the gateway.
+2. **Builds a routing map** — discovers which physical partitions exist and where their replicas live.
+3. **Opens TCP connections** (in Direct mode) — establishes long-lived connections to backend replicas.
+
+All of that is cached for the lifetime of the client. Creating a new client per request throws away that cache, re-resolves metadata, and opens fresh connections every time. At scale, this causes connection exhaustion, dramatically higher latency, and sporadic failures.
+
+Here's the recommended pattern in each language:
+
+**C# (ASP.NET Core dependency injection)**
+```csharp
+// In Program.cs or Startup.cs — register as singleton
+builder.Services.AddSingleton<CosmosClient>(sp =>
+{
+    return new CosmosClient(
+        accountEndpoint: configuration["CosmosDb:Endpoint"],
+        tokenCredential: new DefaultAzureCredential(),
+        clientOptions: new CosmosClientOptions
+        {
+            ApplicationRegion = Regions.EastUS
+        }
+    );
+});
 ```
 
-## GROUP BY
+**Python (module-level singleton)**
+```python
+# cosmos_client.py — import this wherever you need it
+from azure.cosmos import CosmosClient
+from azure.identity import DefaultAzureCredential
 
-The `GROUP BY` clause works similarly to relational SQL. The key restriction is that every property in the `SELECT` clause must be either an aggregate function or appear in the `GROUP BY` list:
+_client = CosmosClient(
+    url=os.environ["COSMOS_ENDPOINT"],
+    credential=DefaultAzureCredential(),
+    preferred_locations=["East US", "West US"]
+)
 
-```sql
-SELECT p.category, COUNT(1) AS productCount
-FROM products p
-GROUP BY p.category
+def get_container(database_name: str, container_name: str):
+    return _client.get_database_client(database_name) \
+                   .get_container_client(container_name)
 ```
 
-You can group by multiple properties and combine grouping with `ORDER BY` (a composite index on the grouped and sorted properties will improve performance significantly):
+**JavaScript (module-level singleton)**
+```javascript
+// cosmosClient.js — import this wherever you need it
+const { CosmosClient } = require("@azure/cosmos");
+const { DefaultAzureCredential } = require("@azure/identity");
 
-```sql
-SELECT p.category, p.manufacturer.country, AVG(p.price) AS avgPrice
-FROM products p
-GROUP BY p.category, p.manufacturer.country
+const client = new CosmosClient({
+    endpoint: process.env.COSMOS_ENDPOINT,
+    aadCredentials: new DefaultAzureCredential()
+});
+
+module.exports = client;
 ```
 
-## Pagination Strategies
+<!-- Source: performance-tips-dotnet-sdk-v3.md, best-practice-python.md, best-practices-javascript.md -->
 
-Most real-world queries return more results than you want to send to a client in a single response. Cosmos DB offers two pagination mechanisms, and choosing the right one matters for both cost and correctness.
+> **Gotcha:** In Azure Functions, the same rule applies — but it's easy to violate. Functions on the Consumption plan spin up and tear down instances frequently. Store your `CosmosClient` in a static field (C#) or a module-level variable (Python/JS) so it survives across invocations within the same host instance. Don't create it inside the function handler.
 
-### Continuation Token–Based Pagination (Recommended)
+## Direct vs. Gateway Connectivity Mode
 
-This is the idiomatic approach. When a query has more results than fit in a single response (controlled by `MaxItemCount` in request options), the SDK returns a **continuation token** with the response. You pass that token back on the next call to resume exactly where you left off.
+When your SDK talks to Cosmos DB, the request travels over one of two **connectivity modes**: **Direct** or **Gateway**. This choice affects latency, connection behavior, and which firewall ports you need open.
+
+<!-- Source: sdk-connection-modes.md -->
+
+### Gateway Mode
+
+In **Gateway mode**, every request goes through HTTPS to a gateway server in the Cosmos DB frontend. The gateway resolves routing (which partition? which replica?) and forwards the request to the backend. It's an extra network hop, but it uses standard HTTPS on port 443 — no special firewall rules needed.
+
+All SDKs support Gateway mode. It's the *only* mode available for Python, JavaScript, and Go.
+
+### Direct Mode
+
+In **Direct mode**, the SDK opens TCP connections directly to the backend replica nodes that store your data. It skips the gateway hop, which means lower latency and higher throughput. The tradeoff: your client needs access to ports in the range **10,000–20,000** (or 0–65,535 when using private endpoints).
+
+<!-- Source: sdk-connection-modes.md -->
+
+Direct mode is supported only in the **.NET** and **Java** SDKs. The .NET SDK v3 uses Direct mode by default.
+
+### When to Use Which
+
+| Scenario | Recommended Mode |
+|----------|-----------------|
+| **.NET or Java**, no firewall restrictions | **Direct** (default in .NET v3) |
+| Python, JavaScript, or Go | **Gateway** (only option) |
+| Corporate network with strict firewall rules | **Gateway** |
+| Azure Functions on Consumption plan | **Gateway** (limited socket connections) |
+| Lowest possible latency in .NET/Java | **Direct** |
+
+To switch modes in .NET:
 
 ```csharp
-string? continuationToken = null;
-var options = new QueryRequestOptions { MaxItemCount = 25 };
+var client = new CosmosClient(
+    endpoint,
+    credential,
+    new CosmosClientOptions
+    {
+        ConnectionMode = ConnectionMode.Gateway  // Default is Direct
+    }
+);
+```
 
-do
+<!-- Source: performance-tips-dotnet-sdk-v3.md -->
+
+> **Tip:** If you're deploying .NET or Java in an environment where you control the network (an Azure VM, AKS, App Service with VNet integration), stick with Direct mode. The latency improvement is real and consistent. Switch to Gateway only when network constraints force it.
+
+### How Direct Mode Works Under the Hood
+
+When the SDK opens in Direct mode, it first hits the gateway via HTTPS to fetch account metadata and a routing map — the physical partition layout and replica TCP addresses. That information is cached locally. From then on, data plane requests (reads, writes, queries) go directly to the correct replica over TCP.
+
+Each physical partition has a replica set of four replicas (one primary, three secondaries). The SDK opens connections to all of them and load-balances reads across the set. Writes always target the primary replica. When replicas move (maintenance, scaling events), the SDK detects stale routes, refreshes from the gateway, and reconnects transparently.
+
+<!-- Source: sdk-connection-modes.md -->
+
+The result: in steady state, Direct mode produces fewer network hops per operation, which translates directly to lower latency. The cost is more TCP connections from your client, which matters if you have many physical partitions — the steady-state formula is roughly *4 connections × number of physical partitions*.
+
+## Reading the RU Charge from Response Headers
+
+Every operation against Cosmos DB returns the **request unit charge** — the cost of that specific request measured in RUs. This number is essential for understanding and optimizing your costs (Chapter 10 goes deep on RU mechanics). The SDKs make it easy to read.
+
+**C# — from any `ItemResponse<T>` or `FeedResponse<T>`**
+```csharp
+ItemResponse<Product> response = await container.ReadItemAsync<Product>(
+    id: "prod-1001",
+    partitionKey: new PartitionKey("gear-surf-surfboards")
+);
+double ruCharge = response.RequestCharge;
+```
+
+For queries, the RU charge is per *page*, so you'll want to accumulate it across all pages:
+
+```csharp
+double totalRUs = 0;
+using FeedIterator<Product> feed = container.GetItemQueryIterator<Product>(query);
+while (feed.HasMoreResults)
 {
-    using FeedIterator<Product> feed = container.GetItemQueryIterator<Product>(
-        queryText: "SELECT * FROM products p WHERE p.category = 'Clothing'",
-        continuationToken: continuationToken,
-        requestOptions: options);
-
     FeedResponse<Product> page = await feed.ReadNextAsync();
-
-    foreach (Product item in page)
-    {
-        Console.WriteLine(item.name);
-    }
-
-    // Store this to resume later (e.g., return to client as a page token)
-    continuationToken = page.ContinuationToken;
-
-} while (continuationToken != null);
-```
-
-Continuation tokens are opaque strings. You can store them in your API response so clients can request "the next page" without the server needing to re-execute the query from scratch. This approach is efficient because each page only consumes the RUs needed for that page's results.
-
-### OFFSET / LIMIT
-
-`OFFSET LIMIT` skips a specified number of results and then takes a specified count:
-
-```sql
-SELECT * FROM products p
-ORDER BY p.name
-OFFSET 20 LIMIT 10
-```
-
-This is useful for small datasets or ad hoc exploration in the Data Explorer. However, **avoid it for production pagination of large result sets**. The query engine must still read and discard the skipped items, so page 100 costs far more RUs than page 1. Continuation tokens don't have this problem—each page costs roughly the same regardless of how deep you are into the result set.
-
-## Joins and Self-Joins
-
-In a relational database, `JOIN` combines rows across tables. In Cosmos DB, there are no cross-document or cross-container joins. Instead, `JOIN` performs a **self-join within a single document**—it creates a cross-product between the document and one of its embedded arrays.
-
-Consider a product document with a `sizes` array:
-
-```sql
-SELECT p.name, s.key, s.description
-FROM products p
-JOIN s IN p.sizes
-```
-
-This "flattens" the array: if a product has four sizes, the query produces four rows—one per size—each paired with the product's name.
-
-You can chain multiple joins:
-
-```sql
-SELECT p.name, t.name AS tag, s.description AS size
-FROM products p
-JOIN t IN p.tags
-JOIN s IN p.sizes
-```
-
-Be careful here—multiple joins produce a **cross-product**. If tags has 3 items and sizes has 4, you get 12 rows per document. For large arrays this can be expensive.
-
-### Optimizing Joins with Subqueries
-
-You can dramatically reduce the cross-product by filtering arrays inside subqueries before joining them:
-
-```sql
-SELECT VALUE COUNT(1)
-FROM products p
-JOIN (SELECT VALUE t FROM t IN p.tags WHERE t.key IN ("fabric", "material"))
-JOIN (SELECT VALUE s FROM s IN p.sizes WHERE s["order"] >= 3)
-JOIN (SELECT VALUE c FROM c IN p.colors WHERE c LIKE "%gray%")
-```
-
-If each original array has 10 items, a naive triple-join produces 1,000 tuples per document. With filtered subqueries, you might reduce that to 25—a 40× improvement.
-
-## Subqueries and Correlated Subqueries
-
-Beyond join optimization, subqueries are a versatile tool in the Cosmos DB query language. There are two kinds:
-
-**Scalar subqueries** return a single value and can appear in `SELECT` or `WHERE`:
-
-```sql
-SELECT
-    p.name,
-    (SELECT VALUE COUNT(1) FROM c IN p.colors) AS colorCount,
-    (SELECT VALUE COUNT(1) FROM s IN p.sizes) AS sizeCount
-FROM products p
-```
-
-**Multi-value subqueries** return a set of items and are used in the `FROM` clause (as shown in the join optimization example above).
-
-**Correlated subqueries** reference values from the outer query. This example conditionally projects a field only when a condition is met:
-
-```sql
-SELECT
-    p.id,
-    (SELECT p.name WHERE CONTAINS(p.name, "Shoes")).name
-FROM products p
-```
-
-Documents whose name doesn't contain "Shoes" will have a `null` for that field, while matching documents include the name.
-
-You can also use the `EXISTS` keyword with a correlated subquery for powerful array filtering:
-
-```sql
-SELECT VALUE p.name
-FROM products p
-WHERE EXISTS (
-    SELECT VALUE c FROM c IN p.colors WHERE c LIKE "%blue%"
-)
-```
-
-## Built-In System Functions
-
-Cosmos DB provides a rich library of built-in functions you can use in any clause. Here's a curated overview by category.
-
-### String Functions
-
-```sql
--- Case-insensitive search
-SELECT * FROM p WHERE CONTAINS(p.name, "bike", true)
-
--- Prefix matching (uses index efficiently)
-SELECT * FROM p WHERE STARTSWITH(p.sku, "BK-")
-
--- Case conversion
-SELECT UPPER(p.name) AS upperName, LOWER(p.category) AS lowerCat FROM products p
-```
-
-Other useful string functions include `SUBSTRING`, `LENGTH`, `REPLACE`, `TRIM`, `CONCAT`, `INDEX_OF`, `REVERSE`, and `REGEXMATCH`.
-
-> **Performance tip:** `STARTSWITH` uses a precise index scan, while `CONTAINS` requires a full index scan. Prefer `STARTSWITH` when possible.
-
-### Math Functions
-
-Standard math operations are available: `ABS`, `CEILING`, `FLOOR`, `ROUND`, `SQRT`, `POWER`, `LOG`, `LOG10`, `EXP`, `SIN`, `COS`, `TAN`, `ASIN`, `ACOS`, `ATAN`, `RAND`, and `TRUNC`.
-
-```sql
-SELECT p.name, ROUND(p.price * 0.9, 2) AS discountedPrice
-FROM products p
-```
-
-### Array Functions
-
-- `ARRAY_CONTAINS(array, value)` — checks if a value exists in an array.
-- `ARRAY_LENGTH(array)` — returns the array's length.
-- `ARRAY_SLICE(array, start, length)` — extracts a sub-array.
-- `ARRAY_CONCAT(array1, array2)` — merges two arrays.
-- `SetIntersect`, `SetUnion` — set operations on arrays.
-
-```sql
-SELECT * FROM p WHERE ARRAY_CONTAINS(p.tags, "outdoor")
-```
-
-### Date and Time Functions
-
-Cosmos DB offers comprehensive date functions: `GetCurrentDateTime`, `GetCurrentTimestamp`, `GetCurrentTicks`, `DateTimeAdd`, `DateTimeDiff`, `DateTimePart`, `DateTimeToTimestamp`, `TimestampToDateTime`, and more.
-
-```sql
-SELECT p.name, DateTimeDiff("day", p.createdDate, GetCurrentDateTime()) AS ageInDays
-FROM products p
-```
-
-### Spatial Functions
-
-These functions enable geospatial queries over GeoJSON data (covered in more detail later in this chapter):
-
-- `ST_DISTANCE(geom1, geom2)` — distance between two geometries in meters.
-- `ST_WITHIN(geom1, geom2)` — whether one geometry is within another.
-- `ST_INTERSECTS(geom1, geom2)` — whether two geometries intersect.
-- `ST_ISVALID(geom)` — validates GeoJSON format.
-- `ST_ISVALIDDETAILED(geom)` — detailed validation result.
-
-### Full-Text Search Functions
-
-Cosmos DB's full-text search feature introduces three filtering functions and a scoring function:
-
-- **`FullTextContains(path, term)`** — returns true if the property contains the specified term.
-- **`FullTextContainsAll(path, term1, term2, ...)`** — returns true only if *all* terms are present.
-- **`FullTextContainsAny(path, term1, term2, ...)`** — returns true if *any* term is present.
-
-```sql
--- Must contain the keyword/term
-SELECT TOP 10 * FROM c WHERE FullTextContains(c.description, "wireless charging")
-
--- Must contain ALL specified terms
-SELECT * FROM c WHERE FullTextContainsAll(c.description, "waterproof", "lightweight")
-
--- Must contain at least one term
-SELECT * FROM c WHERE FullTextContainsAny(c.description, "bluetooth", "wifi", "NFC")
-```
-
-These functions require enrollment in the Full Text Search feature and benefit from a full-text index on the target property.
-
-### Full-Text Scoring with FullTextScore
-
-`FullTextScore` calculates a BM25 relevance score for ranking results. It can only be used inside an `ORDER BY RANK` clause—you cannot project it directly:
-
-```sql
-SELECT TOP 10 c.title, c.description
-FROM c
-ORDER BY RANK FullTextScore(c.description, "cosmos", "database", "NoSQL")
-```
-
-Combine it with `FullTextContains` in the `WHERE` clause to filter first, then rank:
-
-```sql
-SELECT TOP 10 c.title
-FROM c
-WHERE FullTextContains(c.description, "cosmos")
-ORDER BY RANK FullTextScore(c.description, "cosmos", "database")
-```
-
-### Hybrid Search with RRF
-
-The `RRF` (Reciprocal Rank Fusion) function merges rankings from multiple scoring functions—typically combining vector similarity search with full-text BM25 scoring. This is particularly powerful for Retrieval-Augmented Generation (RAG) scenarios:
-
-```sql
-SELECT TOP 10 *
-FROM c
-ORDER BY RANK RRF(
-    VectorDistance(c.embedding, [0.12, 0.45, ...]),
-    FullTextScore(c.text, "cosmos", "database")
-)
-```
-
-You can optionally weight the component scores. To make vector search twice as important as text search:
-
-```sql
-SELECT TOP 10 *
-FROM c
-ORDER BY RANK RRF(
-    VectorDistance(c.embedding, [0.12, 0.45, ...]),
-    FullTextScore(c.text, "cosmos", "database"),
-    [2, 1]
-)
-```
-
-RRF can also fuse two `FullTextScore` functions or two `VectorDistance` functions—it's not limited to one of each.
-
-## Computed Properties
-
-Computed properties are server-side derived values based on existing item properties. They aren't physically stored in the document, but they can be indexed and queried as if they were persisted fields. This lets you define complex expressions once and reuse them across queries.
-
-Each computed property has a name and a query that evaluates per item. Define them on the container (up to 20 per container):
-
-```json
-{
-  "computedProperties": [
-    {
-      "name": "cp_lowerName",
-      "query": "SELECT VALUE LOWER(c.name) FROM c"
-    },
-    {
-      "name": "cp_20PercentDiscount",
-      "query": "SELECT VALUE (c.price * 0.2) FROM c"
-    }
-  ]
+    totalRUs += page.RequestCharge;
 }
+Console.WriteLine($"Total query cost: {totalRUs} RUs");
 ```
 
-Then use them in queries exactly like regular properties:
+<!-- Source: how-to-dotnet-read-item.md -->
 
-```sql
-SELECT c.cp_lowerName, c.price - c.cp_20PercentDiscount AS salePrice
-FROM c
-WHERE c.cp_20PercentDiscount < 50
+**Python — from the response headers**
+```python
+response = container.read_item(item="prod-1001", partition_key="gear-surf-surfboards")
+ru_charge = container.client_connection.last_response_headers["x-ms-request-charge"]
 ```
 
-**Important:** Computed properties aren't included in `SELECT *`—you must project them explicitly. They also aren't covered by wildcard index paths; add them to your indexing policy explicitly:
-
-```json
-{
-  "includedPaths": [
-    { "path": "/*" },
-    { "path": "/cp_lowerName/?" },
-    { "path": "/cp_20PercentDiscount/?" }
-  ]
-}
+**JavaScript — from the response headers**
+```javascript
+const { resource, headers } = await container
+    .item("prod-1001", "gear-surf-surfboards")
+    .read();
+const ruCharge = headers["x-ms-request-charge"];
 ```
 
-By indexing computed properties, you avoid full container scans for system functions like `LOWER()` or `SUBSTRING()`. The result is faster queries at lower RU cost, with a small increase in write RUs for maintaining the index.
+The underlying HTTP header is `x-ms-request-charge`, and it's present on *every* response. Get in the habit of logging it during development — you'll catch expensive operations early, before they become expensive production surprises. Chapter 10 covers RU budgeting strategies and how to systematically track costs across your workload.
 
-## Understanding Cross-Partition Queries
+## Retry Policies and Handling Transient Errors
 
-When a query includes a filter on the partition key, Cosmos DB routes it to the single relevant partition—a **single-partition query**. This is the most efficient pattern.
+Distributed systems fail in interesting ways. Network blips, brief partition movements, throttling during traffic spikes — these are normal, not exceptional. The Cosmos DB SDKs have built-in retry logic for the most common transient errors, but you need to understand what they do (and don't do) so you can fill the gaps.
 
-When the partition key is absent from the `WHERE` clause, the query becomes a **cross-partition query** (also called a "fan-out query"). The engine sends the query to every physical partition, gathers results, and merges them. Cross-partition queries:
+<!-- Source: conceptual-resilient-sdk-applications.md -->
 
-- Consume more RUs (the total is the sum of per-partition charges).
-- Have higher latency (bounded by the slowest partition).
-- Are sometimes unavoidable (e.g., aggregations across all data), but should be minimized in hot paths.
+### What the SDK Retries Automatically
 
-**Best practice:** Always include the partition key in your most frequent queries. If you find yourself frequently running cross-partition queries, revisit your partition key choice or consider using a materialised/denormalized view.
+| Status Code | Description | SDK Retries? | You Should Retry? |
+|-------------|-------------|:------------:|:-----------------:|
+| **408** | Request timeout | Yes (reads only)* | Yes |
+| **410** | Gone (transient) | Yes | Yes |
+| **429** | Too many requests (throttled) | Yes | Yes |
+| **449** | Concurrent write conflict (transient) | Yes | Yes |
+| **503** | Service unavailable | Yes (reads only)* | Yes |
+| **409** | Conflict (duplicate `id`) | No | No |
+| **412** | Precondition failed (ETag mismatch) | No | No |
+| **413** | Request entity too large (item > 2 MB) | No | No |
 
-## LINQ to SQL
+<!-- Source: conceptual-resilient-sdk-applications.md -->
 
-If you're using the .NET SDK, you can write queries using Language Integrated Query (LINQ) instead of raw SQL strings. The SDK's LINQ provider translates your expressions into the underlying Cosmos DB query language.
+### HTTP 429: Rate Limiting
+
+The most common retryable error is **429 Too Many Requests** — you've exceeded your provisioned RU/s for that partition. The SDK handles this automatically: it reads the `x-ms-retry-after-ms` header from the response, waits the indicated time, and retries.
+
+By default, the .NET SDK retries up to **9 times** with a cumulative maximum wait of **30 seconds**. If retries are still failing after that, the SDK surfaces a `CosmosException` with status code 429 to your application code.
+
+<!-- Source: performance-tips-dotnet-sdk-v3.md -->
+
+A small percentage of 429s (1–5% of total requests) is actually healthy — it means you're efficiently utilizing your provisioned throughput. If the rate exceeds that, you have a throughput sizing problem (Chapter 11) or a hot partition problem (Chapter 5).
+
+<!-- Source: troubleshoot-request-rate-too-large.md -->
+
+> **Tip:** You can tune the retry behavior in .NET via `CosmosClientOptions`:
+> ```csharp
+> new CosmosClientOptions
+> {
+>     MaxRetryAttemptsOnRateLimitedRequests = 15,
+>     MaxRetryWaitTimeOnRateLimitedRequests = TimeSpan.FromSeconds(60)
+> }
+> ```
+> Increase these for batch workloads that can tolerate longer waits. For latency-sensitive paths, you might want to *decrease* them and shed load faster.
+
+### Timeout and Connectivity Failures (408, 503)
+
+Network timeouts and service unavailable errors are retried by the SDK automatically for **read operations**. For **write operations**, the SDK does *not* retry by default — because writes aren't idempotent. If a write timed out, the SDK can't know whether the server processed it before the connection dropped.
+
+<!-- Source: conceptual-resilient-sdk-applications.md -->
+
+This means your application needs its own retry logic for write timeouts. A common pattern:
+
+1. Retry the write as an upsert (idempotent by design).
+2. If you used a plain `Create`, the retry might get a 409 Conflict — that means the original write *did* succeed. Catch it and move on.
+
+If your account has multiple regions, the SDKs also perform **cross-region retries** for transient failures — routing to a secondary region when the primary is temporarily unreachable. Chapter 21 covers advanced resilience patterns including the threshold-based availability strategy and partition-level circuit breaker in the .NET SDK.
+
+### ETag Conflicts (412)
+
+A 412 Precondition Failed means you attempted an optimistic concurrency update with an ETag that no longer matches the server's version — someone else modified the item since you read it. This is *not* retried by the SDK because it's a business-logic decision: you need to re-read the item, resolve the conflict, and try again. Chapter 16 covers optimistic concurrency in detail.
+
+## LINQ to SQL: Querying Cosmos DB with .NET LINQ Expressions
+
+If you're a .NET developer, the SDK offers something Python and JavaScript developers don't get: a **LINQ provider** that translates C# expressions into Cosmos DB SQL queries. You write strongly-typed lambda expressions; the SDK generates the query text and executes it.
+
+<!-- Source: how-to-dotnet-query-items.md -->
 
 ```csharp
 IOrderedQueryable<Product> queryable = container.GetItemLinqQueryable<Product>();
 
 var matches = queryable
-    .Where(p => p.category == "Clothing" && p.price < 100)
-    .OrderByDescending(p => p.price)
-    .Select(p => new { p.name, p.price });
+    .Where(p => p.quantity > 10)
+    .Where(p => p.category == "gear-surf-surfboards")
+    .OrderBy(p => p.price);
 
-using FeedIterator<dynamic> feed = matches.ToFeedIterator();
+using FeedIterator<Product> feed = matches.ToFeedIterator();
 
 while (feed.HasMoreResults)
 {
-    foreach (var item in await feed.ReadNextAsync())
+    FeedResponse<Product> page = await feed.ReadNextAsync();
+    foreach (Product item in page)
     {
-        Console.WriteLine($"{item.name}: {item.price}");
+        Console.WriteLine($"{item.name}: ${item.price}");
     }
 }
 ```
 
-The LINQ provider supports `Select`, `Where`, `SelectMany` (which translates to `JOIN`), `OrderBy`, `OrderByDescending`, `Skip`, `Take`, `Count`, `Sum`, `Min`, `Max`, `Average`, and math/string/array functions from .NET. `SelectMany` is particularly useful—it gives you self-join behavior in a strongly-typed way:
+<!-- Source: how-to-dotnet-query-items.md -->
 
+A few things to know about LINQ with Cosmos DB:
+
+**It's translated, not executed locally.** The LINQ expression tree is converted to a Cosmos DB SQL query string and sent to the server. You get the same query engine, the same indexing benefits, and the same RU charges as if you'd written the SQL by hand.
+
+**Always call `ToFeedIterator()`.** The `IQueryable` you get from `GetItemLinqQueryable` supports `foreach` directly — but that path is **synchronous**. In production, convert to a `FeedIterator` and use `ReadNextAsync` for async paging. The performance tips documentation explicitly warns against using `ToList()` on a LINQ queryable because it blocks the calling thread.
+
+<!-- Source: performance-tips-dotnet-sdk-v3.md -->
+
+**Not every C# expression translates.** The LINQ provider supports the most common operations — `Where`, `Select`, `OrderBy`, `Take`, `Distinct`, aggregate functions — but complex method calls or custom functions may fail at translation time. If you hit a translation error, fall back to a raw SQL string query using `QueryDefinition`.
+
+> **Tip:** During development, you can inspect the generated SQL by calling `matches.ToQueryDefinition().QueryText`. This is invaluable for debugging — you'll often discover that the generated SQL isn't what you expected, or that a slight LINQ refactor produces a more efficient query.
+
+LINQ is a convenience, not a necessity. For complex queries — joins, subqueries, spatial functions — writing the SQL directly via `QueryDefinition` gives you full control. Chapter 8 covers the full query language.
+
+## Putting It All Together: Per-Request Options
+
+Most operations accept a request options object that lets you override defaults on a per-request basis. Here are the most useful overrides:
+
+**Consistency level override (C#)**
 ```csharp
-// Equivalent to: SELECT VALUE c FROM f JOIN c IN f.children
-var children = queryable.SelectMany(f => f.children);
-```
-
-> **Tip:** Call `.ToString()` on your `IQueryable` to see the generated SQL. This is invaluable for debugging and optimizing LINQ-based queries.
-
-## Indexing and Querying Geospatial Data
-
-Cosmos DB natively supports GeoJSON geometry types: `Point`, `LineString`, `Polygon`, and `MultiPolygon`. To query geospatial data, you need to add a spatial index to your indexing policy:
-
-```json
-{
-  "includedPaths": [
+ItemResponse<Product> response = await container.ReadItemAsync<Product>(
+    id: "prod-1001",
+    partitionKey: new PartitionKey("gear-surf-surfboards"),
+    requestOptions: new ItemRequestOptions
     {
-      "path": "/location/?",
-      "indexes": [
-        { "kind": "Spatial", "dataType": "Point" }
-      ]
+        ConsistencyLevel = ConsistencyLevel.Eventual
     }
-  ]
-}
+);
 ```
 
-With a spatial index in place, you can run distance and containment queries:
+<!-- Source: how-to-manage-consistency.md -->
 
-```sql
--- Find offices within 2 km of a point
-SELECT o.name, ST_DISTANCE(o.location, {
-    "type": "Point",
-    "coordinates": [-122.117, 47.669]
-}) / 1000 AS distanceKm
-FROM offices o
-WHERE o.category = "business-office"
-  AND ST_DISTANCE(o.location, {
-    "type": "Point",
-    "coordinates": [-122.117, 47.669]
-  }) < 2000
+This lets you weaken consistency for a specific read without changing the account default. You can go from Strong to Eventual on a single request to get lower latency or reduced RU cost. You can only weaken — you can't strengthen beyond your account's default. Chapter 13 covers when and why you'd override consistency per request.
 
--- Check if a point falls within a polygon
-SELECT * FROM regions r
-WHERE ST_WITHIN(
-    { "type": "Point", "coordinates": [-122.128, 47.639] },
-    r.boundary
-)
-```
-
-In the .NET SDK, you can use the `Microsoft.Azure.Cosmos.Spatial` namespace to work with typed geometry objects:
-
+**Disable content response on writes (C#)**
 ```csharp
-using Microsoft.Azure.Cosmos.Spatial;
-
-var query = new QueryDefinition(
-    @"SELECT o.name, ST_DISTANCE(o.location, @compareLocation) / 1000 AS distKm
-      FROM offices o
-      WHERE o.category = @category
-        AND ST_DISTANCE(o.location, @compareLocation) < @maxDistance")
-    .WithParameter("@maxDistance", 2000)
-    .WithParameter("@category", "business-office")
-    .WithParameter("@compareLocation", new Point(-122.117, 47.669));
+ItemResponse<Product> response = await container.CreateItemAsync(
+    product,
+    new PartitionKey(product.category),
+    new ItemRequestOptions { EnableContentResponseOnWrite = false }
+);
+// response.Resource is null — but the write succeeded and cost fewer RUs
 ```
 
-## Query Advisor
+<!-- Source: performance-tips-dotnet-sdk-v3.md -->
 
-Query Advisor is a built-in feature in the Azure portal's Data Explorer that analyzes your queries and provides actionable optimization recommendations. When you run a query, Query Advisor examines the execution plan and suggests improvements such as:
-
-- Adding missing indexes (single, composite, or spatial) to eliminate full scans.
-- Restructuring `JOIN` expressions with subqueries to reduce cross-products.
-- Adding partition key filters to avoid costly fan-out queries.
-- Replacing functions like `CONTAINS` with `STARTSWITH` for better index utilization.
-
-Look for the **Query Advisor** tab in the Data Explorer results pane after executing a query. It's particularly useful when you're seeing unexpectedly high RU charges or slow response times.
-
-## Query Metrics and Diagnosing Expensive Queries
-
-Every query response from Cosmos DB includes diagnostic information you can use to understand performance. The key metrics to monitor are:
-
-- **Request Charge (RUs):** The total cost of the query. This is the single most important number for cost optimization.
-- **Retrieved Document Count vs. Output Document Count:** If retrieved documents far exceed output documents, your query is reading many items but discarding most of them—a sign of a missing index or a broad filter.
-- **Index Utilization:** Whether the query was fully served by the index or required a scan.
-- **Execution Time:** Broken down into document load time, index lookup time, and query engine time.
-
-In the .NET SDK, you can access diagnostics from the `FeedResponse`:
-
-```csharp
-FeedResponse<Product> page = await feed.ReadNextAsync();
-
-Console.WriteLine($"Request charge: {page.RequestCharge} RUs");
-Console.WriteLine($"Diagnostics: {page.Diagnostics}");
-```
-
-For deeper analysis, enable **index metrics** with `PopulateIndexMetrics = true` in your request options. This tells you exactly which index paths were used and which weren't—helping you fine-tune your indexing policy.
-
-**General guidelines for reducing query cost:**
-
-1. **Add the partition key** to your `WHERE` clause whenever possible.
-2. **Index the properties** you filter, sort, and group on.
-3. **Use parameterized queries** to benefit from plan caching.
-4. **Prefer `STARTSWITH` over `CONTAINS`** when the query pattern allows it.
-5. **Avoid `OFFSET/LIMIT`** for deep pagination—use continuation tokens instead.
-6. **Filter inside subqueries** before joining arrays to minimize cross-products.
-7. **Use Query Advisor** to catch missing indexes and anti-patterns.
+When you already have the object you're writing, there's no reason to deserialize it from the response. Disabling the content response reduces network bandwidth and saves the SDK from allocating memory for serialization. The headers (including RU charge) are still available. This is a small but free optimization for write-heavy workloads.
 
 ## What's Next
 
-Now that you have a solid grasp of the Cosmos DB query language—from basic filters to full-text search, geospatial queries, and performance diagnostics—it's time to look at the other side of the equation. In **Chapter 8**, we'll dive into **indexing strategies**: how Cosmos DB's automatic indexing works under the hood, how to customize indexing policies for your workload, and how to design composite and spatial indexes that make your queries fast and cost-effective.
+You now have the complete toolkit for connecting to Cosmos DB and performing every fundamental operation. The patterns in this chapter — singleton clients, parameterized queries, point reads, RU tracking — are the foundation of every production Cosmos DB application.
+
+Chapter 8 picks up where the querying section left off, diving into the full NoSQL query language: SQL syntax, joins within documents, aggregations, system functions, and cross-partition query mechanics. If you've been writing `SELECT * FROM c`, you'll learn to write much more targeted (and cheaper) queries.
+
+For advanced SDK patterns — bulk operations, transactional batch, OpenTelemetry integration, custom retry strategies, and connection tuning — Chapter 21 is the follow-up. Everything here was about getting the fundamentals right; Chapter 21 is about squeezing every last drop of performance and observability out of the SDK.
