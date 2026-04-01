@@ -23,11 +23,11 @@ containerName='orders'
 
 | Command | Description |
 |---------|-------------|
-| `az cosmosdb create` | Create a new Cosmos DB account |
+| `az cosmosdb create` | Create account |
 | `az cosmosdb show` | Get account details |
-| `az cosmosdb list` | List accounts in a resource group |
-| `az cosmosdb update` | Update account properties (regions, consistency, etc.) |
-| `az cosmosdb delete` | Delete an account |
+| `az cosmosdb list` | List accounts |
+| `az cosmosdb update` | Update account properties |
+| `az cosmosdb delete` | Delete account |
 
 **Create an account** with Session consistency and two regions (see Chapter 3 for portal-based setup):
 
@@ -64,8 +64,10 @@ az cosmosdb update --ids $accountId --enable-multiple-write-locations true
 
 | Command | Description |
 |---------|-------------|
-| `az cosmosdb update --enable-automatic-failover true` | Enable service-managed failover |
-| `az cosmosdb failover-priority-change` | Set failover priorities or trigger manual failover |
+| `az cosmosdb update` | Enable auto-failover |
+| `az cosmosdb failover-priority-change` | Set/change priorities |
+
+Use `--enable-automatic-failover true` with `update` to enable service-managed failover.
 
 **Set failover priority:**
 
@@ -86,10 +88,12 @@ az cosmosdb failover-priority-change --ids $accountId \
 
 | Command | Description |
 |---------|-------------|
-| `az cosmosdb keys list -n $accountName -g $resourceGroupName` | List all keys |
-| `az cosmosdb keys list ... --type read-only-keys` | List read-only keys |
-| `az cosmosdb keys list ... --type connection-strings` | List connection strings |
-| `az cosmosdb keys regenerate ... --key-kind secondary` | Regenerate a key |
+| `az cosmosdb keys list` | List all keys |
+| `... --type read-only-keys` | Read-only keys only |
+| `... --type connection-strings` | Connection strings |
+| `az cosmosdb keys regenerate` | Regenerate a key |
+
+All commands require `-n $accountName -g $resourceGroupName`. Regenerate accepts `--key-kind`: primary, primaryReadonly, secondary, secondaryReadonly.
 
 For key rotation (see Chapter 17 for the security implications):
 
@@ -105,15 +109,17 @@ az cosmosdb keys regenerate \
 
 ### Database Operations
 
-| Command | Description |
-|---------|-------------|
-| `az cosmosdb sql database create` | Create a database |
-| `az cosmosdb sql database show` | Show database details |
-| `az cosmosdb sql database list` | List databases in an account |
-| `az cosmosdb sql database delete` | Delete a database |
-| `az cosmosdb sql database throughput show` | Show database throughput |
-| `az cosmosdb sql database throughput update` | Update database throughput |
-| `az cosmosdb sql database throughput migrate` | Migrate between manual and autoscale |
+All commands below use the `az cosmosdb sql database` prefix.
+
+| Subcommand | Description |
+|------------|-------------|
+| `create` | Create a database |
+| `show` | Show database details |
+| `list` | List databases |
+| `delete` | Delete a database |
+| `throughput show` | Show throughput |
+| `throughput update` | Update throughput |
+| `throughput migrate` | Switch manual ↔ autoscale |
 
 **Create a database:**
 
@@ -146,16 +152,18 @@ az cosmosdb sql database throughput migrate \
 
 ### Container Operations
 
-| Command | Description |
-|---------|-------------|
-| `az cosmosdb sql container create` | Create a container |
-| `az cosmosdb sql container show` | Show container details |
-| `az cosmosdb sql container list` | List containers in a database |
-| `az cosmosdb sql container update` | Update container properties |
-| `az cosmosdb sql container delete` | Delete a container |
-| `az cosmosdb sql container throughput show` | Show container throughput |
-| `az cosmosdb sql container throughput update` | Update container throughput |
-| `az cosmosdb sql container throughput migrate` | Migrate between manual and autoscale |
+All commands below use the `az cosmosdb sql container` prefix.
+
+| Subcommand | Description |
+|------------|-------------|
+| `create` | Create a container |
+| `show` | Show container details |
+| `list` | List containers |
+| `update` | Update properties |
+| `delete` | Delete a container |
+| `throughput show` | Show throughput |
+| `throughput update` | Update throughput |
+| `throughput migrate` | Switch manual ↔ autoscale |
 
 **Create a container** with a partition key and 400 RU/s (see Chapter 5 for partition key guidance):
 
@@ -781,13 +789,17 @@ resource "azurerm_cosmosdb_sql_role_assignment" "app" {
 
 ## Bicep vs. Terraform at a Glance
 
-| | Bicep | Terraform |
-|---|---|---|
-| **Provider** | Native Azure (ARM) | `azurerm` provider (HashiCorp) |
-| **State management** | Azure handles it | You manage `.tfstate` (remote backend recommended) |
+| Aspect | Bicep | Terraform |
+|--------|-------|-----------|
+| **Provider** | Native ARM | `azurerm` (HashiCorp) |
+| **State** | Azure-managed | Self-managed `.tfstate` |
 | **Multi-cloud** | Azure only | Any cloud |
-| **Cosmos DB resource types** | `Microsoft.DocumentDB/databaseAccounts`, child resources | `azurerm_cosmosdb_account`, `azurerm_cosmosdb_sql_database`, `azurerm_cosmosdb_sql_container`, etc. |
-| **Throughput changes** | Redeploy with updated params | `terraform apply` with updated vars |
-| **RBAC support** | `sqlRoleDefinitions` / `sqlRoleAssignments` resources | `azurerm_cosmosdb_sql_role_definition` / `azurerm_cosmosdb_sql_role_assignment` |
+| **Resources** | `Microsoft.DocumentDB/...` | `azurerm_cosmosdb_...` |
+| **Throughput** | Redeploy template | `terraform apply` |
+| **RBAC** | `sqlRoleDefinitions` | `..._sql_role_definition` |
+
+- **Resource types:** Bicep uses `Microsoft.DocumentDB/databaseAccounts` and child resources. Terraform uses `azurerm_cosmosdb_account`, `azurerm_cosmosdb_sql_database`, `azurerm_cosmosdb_sql_container`, etc.
+- **State management:** Terraform requires a remote backend (Azure Storage, Terraform Cloud) for team use. Bicep state is handled by Azure Resource Manager automatically.
+- **RBAC:** Bicep uses `sqlRoleDefinitions` / `sqlRoleAssignments` child resources. Terraform uses `azurerm_cosmosdb_sql_role_definition` / `azurerm_cosmosdb_sql_role_assignment`.
 
 Both tools are fully capable for Cosmos DB deployments. If your team is Azure-only, Bicep's zero-config state management is hard to beat. If you're multi-cloud or already standardized on Terraform, stick with what you know. Chapter 20 covers how to wire either into a CI/CD pipeline.

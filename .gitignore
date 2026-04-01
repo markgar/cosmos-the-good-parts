@@ -1,0 +1,5 @@
+# Reference documentation mirror
+mslearn-docs/
+
+# Build output
+*.epub

@@ -87,12 +87,12 @@ $pandocArgs = @(
 )
 
 # Add cover image if it exists
-$cover = Join-Path $bookDir "cover.png"
+$cover = Join-Path $rootDir "assets" "cover.png"
 if (Test-Path $cover) {
     $pandocArgs += "--epub-cover-image=$cover"
-    Write-Host "Cover image: cover.png" -ForegroundColor Green
+    Write-Host "Cover image: assets/cover.png" -ForegroundColor Green
 } else {
-    Write-Host "No cover image found (cover.png) -- building without cover" -ForegroundColor Yellow
+    Write-Host "No cover image found (assets/cover.png) -- building without cover" -ForegroundColor Yellow
 }
 
 # Build
