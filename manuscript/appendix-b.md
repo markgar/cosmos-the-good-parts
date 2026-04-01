@@ -165,8 +165,8 @@ JOIN (SELECT VALUE AVG(r.score) FROM r IN p.ratings) AS avgRating
 
 | Operator | Description | Example |
 |----------|-------------|---------|
-| `AND` | Logical and | `c.price > 10 AND c.price < 100` |
-| `OR` | Logical or | `c.status = "active" OR c.status = "pending"` |
+| `AND` | Logical and | `c.price > 10 AND c.qty > 0` |
+| `OR` | Logical or | `c.type = "a" OR c.type = "b"` |
 | `NOT` | Logical negation | `NOT IS_DEFINED(c.deletedAt)` |
 
 ### Arithmetic Operators
@@ -183,9 +183,9 @@ JOIN (SELECT VALUE AVG(r.score) FROM r IN p.ratings) AS avgRating
 
 | Operator | Description | Example |
 |----------|-------------|---------|
-| `\|\|` | String concatenation | `c.firstName \|\| " " \|\| c.lastName` |
-| `??` | Null coalescing | `c.nickname ?? c.firstName` |
-| `? :` | Ternary / conditional | `c.quantity > 0 ? "In Stock" : "Out of Stock"` |
+| `\|\|` | String concatenation | `c.first \|\| " " \|\| c.last` |
+| `??` | Null coalescing | `c.nickname ?? c.first` |
+| `? :` | Ternary / conditional | `c.qty > 0 ? "Yes" : "No"` |
 
 ---
 
@@ -193,13 +193,13 @@ JOIN (SELECT VALUE AVG(r.score) FROM r IN p.ratings) AS avgRating
 
 | Function | Description | Example |
 |----------|-------------|---------|
-| `COUNT(expr)` | Count of items (use `COUNT(1)` for all) | `SELECT COUNT(1) FROM c` |
-| `SUM(expr)` | Sum of numeric values | `SELECT SUM(c.price) FROM c` |
-| `AVG(expr)` | Average of numeric values | `SELECT AVG(c.price) FROM c` |
-| `MIN(expr)` | Minimum value | `SELECT MIN(c.price) FROM c` |
-| `MAX(expr)` | Maximum value | `SELECT MAX(c.price) FROM c` |
+| `COUNT(expr)` | Count of items | `SELECT COUNT(1) FROM c` |
+| `SUM(expr)` | Sum numeric values | `SELECT SUM(c.price) FROM c` |
+| `AVG(expr)` | Average numeric values | `SELECT AVG(c.price) FROM c` |
+| `MIN(expr)` | Min value | `SELECT MIN(c.price) FROM c` |
+| `MAX(expr)` | Max value | `SELECT MAX(c.price) FROM c` |
 
-All aggregate functions ignore items where the expression evaluates to `undefined`. Combine with `GROUP BY` for per-group aggregation.
+Use `COUNT(1)` to count all items. All aggregate functions ignore items where the expression evaluates to `undefined`. Combine with `GROUP BY` for per-group aggregation.
 
 ---
 
@@ -207,96 +207,100 @@ All aggregate functions ignore items where the expression evaluates to `undefine
 
 ### String Functions
 
-| Function | Description | Example |
-|----------|-------------|---------|
-| `CONCAT(str1, str2, ...)` | Concatenates two or more strings | `CONCAT(c.first, " ", c.last)` |
-| `CONTAINS(str, substr [, ignoreCase])` | Returns true if first string contains second | `CONTAINS(c.name, "board")` |
-| `ENDSWITH(str, suffix [, ignoreCase])` | Returns true if string ends with suffix | `ENDSWITH(c.email, ".com")` |
-| `STARTSWITH(str, prefix [, ignoreCase])` | Returns true if string starts with prefix | `STARTSWITH(c.sku, "PROD")` |
-| `INDEX_OF(str, substr)` | Returns starting position of substring, or -1 | `INDEX_OF(c.name, "surf")` |
-| `LEFT(str, length)` | Returns leftmost characters | `LEFT(c.sku, 4)` |
-| `RIGHT(str, length)` | Returns rightmost characters | `RIGHT(c.phone, 4)` |
-| `LENGTH(str)` | Returns string length | `LENGTH(c.name)` |
-| `LOWER(str)` | Converts to lowercase | `LOWER(c.email)` |
-| `UPPER(str)` | Converts to uppercase | `UPPER(c.category)` |
-| `LTRIM(str)` | Removes leading whitespace | `LTRIM(c.name)` |
-| `RTRIM(str)` | Removes trailing whitespace | `RTRIM(c.name)` |
-| `TRIM(str)` | Removes leading and trailing whitespace | `TRIM(c.name)` |
-| `REPLACE(str, find, replace)` | Replaces occurrences of a substring | `REPLACE(c.url, "http://", "https://")` |
-| `REPLICATE(str, count)` | Repeats a string N times | `REPLICATE("*", 5)` |
-| `REVERSE(str)` | Reverses character order | `REVERSE(c.code)` |
-| `SUBSTRING(str, start, length)` | Extracts a substring (0-based index) | `SUBSTRING(c.sku, 0, 4)` |
-| `ToString(expr)` | Converts a value to string | `ToString(c.price)` |
-| `StringEquals(str1, str2 [, ignoreCase])` | Case-sensitive (or insensitive) string comparison | `StringEquals(c.code, "abc", true)` |
-| `RegexMatch(str, pattern [, modifiers])` | Regular expression match | `RegexMatch(c.email, "^[a-z]+@")` |
+| Function | Description |
+|----------|-------------|
+| `CONCAT(s1, s2, ...)` | Concatenate strings |
+| `CONTAINS(s, sub)` | True if s contains sub |
+| `ENDSWITH(s, suffix)` | True if s ends with suffix |
+| `STARTSWITH(s, prefix)` | True if s starts with prefix |
+| `INDEX_OF(s, sub)` | Position of sub, or -1 |
+| `LEFT(s, len)` | Leftmost characters |
+| `RIGHT(s, len)` | Rightmost characters |
+| `LENGTH(s)` | String length |
+| `LOWER(s)` | Convert to lowercase |
+| `UPPER(s)` | Convert to uppercase |
+| `LTRIM(s)` | Strip leading whitespace |
+| `RTRIM(s)` | Strip trailing whitespace |
+| `TRIM(s)` | Strip surrounding whitespace |
+| `REPLACE(s, find, repl)` | Replace occurrences |
+| `REPLICATE(s, n)` | Repeat s n times |
+| `REVERSE(s)` | Reverse character order |
+| `SUBSTRING(s, start, len)` | Extract substring (0-based) |
+| `ToString(expr)` | Convert value to string |
+| `StringEquals(s1, s2)` | String equality check |
+| `RegexMatch(s, pattern)` | Regex match |
+
+`CONTAINS`, `ENDSWITH`, `STARTSWITH`, and `StringEquals` accept an optional `ignoreCase` boolean parameter. `RegexMatch` accepts optional `modifiers` (e.g., `"i"` for case-insensitive).
 
 > **Index efficiency:** `STARTSWITH` and `StringEquals` use precise or expanded index scans. `CONTAINS`, `ENDSWITH`, `RegexMatch`, and `LIKE` use full index scans. `UPPER` and `LOWER` trigger full container scans — avoid them in WHERE clauses on large containers.
 <!-- Source: mslearn-docs/content/manage-your-account/containers-and-items/index-overview.md -->
 
 ### Mathematical Functions
 
-| Function | Description | Example |
-|----------|-------------|---------|
-| `ABS(num)` | Absolute value | `ABS(c.balance)` |
-| `CEILING(num)` | Smallest integer ≥ value | `CEILING(c.rating)` |
-| `FLOOR(num)` | Largest integer ≤ value | `FLOOR(c.rating)` |
-| `ROUND(num)` | Rounds to nearest integer | `ROUND(c.price)` |
-| `SIGN(num)` | Returns -1, 0, or 1 | `SIGN(c.balance)` |
-| `POWER(base, exp)` | Raises base to a power | `POWER(c.value, 2)` |
-| `SQRT(num)` | Square root | `SQRT(c.variance)` |
-| `LOG(num)` | Natural logarithm | `LOG(c.value)` |
-| `LOG10(num)` | Base-10 logarithm | `LOG10(c.value)` |
-| `EXP(num)` | e raised to the specified power | `EXP(c.rate)` |
-| `PI()` | Returns π (3.14159...) | `PI()` |
-| `SIN(num)` | Sine (radians) | `SIN(c.angle)` |
-| `COS(num)` | Cosine (radians) | `COS(c.angle)` |
-| `TAN(num)` | Tangent (radians) | `TAN(c.angle)` |
-| `ASIN(num)` | Arcsine | `ASIN(c.value)` |
-| `ACOS(num)` | Arccosine | `ACOS(c.value)` |
-| `ATAN(num)` | Arctangent | `ATAN(c.value)` |
-| `ATN2(y, x)` | Arctangent of y/x | `ATN2(c.y, c.x)` |
-| `RAND()` | Returns a random float between 0 and 1 | `RAND()` |
-| `NumberBin(num, binSize)` | Rounds to the nearest multiple of bin size | `NumberBin(c.distance / 1000, 0.01)` |
+| Function | Description |
+|----------|-------------|
+| `ABS(n)` | Absolute value |
+| `CEILING(n)` | Smallest int ≥ n |
+| `FLOOR(n)` | Largest int ≤ n |
+| `ROUND(n)` | Nearest integer |
+| `SIGN(n)` | Returns -1, 0, or 1 |
+| `POWER(base, exp)` | base raised to exp |
+| `SQRT(n)` | Square root |
+| `LOG(n)` | Natural log |
+| `LOG10(n)` | Base-10 log |
+| `EXP(n)` | e^n |
+| `PI()` | Returns π |
+| `SIN(n)`, `COS(n)`, `TAN(n)` | Trig (radians) |
+| `ASIN(n)`, `ACOS(n)`, `ATAN(n)` | Inverse trig |
+| `ATN2(y, x)` | Arctangent of y/x |
+| `RAND()` | Random float in [0, 1) |
+| `NumberBin(n, size)` | Round to bin multiple |
 
 ### Array Functions
 
-| Function | Description | Example |
-|----------|-------------|---------|
-| `ARRAY_CONCAT(arr1, arr2, ...)` | Concatenates two or more arrays | `ARRAY_CONCAT(c.tags, c.labels)` |
-| `ARRAY_CONTAINS(arr, value [, partial])` | Returns true if array contains value; set `partial` to true for partial object matching | `ARRAY_CONTAINS(c.tags, "sale")` |
-| `ARRAY_LENGTH(arr)` | Returns number of elements | `ARRAY_LENGTH(c.ratings)` |
-| `ARRAY_SLICE(arr, start [, length])` | Returns a subset of an array (0-based) | `ARRAY_SLICE(c.tags, 0, 3)` |
-| `SetIntersect(arr1, arr2)` | Returns elements common to both arrays | `SetIntersect(c.tags, ["sale", "new"])` |
-| `SetUnion(arr1, arr2)` | Returns all unique elements from both arrays | `SetUnion(c.tags, c.labels)` |
+| Function | Description |
+|----------|-------------|
+| `ARRAY_CONCAT(a1, a2, ...)` | Concatenate arrays |
+| `ARRAY_CONTAINS(arr, val)` | True if arr contains val |
+| `ARRAY_LENGTH(arr)` | Element count |
+| `ARRAY_SLICE(arr, start)` | Subset of array (0-based) |
+| `SetIntersect(a1, a2)` | Common elements |
+| `SetUnion(a1, a2)` | All unique elements |
+
+`ARRAY_CONTAINS` accepts an optional third parameter `partial` (boolean) for partial object matching. `ARRAY_SLICE` accepts an optional `length` parameter.
 
 ### Type-Checking Functions
 
-| Function | Description | Example |
-|----------|-------------|---------|
-| `IS_ARRAY(expr)` | Returns true if the value is an array | `IS_ARRAY(c.tags)` |
-| `IS_BOOL(expr)` | Returns true if the value is a Boolean | `IS_BOOL(c.isActive)` |
-| `IS_NULL(expr)` | Returns true if the value is null | `IS_NULL(c.deletedAt)` |
-| `IS_NUMBER(expr)` | Returns true if the value is a number | `IS_NUMBER(c.price)` |
-| `IS_OBJECT(expr)` | Returns true if the value is a JSON object | `IS_OBJECT(c.address)` |
-| `IS_STRING(expr)` | Returns true if the value is a string | `IS_STRING(c.name)` |
-| `IS_DEFINED(expr)` | Returns true if the property has been assigned a value (including null) | `IS_DEFINED(c.email)` |
-| `IS_PRIMITIVE(expr)` | Returns true if the value is a string, number, Boolean, or null | `IS_PRIMITIVE(c.value)` |
+| Function | Returns true if… |
+|----------|------------------|
+| `IS_ARRAY(expr)` | Value is an array |
+| `IS_BOOL(expr)` | Value is a boolean |
+| `IS_NULL(expr)` | Value is null |
+| `IS_NUMBER(expr)` | Value is a number |
+| `IS_OBJECT(expr)` | Value is a JSON object |
+| `IS_STRING(expr)` | Value is a string |
+| `IS_DEFINED(expr)` | Property is assigned |
+| `IS_PRIMITIVE(expr)` | Value is primitive |
+
+`IS_DEFINED` returns true even when the value is null — it checks property existence, not value. `IS_PRIMITIVE` covers strings, numbers, booleans, and null.
 
 ### Date and Time Functions
 
-| Function | Description | Example |
-|----------|-------------|---------|
-| `GetCurrentDateTime()` | Returns current UTC date/time as ISO 8601 string | `GetCurrentDateTime()` |
-| `GetCurrentTimestamp()` | Returns current UTC as milliseconds since Unix epoch | `GetCurrentTimestamp()` |
-| `GetCurrentTicks()` | Returns current UTC as 100-nanosecond ticks since 00:00:00 Jan 1, 0001 | `GetCurrentTicks()` |
-| `DateTimeAdd(part, num, dateTime)` | Adds a value to a date/time string | `DateTimeAdd("dd", 7, c.createdAt)` |
-| `DateTimeDiff(part, start, end)` | Returns difference between two date/times | `DateTimeDiff("hh", c.start, c.end)` |
-| `DateTimePart(part, dateTime)` | Extracts a component from a date/time | `DateTimePart("yyyy", c.createdAt)` |
-| `DateTimeToTicks(dateTime)` | Converts ISO 8601 string to ticks | `DateTimeToTicks(c.createdAt)` |
-| `TicksToDateTime(ticks)` | Converts ticks to ISO 8601 string | `TicksToDateTime(c.tickValue)` |
-| `DateTimeToTimestamp(dateTime)` | Converts ISO 8601 string to Unix timestamp (ms) | `DateTimeToTimestamp(c.createdAt)` |
-| `TimestampToDateTime(timestamp)` | Converts Unix timestamp (ms) to ISO 8601 string | `TimestampToDateTime(c.ts)` |
-| `DateTimeBin(dateTime, part, binSize [, origin])` | Rounds a date/time to a bin boundary | `DateTimeBin(c.createdAt, "hh", 1)` |
+| Function | Description |
+|----------|-------------|
+| `GetCurrentDateTime()` | Current UTC (ISO 8601) |
+| `GetCurrentTimestamp()` | Current UTC (ms epoch) |
+| `GetCurrentTicks()` | Current UTC (100ns ticks) |
+| `DateTimeAdd(part, n, dt)` | Add n units to datetime |
+| `DateTimeDiff(part, s, e)` | Diff between two datetimes |
+| `DateTimePart(part, dt)` | Extract component |
+| `DateTimeToTicks(dt)` | ISO 8601 → ticks |
+| `TicksToDateTime(ticks)` | Ticks → ISO 8601 |
+| `DateTimeToTimestamp(dt)` | ISO 8601 → Unix ms |
+| `TimestampToDateTime(ts)` | Unix ms → ISO 8601 |
+| `DateTimeBin(dt, part, n)` | Round to bin boundary |
+
+All datetime parameters expect ISO 8601 strings. Ticks are 100-nanosecond intervals since 00:00:00 Jan 1, 0001. `DateTimeBin` accepts an optional `origin` parameter.
 
 **Date part identifiers** used with these functions:
 
@@ -319,13 +323,15 @@ These functions require a spatial index on the queried property path. See Chapte
 <!-- Source: mslearn-docs/content/manage-your-account/containers-and-items/index-overview.md -->
 <!-- Source: mslearn-docs/content/develop-modern-applications/how-to-geospatial-index-query.md -->
 
-| Function | Description | Example |
-|----------|-------------|---------|
-| `ST_DISTANCE(geom1, geom2)` | Returns distance in meters between two GeoJSON points | `ST_DISTANCE(c.location, {"type":"Point","coordinates":[-122.12,47.66]})` |
-| `ST_WITHIN(geom1, geom2)` | Returns true if geom1 is within geom2 | `ST_WITHIN(c.location, @polygon)` |
-| `ST_INTERSECTS(geom1, geom2)` | Returns true if two geometries intersect | `ST_INTERSECTS(c.area, @boundary)` |
-| `ST_ISVALID(geom)` | Returns true if the GeoJSON is valid | `ST_ISVALID(c.location)` |
-| `ST_ISVALIDDETAILED(geom)` | Returns JSON with validity info and reason | `ST_ISVALIDDETAILED(c.location)` |
+| Function | Description |
+|----------|-------------|
+| `ST_DISTANCE(g1, g2)` | Distance in meters |
+| `ST_WITHIN(g1, g2)` | True if g1 is within g2 |
+| `ST_INTERSECTS(g1, g2)` | True if geometries overlap |
+| `ST_ISVALID(g)` | True if GeoJSON is valid |
+| `ST_ISVALIDDETAILED(g)` | Validity info + reason |
+
+Both arguments are GeoJSON geometries. `ST_ISVALIDDETAILED` returns a JSON object with a `valid` boolean and a `reason` string.
 
 Supported GeoJSON types: `Point`, `LineString`, `Polygon`, `MultiPolygon`.
 
@@ -344,7 +350,9 @@ Vector search requires a container vector policy and vector index. See Chapter 2
 
 | Function | Description |
 |----------|-------------|
-| `VectorDistance(vector1, vector2)` | Returns the distance/similarity score between two vectors using the distance function defined in the container's vector policy |
+| `VectorDistance(v1, v2)` | Vector similarity score |
+
+Uses the distance function defined in the container's vector policy (see distance functions below).
 
 **Distance functions** (configured in the container vector policy, not in the query):
 
@@ -369,12 +377,17 @@ Full-text search requires a full-text index and full-text policy on the containe
 
 <!-- Source: mslearn-docs/content/build-ai-applications/full-text-indexing-and-search/gen-ai-full-text-search.md -->
 
-| Function | Description | Used In |
-|----------|-------------|---------|
-| `FullTextContains(property, text)` | Returns true if the property contains the given text | `WHERE` |
-| `FullTextContainsAll(property, term1, term2, ...)` | Returns true if the property contains *all* of the given terms | `WHERE` |
-| `FullTextContainsAny(property, term1, term2, ...)` | Returns true if the property contains *any* of the given terms | `WHERE` |
-| `FullTextScore(property, term1, term2, ...)` | Returns a BM25 relevance score | `ORDER BY RANK` only |
+| Function | Used in |
+|----------|---------|
+| `FullTextContains(p, text)` | `WHERE` |
+| `FullTextContainsAll(p, ...)` | `WHERE` |
+| `FullTextContainsAny(p, ...)` | `WHERE` |
+| `FullTextScore(p, ...)` | `ORDER BY RANK` |
+
+- **FullTextContains** — true if property contains the text
+- **FullTextContainsAll** — true if property contains *all* given terms
+- **FullTextContainsAny** — true if property contains *any* given terms
+- **FullTextScore** — BM25 relevance score
 
 > **`FullTextScore` cannot be projected in `SELECT` or used in `WHERE`.** It can only appear inside an `ORDER BY RANK` clause.
 
@@ -400,9 +413,11 @@ WHERE FullTextContains(c.text, "red")
 
 <!-- Source: mslearn-docs/content/build-ai-applications/gen-ai-hybrid-search.md -->
 
-| Function | Description |
-|----------|-------------|
-| `RRF(score1, score2, ... [, weights])` | Reciprocal Rank Fusion — combines rankings from multiple search methods into a single unified ranking. Used in `ORDER BY RANK`. |
+| Function | Used in |
+|----------|---------|
+| `RRF(s1, s2, ...)` | `ORDER BY RANK` |
+
+**Reciprocal Rank Fusion** combines rankings from multiple search methods (vector, full-text) into a unified ranking. Accepts an optional weights array as the last argument.
 
 ```sql
 -- Combine vector + full-text search
@@ -424,13 +439,21 @@ How you write a query determines which index strategy the engine uses — and th
 
 <!-- Source: mslearn-docs/content/manage-your-account/containers-and-items/index-overview.md -->
 
-| Index Strategy | Query Constructs | RU Behavior |
-|----------------|-----------------|-------------|
-| **Index seek** | `=`, `IN` | Constant per filter |
-| **Precise index scan** | `>`, `<`, `>=`, `<=`, `STARTSWITH` | Slightly above seek |
-| **Expanded index scan** | `STARTSWITH` (case-insensitive), `StringEquals` (case-insensitive) | Moderate |
-| **Full index scan** | `CONTAINS`, `ENDSWITH`, `RegexMatch`, `LIKE` | Linear with index cardinality |
-| **Full scan** (no index) | `UPPER`, `LOWER` | Scales with container size |
+| Strategy | RU Cost |
+|----------|---------|
+| **Index seek** | Constant per filter |
+| **Precise scan** | Slightly above seek |
+| **Expanded scan** | Moderate |
+| **Full index scan** | Linear with index size |
+| **Full scan** (no index) | Scales with container |
+
+Which constructs map to which strategy:
+
+- **Index seek:** `=`, `IN`
+- **Precise scan:** `>`, `<`, `>=`, `<=`, `STARTSWITH`
+- **Expanded scan:** case-insensitive `STARTSWITH`, case-insensitive `StringEquals`
+- **Full index scan:** `CONTAINS`, `ENDSWITH`, `RegexMatch`, `LIKE`
+- **Full scan:** `UPPER`, `LOWER` in `WHERE`
 
 When both `STARTSWITH` and `CONTAINS` would work for your query, use `STARTSWITH` — it's significantly cheaper.
 
@@ -442,8 +465,8 @@ When both `STARTSWITH` and `CONTAINS` would work for your query, use `STARTSWITH
 
 | Limit | Value |
 |-------|-------|
-| Max execution time per query page | 5 seconds |
-| Max response size per page | 4 MB |
+| Execution time per page | 5 seconds |
+| Response size per page | 4 MB |
 | Max request size | 2 MB |
 
 If a query can't finish within 5 seconds or 4 MB per page, the service returns a continuation token. Your application must page through results using the SDK's `FeedIterator` (Chapter 7 covers this in depth).
