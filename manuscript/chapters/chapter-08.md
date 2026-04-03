@@ -662,74 +662,6 @@ This query gets a precise index seek instead of the full-scan penalty you'd pay 
 
 This feature is especially valuable when you have existing data and can't easily backfill a pre-computed field across millions of documents. The computed property handles it transparently at the engine level.
 
-## Understanding Cross-Partition Queries
-
-Chapter 5 warned you that cross-partition queries are more expensive. Now let's understand exactly *why* and *how much more*.
-
-### How They Work
-
-When you run a query that includes the partition key in the `WHERE` clause — like `WHERE c.category = "gear-surf-surfboards"` — Cosmos DB routes the query to the single physical partition that holds that data. One index lookup, one result set. This is an **in-partition query**.
-
-When your query *doesn't* include the partition key, Cosmos DB has no way to know which partition holds the matching data. So it fans the query out to *every* physical partition, runs it against each partition's index, and merges the results on the client side.
-
-<!-- Source: how-to-query-container.md, query-metrics.md -->
-
-Here's the flow:
-
-1. The SDK sends the query to the Cosmos DB gateway.
-2. The gateway (or the SDK in Direct mode) identifies that no partition key filter exists.
-3. The query is dispatched to every physical partition in parallel.
-4. Each partition runs the query against its own independent index.
-5. Results from all partitions are merged client-side (for `ORDER BY`, this means a merge-sort; for `COUNT`, a sum; etc.).
-
-### The RU Math
-
-Each physical partition charges a minimum of about **2.5 RUs** just to check its index — even if it returns zero matching items. If your container has 20 physical partitions, a cross-partition query costs at least 50 RUs as a baseline, even for a simple filter that matches items in only one partition.
-
-<!-- Source: how-to-query-container.md -->
-
-As your container grows, you get more physical partitions (one per ~10,000 RU/s or ~50 GB of data). A container provisioned at 100,000 RU/s has at least 10 physical partitions; one storing 500 GB might have 10 or more. The base cost of cross-partition queries scales linearly with partition count.
-
-| Partitions | Min Cross-Partition Cost |
-|------------|--------------------------|
-| 3 | ~7.5 RUs |
-| 10 | ~25 RUs |
-| 50 | ~125 RUs |
-| 100 | ~250 RUs |
-
-And that's just the baseline. Add actual index lookups, document loads, and aggregate computation on each partition, and the cost climbs higher.
-
-### When It Matters (and When It Doesn't)
-
-Cross-partition queries are fine for small containers. If you have one or two physical partitions, the fan-out cost is negligible. The docs call this out explicitly: "if you have only one (or just a few) physical partitions, cross-partition queries don't consume significantly more RUs than in-partition queries."
-
-<!-- Source: how-to-query-container.md -->
-
-Start caring when your container exceeds 30,000 provisioned RU/s or 100 GB of storage. At that scale, the partition count makes fan-out expensive.
-
-### How to Minimize Cross-Partition Queries
-
-1. **Design your partition key around your most common query filter.** If 80% of your queries filter by `customerId`, make that your partition key.
-2. **Use the `IN` operator with partition key values** when you know the target partitions. `WHERE c.category IN ("A", "B")` fans out to only those two partitions, not all of them.
-3. **Consider hierarchical partition keys** (Chapter 5) for scenarios where you need both broad and narrow query scopes.
-4. **Use global secondary indexes (preview)** for query patterns that can't align with your primary partition key. They create a synchronized copy with a different partition key, turning cross-partition queries into in-partition ones for specific patterns. Chapter 9 covers this.
-
-### The SDK's Parallel Execution
-
-The SDKs don't execute cross-partition queries serially — they parallelize across partitions. You can control the degree of parallelism via `MaxConcurrency` (C#) or `setMaxDegreeOfParallelism` (Java). Setting it to `-1` lets the SDK auto-tune.
-
-<!-- Source: performance-tips-query-sdk.md, query-metrics.md -->
-
-```csharp
-var options = new QueryRequestOptions
-{
-    MaxConcurrency = -1,
-    MaxBufferedItemCount = -1
-};
-```
-
-Parallelism helps with *latency* (you get results faster), but it doesn't reduce *RU cost* (you're still querying every partition). Tuning parallelism is about the user experience, not the bill.
-
 ## Indexing and Querying Geospatial Data
 
 Cosmos DB natively supports **GeoJSON** data types — Points, LineStrings, Polygons, and MultiPolygons — and provides built-in spatial functions for location-based queries.
@@ -818,6 +750,74 @@ Without a spatial index, `ST_DISTANCE` and `ST_WITHIN` still work — they just 
 | `ST_INTERSECTS` | Overlap test | Recommended |
 | `ST_ISVALID` | GeoJSON validation | No |
 | `ST_ISVALIDDETAILED` | Validity + error detail | No |
+
+## Understanding Cross-Partition Queries
+
+Chapter 5 warned you that cross-partition queries are more expensive. Now let's understand exactly *why* and *how much more*.
+
+### How They Work
+
+When you run a query that includes the partition key in the `WHERE` clause — like `WHERE c.category = "gear-surf-surfboards"` — Cosmos DB routes the query to the single physical partition that holds that data. One index lookup, one result set. This is an **in-partition query**.
+
+When your query *doesn't* include the partition key, Cosmos DB has no way to know which partition holds the matching data. So it fans the query out to *every* physical partition, runs it against each partition's index, and merges the results on the client side.
+
+<!-- Source: how-to-query-container.md, query-metrics.md -->
+
+Here's the flow:
+
+1. The SDK sends the query to the Cosmos DB gateway.
+2. The gateway (or the SDK in Direct mode) identifies that no partition key filter exists.
+3. The query is dispatched to every physical partition in parallel.
+4. Each partition runs the query against its own independent index.
+5. Results from all partitions are merged client-side (for `ORDER BY`, this means a merge-sort; for `COUNT`, a sum; etc.).
+
+### The RU Math
+
+Each physical partition charges a minimum of about **2.5 RUs** just to check its index — even if it returns zero matching items. If your container has 20 physical partitions, a cross-partition query costs at least 50 RUs as a baseline, even for a simple filter that matches items in only one partition.
+
+<!-- Source: how-to-query-container.md -->
+
+As your container grows, you get more physical partitions (one per ~10,000 RU/s or ~50 GB of data). A container provisioned at 100,000 RU/s has at least 10 physical partitions; one storing 500 GB might have 10 or more. The base cost of cross-partition queries scales linearly with partition count.
+
+| Partitions | Min Cross-Partition Cost |
+|------------|---------------------------|
+| 3 | ~7.5 RUs |
+| 10 | ~25 RUs |
+| 50 | ~125 RUs |
+| 100 | ~250 RUs |
+
+And that's just the baseline. Add actual index lookups, document loads, and aggregate computation on each partition, and the cost climbs higher.
+
+### When It Matters (and When It Doesn't)
+
+Cross-partition queries are fine for small containers. If you have one or two physical partitions, the fan-out cost is negligible. The docs call this out explicitly: "if you have only one (or just a few) physical partitions, cross-partition queries don't consume significantly more RUs than in-partition queries."
+
+<!-- Source: how-to-query-container.md -->
+
+Start caring when your container exceeds 30,000 provisioned RU/s or 100 GB of storage. At that scale, the partition count makes fan-out expensive.
+
+### How to Minimize Cross-Partition Queries
+
+1. **Design your partition key around your most common query filter.** If 80% of your queries filter by `customerId`, make that your partition key.
+2. **Use the `IN` operator with partition key values** when you know the target partitions. `WHERE c.category IN ("A", "B")` fans out to only those two partitions, not all of them.
+3. **Consider hierarchical partition keys** (Chapter 5) for scenarios where you need both broad and narrow query scopes.
+4. **Use global secondary indexes (preview)** for query patterns that can't align with your primary partition key. They create a synchronized copy with a different partition key, turning cross-partition queries into in-partition ones for specific patterns. Chapter 9 covers this.
+
+### The SDK's Parallel Execution
+
+The SDKs don't execute cross-partition queries serially — they parallelize across partitions. You can control the degree of parallelism via `MaxConcurrency` (C#) or `setMaxDegreeOfParallelism` (Java). Setting it to `-1` lets the SDK auto-tune.
+
+<!-- Source: performance-tips-query-sdk.md, query-metrics.md -->
+
+```csharp
+var options = new QueryRequestOptions
+{
+    MaxConcurrency = -1,
+    MaxBufferedItemCount = -1
+};
+```
+
+Parallelism helps with *latency* (you get results faster), but it doesn't reduce *RU cost* (you're still querying every partition). Tuning parallelism is about the user experience, not the bill.
 
 ## Query Advisor: Built-in Optimization Recommendations
 

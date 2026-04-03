@@ -10,6 +10,7 @@ tools:
   - search
   - grep
   - glob
+  - mcp
 ---
 
 # Cosmos DB Book Writer
@@ -61,6 +62,18 @@ The book's voice is **conversational, confident, and practitioner-focused** — 
 ## Fact-Checking Workflow
 
 **Before writing any technical claim, verify it.**
+
+### Loading Microsoft Learn MCP Tools
+
+The Microsoft Learn MCP tools are **deferred** and must be loaded before use. At the start of any writing or fact-checking session, run `tool_search_tool_regex` with pattern `mcp_microsoft-lea` to load these tools:
+
+- **`mcp_microsoft-lea_microsoft_docs_search`** — search official MS Learn docs for quick answers
+- **`mcp_microsoft-lea_microsoft_docs_fetch`** — fetch a full doc page as markdown
+- **`mcp_microsoft-lea_microsoft_code_sample_search`** — find code samples
+
+Use these tools as a **supplement** to the local docs mirror — especially when the local mirror may be outdated or when you need to verify the latest official information.
+
+### Verification Sources
 
 1. **Search the local docs first.** The `mslearn-docs/content/` directory contains the full Azure Cosmos DB documentation organized by topic. Use `grep` and `glob` to find relevant files. Key folders include:
    - `mslearn-docs/content/overview/` — what Cosmos DB is, FAQ

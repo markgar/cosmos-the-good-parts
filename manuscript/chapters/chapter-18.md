@@ -461,6 +461,70 @@ Hot partitions are the most insidious performance problem in Cosmos DB because t
 
 **Remediation:** Hot partitions are fundamentally a partition key design issue. Chapter 5 covers how to choose high-cardinality keys that distribute traffic evenly. If you're stuck with a bad partition key on an existing container, Chapter 27 covers throughput redistribution and migration strategies.
 
+## A Copilot Agent for Cosmos DB Troubleshooting
+
+You've just read through three diagnosis workflows, a dozen KQL queries, a table of alert thresholds, and a set of metrics you need to keep in your head. That's a lot to internalize — and when you're in the middle of a production incident at 2 AM, you don't want to flip through a book looking for the right query to run.
+
+To help with that, this book includes a **ready-made GitHub Copilot custom agent** that packages the troubleshooting knowledge from this chapter into an AI assistant you can use directly in VS Code. Ask it "my Cosmos DB account is returning 429s" and it walks you through the diagnosis workflow, hands you the right KQL query, and points you toward the fix — all without leaving your editor.
+
+### What the Agent Knows
+
+The `cosmos-troubleshooter` agent has the diagnosis workflows, KQL queries, alert thresholds, and metric interpretation guidance from this chapter baked into its instructions. It covers:
+
+- **429 throttling** — normalized RU analysis, hot partition vs. genuine saturation, remediation paths
+- **Expensive queries** — finding high-RU queries, cross-partition detection, index gap identification
+- **Hot partitions** — metric-based detection, KQL drill-down to the offending partition key, storage hotspots
+- **Latency spikes** — server-side vs. end-to-end, percentile breakdown, correlation with throttling
+- **Replication lag** — multi-region latency monitoring and regional troubleshooting
+
+It also understands your code. Point it at your project and it will look at your Cosmos DB client configuration, partition key choices, query patterns, and indexing policies to give you advice that's specific to your application — not generic guidance.
+
+### Setting It Up
+
+The agent is a single file. You can find it in the book's GitHub repository at `resources/chapter-18/cosmos-troubleshooter.agent.md`.
+
+**Step 1: Copy the agent file into your project.**
+
+Create a `.github/agents/` directory in your repository (if it doesn't already exist) and copy the file there:
+
+```
+your-project/
+  .github/
+    agents/
+      cosmos-troubleshooter.agent.md
+  src/
+  ...
+```
+
+That's it. GitHub Copilot in VS Code automatically discovers agent files in `.github/agents/`.
+
+**Step 2: Open VS Code and start a Copilot Chat.**
+
+In the chat panel, switch to the `cosmos-troubleshooter` agent. You'll see it listed alongside any other custom agents in your project. If you don't see it, make sure you've opened the workspace that contains the `.github/agents/` directory.
+
+**Step 3: Describe your problem.**
+
+Talk to it like you'd talk to a colleague:
+
+- *"My container is returning a lot of 429s. Help me figure out why."*
+- *"Give me a KQL query to find my most expensive queries in the last 24 hours."*
+- *"I think I have a hot partition in my Orders container. How do I confirm?"*
+- *"What alerts should I set up for a new production Cosmos DB account?"*
+- *"Look at my project and tell me if my partition key choice is going to cause problems."*
+
+The agent will walk you through the relevant diagnosis workflow, provide KQL queries you can paste directly into Log Analytics, and suggest specific remediation steps.
+
+### Making It Your Own
+
+The agent file is plain Markdown — no special tooling required to edit it. A few ways you might customize it:
+
+- **Add your database and container names** to the KQL queries so they're ready to run without editing
+- **Adjust the alert thresholds** to match your workload's tolerance (a batch system handles more 429s than a real-time API)
+- **Add your own diagnostic queries** — if you've built KQL queries specific to your schema or access patterns, add them to the agent's reference section
+- **Add connection and account details** so the agent can help you run `az cosmosdb` and `az monitor` commands against your actual account
+
+The agent is a starting point. The more context you give it about your specific environment, the more useful it becomes.
+
 ---
 
-With your metrics flowing, your alerts configured, your diagnostic logs feeding KQL queries, and the Insights workbook on a screen near your desk, you're equipped to keep your Cosmos DB deployment healthy. But observability is only half of operational readiness. The next chapter covers the other half — what happens when things go truly wrong: backup strategies, point-in-time restore, and disaster recovery planning.
+With your metrics flowing, your alerts configured, your diagnostic logs feeding KQL queries, and — optionally — a Copilot agent ready to walk you through the next incident, you're equipped to keep your Cosmos DB deployment healthy. But observability is only half of operational readiness. The next chapter covers the other half — what happens when things go truly wrong: backup strategies, point-in-time restore, and disaster recovery planning.

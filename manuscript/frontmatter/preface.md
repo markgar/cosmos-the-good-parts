@@ -34,6 +34,8 @@ Every factual claim in this book was verified against the official Microsoft Lea
 
 The result is a book grounded in the same source of truth you'd consult on the job, retold in a format fit for reading cover to cover. If a number, limit, or behavior appears in these pages, it traces back to the docs. Where opinions appear — and they do — they're clearly the author's, informed by real-world experience building on the platform.
 
+Some sections cover features that are in **preview** at the time of writing. They're included deliberately — preview features often signal where the platform is heading, and understanding them early gives you a head start. Where a feature is in preview, the text says so. Because this book is published digitally, it can be revised at any time; as preview features reach general availability (or change shape), updated editions will reflect the current state of the service.
+
 ## Conventions
 
 - **Code**: primarily C# (.NET SDK v3), with Python and JavaScript where noted.
