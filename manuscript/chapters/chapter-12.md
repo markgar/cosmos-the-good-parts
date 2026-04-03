@@ -316,7 +316,16 @@ Bounded Staleness support is not available during preview. Sovereign clouds are 
 
 ### PPAF Pricing
 
-PPAF is part of the **Business Critical service tier** and is priced accordingly. It's not a free add-on.
+Cosmos DB's pricing page uses two service tier labels that you won't find explained in a standalone doc anywhere:
+
+| Service Tier | What It Actually Means | SLA |
+|---|---|---|
+| **General Purpose** | Single-region write accounts | Up to 99.995% |
+| **Business Critical** | Multi-region write accounts | Up to 99.999% |
+
+These aren't separate SKUs you choose — they're pricing categories that map directly to your account's write configuration. A single-write account is General Purpose. A multi-write account is Business Critical. The tier determines your per-RU/s rate: Business Critical costs roughly 2× General Purpose for autoscale throughput.
+
+PPAF lands in the Business Critical pricing tier even though it requires a *single-write* account. The logic: PPAF gives your single-write account partition-level automatic failover — a level of availability that approaches what multi-write accounts provide. Microsoft charges the premium rate accordingly. It's not a free add-on.
 
 <!-- Source: how-to-configure-per-partition-automatic-failover.md -->
 

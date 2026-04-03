@@ -37,21 +37,32 @@ if (-not $pandoc) {
 Write-Host "Using Pandoc: $pandoc" -ForegroundColor Cyan
 & $pandoc --version | Select-Object -First 1
 
+# Subdirectories
+$frontMatterDir = Join-Path $bookDir "frontmatter"
+$chaptersDir    = Join-Path $bookDir "chapters"
+$appendicesDir  = Join-Path $bookDir "appendices"
+$backMatterDir  = Join-Path $bookDir "backmatter"
+
 # Assemble source files in book order
 $sources = @()
 
+# Metadata (build config, lives in project root)
+$metadataPath = Join-Path $rootDir "metadata.yaml"
+if (Test-Path $metadataPath) { $sources += $metadataPath }
+else { Write-Warning "Metadata missing: metadata.yaml" }
+
 # Front matter
-$frontMatter = @("metadata.yaml", "copyright.md", "preface.md")
+$frontMatter = @("copyright.md", "preface.md")
 foreach ($f in $frontMatter) {
-    $path = Join-Path $bookDir $f
+    $path = Join-Path $frontMatterDir $f
     if (Test-Path $path) { $sources += $path }
     else { Write-Warning "Front matter missing: $f" }
 }
 
 # Chapters (sorted numerically by filename)
-$chapters = Get-ChildItem -Path $bookDir -Filter "chapter-*.md" | Sort-Object Name
+$chapters = Get-ChildItem -Path $chaptersDir -Filter "chapter-*.md" | Sort-Object Name
 if ($chapters.Count -eq 0) {
-    Write-Error "No chapter files found in $bookDir"
+    Write-Error "No chapter files found in $chaptersDir"
     exit 1
 }
 foreach ($ch in $chapters) {
@@ -60,20 +71,26 @@ foreach ($ch in $chapters) {
 Write-Host "Including $($chapters.Count) chapters: $($chapters.Name -join ', ')" -ForegroundColor Green
 
 # Appendices (individual files sorted by name, or single appendices.md)
-$appendixFiles = Get-ChildItem -Path $bookDir -Filter "appendix-*.md" | Sort-Object Name
+$appendixFiles = Get-ChildItem -Path $appendicesDir -Filter "appendix-*.md" | Sort-Object Name
 if ($appendixFiles.Count -gt 0) {
     foreach ($app in $appendixFiles) { $sources += $app.FullName }
     Write-Host "Including $($appendixFiles.Count) appendices: $($appendixFiles.Name -join ', ')" -ForegroundColor Green
 } else {
-    $appendices = Join-Path $bookDir "appendices.md"
+    $appendices = Join-Path $appendicesDir "appendices.md"
     if (Test-Path $appendices) { $sources += $appendices }
 }
 
 # Back matter
 $backMatter = @("about-author.md")
 foreach ($f in $backMatter) {
-    $path = Join-Path $bookDir $f
+    $path = Join-Path $backMatterDir $f
     if (Test-Path $path) { $sources += $path }
+}
+
+# Output directory
+$buildDir = Join-Path $rootDir "build"
+if (-not (Test-Path $buildDir)) {
+    New-Item -ItemType Directory -Path $buildDir | Out-Null
 }
 
 # Pandoc arguments
@@ -82,8 +99,8 @@ $pandocArgs = @(
     "--to", "epub3"
     "--toc"
     "--toc-depth=2"
-    "--css=$(Join-Path $bookDir 'epub.css')"
-    "-o", (Join-Path $rootDir $Output)
+    "--css=$(Join-Path $rootDir 'assets' 'epub.css')"
+    "-o", (Join-Path $buildDir $Output)
 )
 
 # Add cover image if it exists
@@ -100,7 +117,7 @@ Write-Host "`nBuilding epub..." -ForegroundColor Cyan
 & $pandoc @sources @pandocArgs
 
 if ($LASTEXITCODE -eq 0) {
-    $epub = Get-Item (Join-Path $rootDir $Output)
+    $epub = Get-Item (Join-Path $buildDir $Output)
     $sizeKB = [math]::Round($epub.Length / 1024)
     Write-Host "`nBuilt: $($epub.Name) ($sizeKB KB)" -ForegroundColor Green
 } else {

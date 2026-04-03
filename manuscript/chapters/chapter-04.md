@@ -206,7 +206,13 @@ Except it isn't. Not here.
 
 In a relational database, denormalization is a calculated compromise — you trade data integrity risk for read performance, and the JOIN capability is always there as a fallback. In Cosmos DB, denormalization isn't a compromise. It's the *primary mechanism* for efficient reads. Without JOINs across documents, the only way to avoid multiple round trips is to put the data where it's needed.
 
-The docs put it simply: "Denormalizing data might reduce the number of queries and updates your application needs to complete common operations." <!-- Source: modeling-data.md --> That's an understatement. In practice, denormalization is the difference between a 2 ms single-partition read and a 130 ms multi-query fan-out. The blogging platform example from the Microsoft documentation shows this clearly: a naïve normalized model for listing a user's posts consumed over 619 RU and took 130 ms. After denormalization, the same operation dropped to 6.46 RU and 4 ms. <!-- Source: model-partition-example.md -->
+The docs put it simply: "Denormalizing data might reduce the number of queries and updates your application needs to complete common operations." <!-- Source: modeling-data.md --> That's an understatement. The Microsoft documentation walks through a blogging platform — users, posts, comments, likes — and iterates from a fully normalized model (V1) to a denormalized one (V3). The results are striking.
+
+Consider the operation "list a user's posts in short form" — the kind of query that runs every time someone visits a profile page. In the normalized V1 model, each post is a bare document: no author name, no comment count, no like count. To display a post summary, the application has to query for the user's posts (a fan-out across partitions, since posts aren't partitioned by `userId`), then issue *additional queries per post* to look up the author's username, count comments, and count likes. The result: **130 ms and 619 RU** for a single page load. <!-- Source: model-partition-example.md -->
+
+In the denormalized V3 model, the author's username, comment count, and like count are embedded directly on each post item, and a copy of the user's posts is maintained in a `users` container partitioned by `userId`. Now the same operation is a single-partition query: **4 ms and 6.46 RU**. <!-- Source: model-partition-example.md -->
+
+That's a 97% reduction in latency and a 99% reduction in RU cost — from a design change, not a hardware upgrade. The full walkthrough is worth reading (search for "model and partition data using a real-world example" in the Azure Cosmos DB documentation), but the takeaway is simple: denormalization isn't a compromise in Cosmos DB. It's how you build fast, cheap reads.
 
 ### What You're Actually Trading
 

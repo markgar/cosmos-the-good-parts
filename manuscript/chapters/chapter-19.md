@@ -294,7 +294,7 @@ One additional wrinkle: collections with custom conflict resolution policies are
 
 A few things to keep in mind:
 
-- **Analytical store data is not backed up.** If you're using Azure Synapse Link (deprecated, but still in use), only the transactional store is included in backups.
+- **Analytical store and mirrored data are not backed up.** If you're using Azure Synapse Link (deprecated, but still in use) or Microsoft Fabric mirroring, only the transactional store is included in backups. The analytical store and Fabric-side replicas will repopulate from the transactional store after restore, but there may be a delay.
 - **The restored account may not preserve your original throughput settings** as of the restore point.
 - **TTL-expired documents are not restored.** If your container has a TTL policy, documents that expired before the restore point are gone. Additionally, the restore process restores the TTL configuration itself — so if you restore without disabling TTL, documents may start expiring again immediately. Use the `--disable-ttl` flag during restore to prevent this.
 

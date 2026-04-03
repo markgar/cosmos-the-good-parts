@@ -21,31 +21,16 @@ jobs:
           sudo apt-get install -y pandoc
 
       - name: Build epub
-        run: |
-          cd manuscript
-          pandoc \
-            metadata.yaml \
-            copyright.md \
-            preface.md \
-            $(ls chapter-*.md | sort) \
-            $(ls appendix-*.md 2>/dev/null | sort) \
-            about-author.md \
-            --from markdown \
-            --to epub3 \
-            --toc \
-            --toc-depth=2 \
-            --css=epub.css \
-            $([ -f ../assets/cover.png ] && echo "--epub-cover-image=../assets/cover.png") \
-            -o "../Cosmos DB - The Good Parts.epub"
+        run: pwsh -File build.ps1
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: epub
-          path: "Cosmos DB - The Good Parts.epub"
+          path: "build/Cosmos DB - The Good Parts.epub"
 
       - name: Attach to release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: "Cosmos DB - The Good Parts.epub"
+          files: "build/Cosmos DB - The Good Parts.epub"

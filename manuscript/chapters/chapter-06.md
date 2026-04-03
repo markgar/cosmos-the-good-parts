@@ -468,7 +468,7 @@ Cosmos DB handles the structured metadata (fast queries, indexes, partition-awar
 
 What if the large data isn't binary — it's a massive JSON array? A sensor that produces 50,000 readings per day, a document with a deeply nested regulatory structure, a product with thousands of variant SKUs.
 
-The chunking pattern splits the data into multiple items linked by a shared identifier:
+The chunking pattern splits the data into multiple items linked by a shared identifier. The key detail: all chunks use the same partition key value (here, `deviceId`), so they land in the same logical partition and can be queried together in a single, cheap operation.
 
 ```json
 {
@@ -485,7 +485,7 @@ The chunking pattern splits the data into multiple items linked by a shared iden
 }
 ```
 
-Each chunk stays under the 2 MB limit. To reconstruct the full dataset, query by `deviceId`, `date`, and `type`, ordered by `chunkIndex`. Since all chunks share the same partition key (`deviceId`), this is a single-partition query — fast and cheap.
+Each chunk stays under the 2 MB limit. To reconstruct the full dataset, query by `deviceId`, `date`, and `type`, ordered by `chunkIndex` — a single-partition query, fast and cheap.
 
 ### Strategy 3: Trim What You Store
 

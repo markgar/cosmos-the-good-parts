@@ -2,4 +2,4 @@
 mslearn-docs/
 
 # Build output
-*.epub
+build/

@@ -255,8 +255,7 @@ parameters = [{"name": "@category", "value": "gear-surf-surfboards"}]
 
 results = container.query_items(
     query=query,
-    parameters=parameters,
-    enable_cross_partition_query=False
+    parameters=parameters
 )
 
 items = [item for item in results]
@@ -281,7 +280,7 @@ A few things to highlight:
 - **Always use parameterized queries.** The `@category` syntax prevents SQL injection and enables query plan reuse on the server. Never concatenate user input into query strings.
 - **The C# `FeedIterator` is the most explicit.** You control the page-by-page loop with `HasMoreResults` and `ReadNextAsync`. Each `FeedResponse` contains a page of results plus metadata (RU charge, continuation token, diagnostics).
 - **Python and JavaScript abstract the paging.** The Python SDK returns an iterable that pages transparently. The JavaScript `fetchAll()` drains all pages into one array — convenient for small result sets, but be cautious with large ones since it loads everything into memory.
-- **Cross-partition queries require a flag in Python.** Set `enable_cross_partition_query=True` when your query can't be scoped to a single partition. We'll explore the cost implications of cross-partition queries in Chapter 8.
+- **Cross-partition queries work automatically in Python.** Older versions of the SDK required setting `enable_cross_partition_query=True`, but current versions default to `True` — no flag needed. You should still prefer single-partition queries when possible; we'll explore the cost implications of cross-partition queries in Chapter 8.
 
 For large result sets, you'll want to page through results using **continuation tokens** rather than loading everything at once. The `FeedResponse` includes a continuation token that you can store (in a cookie, URL parameter, or cache) and pass back to resume iteration later. Chapter 8 covers pagination strategies in depth.
 
