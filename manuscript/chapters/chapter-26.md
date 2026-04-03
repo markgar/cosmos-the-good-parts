@@ -94,13 +94,13 @@ Chapter 5 introduced hierarchical partition keys (HPK) as a way to break past th
 With HPK, you define up to three levels of partition key hierarchy. For a multi-tenant workload, a typical pattern is:
 
 ```
-/tenantId → /userId → /id
+/tenantId → /userId → /sessionId
 ```
 
 Or for a multi-entity container:
 
 ```
-/tenantId → /entityType → /id
+/tenantId → /entityType → /entityId
 ```
 
 The first-level key (`tenantId`) ensures that queries scoped to a single tenant are routed only to the physical partitions holding that tenant's data — no full fan-out. The second and third levels provide the cardinality that lets a single tenant's data spread across multiple physical partitions when it exceeds 20 GB. <!-- Source: hierarchical-partition-keys.md -->
@@ -159,9 +159,11 @@ partitionKey: {
 
 ### Why the Lowest Level Should Have High Cardinality
 
-The docs are clear on this: the lowest level of your hierarchical partition key should have high cardinality — ideally an ID or GUID. <!-- Source: nosql-multi-tenancy-vector-search.md --> This ensures continuous scalability beyond 20 GB per tenant. If your lowest-level key has only a handful of unique values, you'll recreate the same 20 GB ceiling at a deeper level.
+The lowest level of your hierarchical partition key should have high cardinality. <!-- Source: nosql-multi-tenancy-vector-search.md --> If it has only a handful of unique values, you'll recreate the same 20 GB ceiling at a deeper level — you just moved the bottleneck down instead of removing it.
 
-A common pattern is to use the item `id` as the final level. This guarantees that no combination of keys produces a logical partition larger than a single document, effectively making the 20 GB limit irrelevant.
+In practice, pick a domain property that naturally fans out: `sessionId`, `orderId`, `documentId` — whatever makes sense for your data model. In the code samples above, `/tenantId → /userId → /sessionId` means that each tenant-user-session combination becomes its own logical partition. Sessions have high enough cardinality to keep any single tenant-user pair well under 20 GB, and — critically — items that share a `tenantId` and `userId` but differ by `sessionId` still land on the same physical partition until the data grows large enough to split. That co-location means a query for "all sessions for user Y in tenant X" stays targeted instead of fanning out.
+
+If your workload is extreme enough that even a meaningful domain key at the third level could breach 20 GB per combination, you can use the item `id` as that final level. This guarantees every document gets its own logical partition, making the 20 GB limit irrelevant. But treat this as an escape hatch, not a default. When every document is its own logical partition, queries scoped to a tenant-user pair become cross-partition queries across all of that pair's logical partitions — you lose co-location of related items, and you pay the overhead of fan-out at the user level.
 
 ### The Low-Cardinality First-Level Trap {#low-cardinality-trap}
 

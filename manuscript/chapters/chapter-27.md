@@ -54,7 +54,7 @@ Use gateway mode when your environment restricts outbound TCP ports to 443 only,
 
 ## Optimizing Document Size and Structure
 
-Chapter 4 covered data modeling principles. Here's the performance angle: **RU cost scales linearly with document size**. With automatic indexing turned off, a point read of a 1 KB document costs 1 RU; a 100 KB document costs 10 RUs. Writes scale the same way — 5 RUs for a 1 KB write, 50 RUs for 100 KB. With the default indexing policy (everything indexed), write costs are higher because the index must be updated. Either way, the relationship is linear: double the document size, double the RU cost. <!-- Source: key-value-store-cost.md -->
+Chapter 4 covered data modeling principles. Here's the performance angle: **bigger documents cost more RUs**. With automatic indexing turned off, a point read of a 1 KB document costs 1 RU; a 100 KB document costs 10 RUs. Writes follow the same pattern — 5 RUs for a 1 KB write, 50 RUs for 100 KB. Notice that 100× the document size doesn't mean 100× the RU cost — the scaling is sub-linear, not proportional. But don't let that lull you into complacency. With the default indexing policy (everything indexed), write costs climb further because the index must be updated, and those extra RUs compound across every read and write your application performs. <!-- Source: key-value-store-cost.md -->
 
 This means document bloat is a silent cost multiplier. Every unnecessary property, every deeply nested array you never query, every base64-encoded thumbnail you embedded "for convenience" — they all inflate RU charges on every operation that touches the document.
 
@@ -114,57 +114,60 @@ Don't guess which indexes matter. Set `PopulateIndexMetrics = true` on your quer
 
 ## Query Optimization Walk-Through: From Expensive to Efficient
 
-Chapter 8 taught you the query language. Now let's take an expensive real-world query and systematically make it cheaper. This is the applied walk-through.
+Chapter 8 taught you the query language. Now let's take an expensive real-world query and systematically make it cheaper.
 
 ### The Starting Point
 
-Imagine an e-commerce container partitioned by `customerId`, holding order documents. A dashboard query needs the total spend per customer for the last 30 days:
+Picture an e-commerce container partitioned by `customerId` using the item type pattern from Chapter 4 — orders, line items, customer profiles, all coexisting in the same container with a `type` discriminator. A developer needs to fetch the line items for a specific order and writes:
 
 ```sql
-SELECT c.customerId, SUM(c.totalAmount) AS totalSpend
-FROM c
-WHERE c.orderDate >= "2025-06-01T00:00:00Z"
-GROUP BY c.customerId
+SELECT * FROM c WHERE c.type = "lineItem" AND c.orderId = "order-123"
 ```
 
-This query is expensive for three reasons:
+This query *works* — it returns the right documents. But it's expensive for two reasons:
 
-1. **It's a cross-partition query.** There's no partition key filter, so the engine fans it out to *every* physical partition.
-2. **It scans all documents.** The `orderDate` filter touches every partition, even those for customers with no recent orders.
-3. **The aggregation runs server-side per partition, then merges client-side.** That's a lot of RU work across a lot of partitions.
+1. **It's a cross-partition query.** There's no `customerId` filter, so the engine fans it out to *every* physical partition, even though every line item for `order-123` lives under a single customer.
+2. **It returns entire documents.** `SELECT *` pulls back every property on each line item, including fields the caller doesn't need.
+
+The result: high RU cost, high latency, and a query that gets worse as the container grows.
 
 ### Step 1: Add a Partition Key Filter
 
-If the dashboard is per-customer, add the partition key:
+The application already knows which customer placed this order — it navigated from a customer context to reach this screen. Pass that value into the query:
 
 ```sql
-SELECT SUM(c.totalAmount) AS totalSpend
-FROM c
+SELECT * FROM c
 WHERE c.customerId = "cust-337"
-  AND c.orderDate >= "2025-06-01T00:00:00Z"
+  AND c.type = "lineItem"
+  AND c.orderId = "order-123"
 ```
 
-This converts the query from cross-partition to single-partition. RU cost drops dramatically — the engine only hits the one physical partition that holds this customer's data.
+This converts the query from a cross-partition fan-out to a single-partition query. The engine contacts only the one physical partition that holds `cust-337`'s data. RU cost drops dramatically, and latency improves because there's no fan-out coordination overhead.
+
+If your application *doesn't* know the `customerId` when it needs to look up an order's line items, that's a data-modeling signal. You may need to embed line items inside the order document, or maintain a lightweight lookup item that maps `orderId` → `customerId`. Revisit Chapter 4's discussion of embedding vs. referencing — the right model eliminates cross-partition queries at design time.
 
 ### Step 2: Ensure the Filter Uses an Index
 
-Check that `orderDate` is included in your indexing policy. If it's not, the engine performs a full scan within the partition — loading every document to evaluate the filter. With a range index on `/orderDate/?`, the engine uses an index seek instead.
+Adding the partition key got you to the right partition. Now make sure the filter predicates within that partition are index-served. Check that `/type/?` and `/orderId/?` are included in your indexing policy. If either path is excluded, the engine performs a scan within the partition — loading every document belonging to `cust-337` just to evaluate the `WHERE` clause.
 
-You can verify this with index metrics. Look for `IndexHitRatio` in the query metrics — a value of 1.0 means the filter was fully served by the index. A value significantly below 1.0 means documents were loaded and discarded, which wastes RUs. <!-- Source: query-metrics.md -->
+You can verify this with index metrics. Set `PopulateIndexMetrics = true` on your query request options to see exactly which indexes were used. Look for `IndexHitRatio` in the query metrics — a value of 1.0 means the filter was fully served by the index. A value significantly below 1.0 means documents were loaded and discarded, which wastes RUs. <!-- Source: query-metrics.md -->
 
 ### Step 3: Project Only What You Need
 
-If you only need the aggregate, don't `SELECT *`:
+Don't return entire documents when you only need a few fields:
 
 ```sql
--- Before: returns all properties for intermediate processing
-SELECT * FROM c WHERE c.customerId = "cust-337" AND c.orderDate >= "2025-06-01T00:00:00Z"
+-- Before: returns every property on each line item
+SELECT * FROM c
+WHERE c.customerId = "cust-337" AND c.type = "lineItem" AND c.orderId = "order-123"
 
--- After: only the fields needed for the aggregation
-SELECT c.totalAmount FROM c WHERE c.customerId = "cust-337" AND c.orderDate >= "2025-06-01T00:00:00Z"
+-- After: only the fields the UI actually renders
+SELECT c.productName, c.quantity, c.unitPrice
+FROM c
+WHERE c.customerId = "cust-337" AND c.type = "lineItem" AND c.orderId = "order-123"
 ```
 
-Smaller retrieved document size means fewer RUs consumed by the query's document-load phase.
+Smaller retrieved document size means fewer RUs consumed by the query's document-load phase. If your line items carry large nested objects — shipping details, product metadata, audit history — the difference between `SELECT *` and a targeted projection can be substantial.
 
 ### Step 4: Check the Execution Metrics
 
@@ -188,7 +191,7 @@ If `RetrievedDocumentCount` is much larger than `OutputDocumentCount`, your filt
 
 For single-partition queries that don't require pagination, the .NET SDK offers **Optimistic Direct Execution (ODE)**. ODE skips client-side query plan generation and sends the query directly to the target partition, reducing both latency and RU cost. Enable it with `EnableOptimisticDirectExecution = true` in `QueryRequestOptions`. <!-- Source: performance-tips-query-sdk.md -->
 
-This works best for simple single-partition queries: point filters, `TOP` queries, aggregations that fit in a single page. If the query actually requires cross-partition execution or pagination, ODE can increase both latency and RU cost for those queries. <!-- Source: performance-tips-query-sdk.md --> Only enable it when you're confident the query targets one partition and fits in a single response page.
+A single-partition query fetching line items for one order is a textbook ODE candidate — it targets one partition and typically fits in a single response page. If the query actually requires cross-partition execution or pagination, ODE can increase both latency and RU cost, so only enable it when you're confident the query targets one partition and fits in a single response page. <!-- Source: performance-tips-query-sdk.md -->
 
 ## Leveraging Query Advisor in the Tuning Loop
 
