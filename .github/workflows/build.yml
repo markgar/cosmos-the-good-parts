@@ -27,10 +27,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: epub
-          path: "build/Cosmos DB - The Good Parts.epub"
+          path: "build/Cosmos-DB-The-Good-Parts.epub"
 
       - name: Attach to release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: "build/Cosmos DB - The Good Parts.epub"
+          files: "build/Cosmos-DB-The-Good-Parts.epub"

@@ -13,7 +13,7 @@
     .\build.ps1 -Output "preview.epub"
 #>
 param(
-    [string]$Output = "Cosmos DB - The Good Parts.epub"
+    [string]$Output = "Cosmos-DB-The-Good-Parts.epub"
 )
 
 $ErrorActionPreference = "Stop"
