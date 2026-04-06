@@ -4,6 +4,7 @@ mslearn-docs/
 # Private agents and skills — symlinked from book-agents repo
 .github/agents
 .github/skills
+setup.sh
 
 # Build output
 build/
