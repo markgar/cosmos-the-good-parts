@@ -1,5 +1,9 @@
 # Reference documentation mirror
 mslearn-docs/
 
+# Private agents and skills — symlinked from book-agents repo
+.github/agents
+.github/skills
+
 # Build output
 build/
