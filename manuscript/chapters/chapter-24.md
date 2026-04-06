@@ -234,13 +234,13 @@ Two emulators exist, and the choice affects your test setup.
 - **Docker image:** `mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview`
 - **Docker protocol note:** Pass `--protocol https` when using .NET or Java SDKs.
 
-<!-- Source: emulator.md, emulator-linux.md -->
+<!-- Source: develop-modern-applications/emulator/emulator.md, develop-modern-applications/emulator/emulator-linux.md -->
 
 For CI pipelines, the vNext Docker image is the clear winner — it starts faster, runs anywhere Docker runs, and GitHub Actions can manage its lifecycle as a service container. For local development on Windows when you need stored procedures or custom indexing policies, the Windows emulator is still necessary.
 
 ### Configuring the Emulator for CI (Docker Image)
 
-The vNext Docker emulator slots into GitHub Actions as a service container. GitHub starts it before your job, your tests hit `localhost:8081` with the well-known key, and GitHub tears it down when the job completes. <!-- Source: emulator-linux.md -->
+The vNext Docker emulator slots into GitHub Actions as a service container. GitHub starts it before your job, your tests hit `localhost:8081` with the well-known key, and GitHub tears it down when the job completes. <!-- Source: develop-modern-applications/emulator/emulator-linux.md -->
 
 ```yaml
 name: Integration Tests
@@ -274,11 +274,11 @@ jobs:
         run: dotnet test --filter Category=Integration
 ```
 
-<!-- Source: emulator-linux.md, emulator.md -->
+<!-- Source: develop-modern-applications/emulator/emulator-linux.md, develop-modern-applications/emulator/emulator.md -->
 
 A few CI-specific tips:
 
-**Disable TLS validation in test code** (or import the emulator's self-signed certificate). The emulator's HTTPS certificate isn't trusted by default. How you handle this depends on your language ecosystem: <!-- Source: emulator-linux.md -->
+**Disable TLS validation in test code** (or import the emulator's self-signed certificate). The emulator's HTTPS certificate isn't trusted by default. How you handle this depends on your language ecosystem: <!-- Source: develop-modern-applications/emulator/emulator-linux.md -->
 
 - **.NET** — Set `CosmosClientOptions.HttpClientFactory` to supply an `HttpClient` that ignores certificate errors.
 - **Java** — Export the emulator's certificate and import it into the Java keystore (the GitHub Actions example in the emulator docs shows exactly how).
@@ -385,7 +385,7 @@ async def cosmos_container():
 
 ### Verifying Indexing Policy Behavior in Tests
 
-If you've tuned your indexing policy (Chapter 9), integration tests should verify that queries relying on those indexes actually work. The Windows emulator supports custom indexing policies; the vNext emulator does not yet support them as of this writing. <!-- Source: emulator-linux.md -->
+If you've tuned your indexing policy (Chapter 9), integration tests should verify that queries relying on those indexes actually work. The Windows emulator supports custom indexing policies; the vNext emulator does not yet support them as of this writing. <!-- Source: develop-modern-applications/emulator/emulator-linux.md -->
 
 For the Windows emulator (or the cloud), create the container with your production indexing policy and then assert that your queries succeed without excessive RU charges:
 
@@ -594,7 +594,7 @@ Keep load tests separate from your regular CI pipeline. They require provisioned
 
 ### Singleton Client Leaks in Tests
 
-The Cosmos DB SDK best practices are explicit: use a single `CosmosClient` instance for the lifetime of your application. Each `CosmosClient` manages its own connection pool — HTTP connections in gateway mode, TCP connections in direct mode. Creating a new client per test (or worse, per test method) burns through connections and causes port exhaustion. <!-- Source: best-practice-dotnet.md, conceptual-resilient-sdk-applications.md -->
+The Cosmos DB SDK best practices are explicit: use a single `CosmosClient` instance for the lifetime of your application. Each `CosmosClient` manages its own connection pool — HTTP connections in gateway mode, TCP connections in direct mode. Creating a new client per test (or worse, per test method) burns through connections and causes port exhaustion. <!-- Source: develop-modern-applications/performance/net/best-practice-dotnet.md, high-availability/resiliency/conceptual-resilient-sdk-applications.md -->
 
 In test suites, create the `CosmosClient` once per test class (or per test session) and share it across tests. In xUnit, use `IAsyncLifetime` on a collection fixture. In NUnit, use `[OneTimeSetUp]`. In pytest, use a session-scoped fixture.
 
@@ -647,7 +647,7 @@ public class OrderIntegrationTests
 
 ### Emulator Cold-Start Latency
 
-The vNext Docker emulator's gateway endpoint is typically available immediately according to the docs. In our experience, though, the first request can still take a few seconds while internal components finish initializing. A readiness check is still good practice — if your CI test runner starts executing tests the instant the container is "healthy," the first test may time out. <!-- Source: emulator-linux.md -->
+The vNext Docker emulator's gateway endpoint is typically available immediately according to the docs. In our experience, though, the first request can still take a few seconds while internal components finish initializing. A readiness check is still good practice — if your CI test runner starts executing tests the instant the container is "healthy," the first test may time out. <!-- Source: develop-modern-applications/emulator/emulator-linux.md -->
 
 Fix this with a readiness check before running tests:
 
@@ -689,10 +689,10 @@ public async Task InitializeAsync()
 
 The emulator is a development tool, not a miniature Cosmos DB. As the comparison table earlier in this chapter shows, the two emulator variants differ in API coverage, protocol defaults, and feature completeness — and *neither* fully replicates the cloud service. Here's what that means for your test strategy:
 
-- **Consistency and geo-replication** can't be meaningfully tested on a single-instance emulator. If your application relies on Bounded Staleness, Consistent Prefix, or multi-region failover, those tests need a cloud account. <!-- Source: emulator.md -->
-- **RU-based assertions are unreliable.** Emulator RU numbers are approximate at best (Windows) or not yet implemented (vNext). Don't gate CI on exact RU costs. <!-- Source: emulator.md, emulator-linux.md -->
+- **Consistency and geo-replication** can't be meaningfully tested on a single-instance emulator. If your application relies on Bounded Staleness, Consistent Prefix, or multi-region failover, those tests need a cloud account. <!-- Source: develop-modern-applications/emulator/emulator.md -->
+- **RU-based assertions are unreliable.** Emulator RU numbers are approximate at best (Windows) or not yet implemented (vNext). Don't gate CI on exact RU costs. <!-- Source: develop-modern-applications/emulator/emulator.md, develop-modern-applications/emulator/emulator-linux.md -->
 - **Throughput throttling isn't representative.** In our practical experience, the emulator is not designed to replicate production throughput constraints — this isn't documented behavior, but load testing should always happen against a real account.
-- **Server-side execution** (stored procedures, triggers, UDFs) is not planned for the vNext emulator, so test those paths with the Windows emulator or a cloud account. <!-- Source: emulator-linux.md -->
+- **Server-side execution** (stored procedures, triggers, UDFs) is not planned for the vNext emulator, so test those paths with the Windows emulator or a cloud account. <!-- Source: develop-modern-applications/emulator/emulator-linux.md -->
 
 The practical strategy: run correctness tests (queries, CRUD, change feed) against the emulator in CI. Run performance tests, consistency tests, and failover tests against a dedicated cloud account in a separate pipeline stage.
 

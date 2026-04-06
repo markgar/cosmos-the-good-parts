@@ -8,14 +8,14 @@ This chapter is the canonical reference for all of that: the metrics, the alerts
 
 ## Azure Monitor Integration for Cosmos DB
 
-Azure Monitor is the backbone of Cosmos DB observability. Every Cosmos DB account automatically emits **platform metrics** — no configuration required. These metrics flow into the Azure Monitor time-series database and are available in Metrics Explorer, dashboards, and alert rules the moment your account exists. <!-- Source: monitor.md -->
+Azure Monitor is the backbone of Cosmos DB observability. Every Cosmos DB account automatically emits **platform metrics** — no configuration required. These metrics flow into the Azure Monitor time-series database and are available in Metrics Explorer, dashboards, and alert rules the moment your account exists. <!-- Source: manage-your-account/monitor/monitor.md -->
 
 The key thing to understand is the split between **metrics** and **logs**:
 
 - **Metrics** are lightweight, numeric time-series data (RU consumption, latency, request counts). They're collected automatically at 1-minute granularity by default and retained in the Azure Monitor metrics store. They're great for dashboards, alerts, and trend analysis.
 - **Resource logs** (diagnostic logs) are detailed, per-request records of data plane operations — every read, write, and query your application makes. These are *not* collected by default. You must create a **diagnostic setting** to route them to a destination (Log Analytics workspace, Storage account, or Event Hubs) before they start flowing.
 
-<!-- Source: monitor.md -->
+<!-- Source: manage-your-account/monitor/monitor.md -->
 
 That distinction trips people up. Metrics give you the "what" — your container is throttling, latency spiked at 2 AM. Logs give you the "why" — the specific queries, the specific partition keys, the specific operations that caused the spike. You need both.
 
@@ -43,7 +43,7 @@ The log categories you care about for the NoSQL API are:
 - **DataPlaneRequests5M** — aggregated data-plane logs in 5-minute intervals, up to 95% cheaper than per-request logs. Your cost-effective production baseline.
 - **DataPlaneRequests15M** — same as 5M but aggregated to 15-minute intervals. Use when you need even lower ingestion costs.
 
-<!-- Source: monitor-reference.md, monitor-resource-logs.md, monitor-aggregated-logs.md -->
+<!-- Source: manage-your-account/monitor/monitor-reference.md, manage-your-account/monitor/use-azure-monitor-logs/monitor-resource-logs.md, manage-your-account/monitor/use-azure-monitor-logs/monitor-aggregated-logs.md -->
 
 Two recommendations: always send logs to a **Log Analytics workspace** in **resource-specific** mode (not the legacy AzureDiagnostics mode). Resource-specific tables have cleaner schemas, faster queries, and better ingestion performance. And enable the **aggregated log tables** (`DataPlaneRequests5M` or `DataPlaneRequests15M`) for production workloads — they give you the operational visibility you need at a fraction of the cost of per-request logging. Reserve the detailed `DataPlaneRequests` category for troubleshooting sessions where you need per-operation granularity.
 
@@ -70,9 +70,9 @@ az monitor diagnostic-settings create \
   ]'
 ```
 
-<!-- Source: monitor-resource-logs.md -->
+<!-- Source: manage-your-account/monitor/use-azure-monitor-logs/monitor-resource-logs.md -->
 
-> **Gotcha:** By default, query text in `QueryRuntimeStatistics` is obfuscated to protect PII. If you need to see the actual SQL, you must explicitly enable **Diagnostics full-text query** on your account under **Settings > Features**. This incurs additional logging costs, so enable it for troubleshooting and disable it when you're done. <!-- Source: monitor-resource-logs.md -->
+> **Gotcha:** By default, query text in `QueryRuntimeStatistics` is obfuscated to protect PII. If you need to see the actual SQL, you must explicitly enable **Diagnostics full-text query** on your account under **Settings > Features**. This incurs additional logging costs, so enable it for troubleshooting and disable it when you're done. <!-- Source: manage-your-account/monitor/use-azure-monitor-logs/monitor-resource-logs.md -->
 
 ## Key Metrics to Watch
 
@@ -80,7 +80,7 @@ Cosmos DB exposes dozens of metrics. Most of them are operational noise for day-
 
 ### Total Requests and Failed Requests
 
-The **Total Requests** metric (`TotalRequests`) counts every request to your account, broken down by dimensions including `StatusCode`, `OperationType`, `DatabaseName`, `CollectionName`, and `Region`. Filter by status code 429 to see rate-limited requests; filter by 5xx codes to see server-side failures (rare, but worth tracking). <!-- Source: monitor-reference.md -->
+The **Total Requests** metric (`TotalRequests`) counts every request to your account, broken down by dimensions including `StatusCode`, `OperationType`, `DatabaseName`, `CollectionName`, and `Region`. Filter by status code 429 to see rate-limited requests; filter by 5xx codes to see server-side failures (rare, but worth tracking). <!-- Source: manage-your-account/monitor/monitor-reference.md -->
 
 This is your first-line health indicator. A sudden spike in total requests might mean a new feature shipped, a traffic spike hit, or a runaway retry loop. A spike in 429s means you're hitting your throughput ceiling.
 
@@ -88,19 +88,19 @@ This is your first-line health indicator. A sudden spike in total requests might
 
 Two metrics cover RU usage:
 
-**Total Request Units** (`TotalRequestUnits`) gives you the raw sum of RUs consumed across all operations. Split by `OperationType` to see whether reads, writes, or queries are dominating your spend. Split by `CollectionName` to find which container is the most expensive. <!-- Source: monitor-request-unit-usage.md -->
+**Total Request Units** (`TotalRequestUnits`) gives you the raw sum of RUs consumed across all operations. Split by `OperationType` to see whether reads, writes, or queries are dominating your spend. Split by `CollectionName` to find which container is the most expensive. <!-- Source: manage-your-account/monitor/use-azure-monitor-metrics/monitor-request-unit-usage.md -->
 
-**Normalized RU Consumption** (`NormalizedRUConsumption`) is the more actionable metric. It's a percentage (0–100%) representing how close the busiest physical partition is to its throughput limit in any given minute. This metric is defined as the *maximum* RU/s utilization across all partition key ranges in each 1-minute window. <!-- Source: monitor-normalized-request-units.md -->
+**Normalized RU Consumption** (`NormalizedRUConsumption`) is the more actionable metric. It's a percentage (0–100%) representing how close the busiest physical partition is to its throughput limit in any given minute. This metric is defined as the *maximum* RU/s utilization across all partition key ranges in each 1-minute window. <!-- Source: manage-your-account/monitor/use-azure-monitor-metrics/monitor-normalized-request-units.md -->
 
 Here's the mental model: if you have a container with 20,000 RU/s spread across two physical partitions (10,000 RU/s each), and one partition consumed 8,000 RU/s in a given second while the other consumed 3,000, normalized RU consumption for that interval is 80% (8,000 / 10,000). The overall container might only be using 55% of its total throughput, but the hot partition is at 80%.
 
-When normalized RU consumption sustains 100%, any additional requests to that partition key range in that second get a 429. But here's the nuance: momentary spikes to 100% aren't necessarily a problem. The SDKs automatically retry 429s (up to 9 times by default), and if your end-to-end latency is acceptable and only 1–5% of requests return 429s, your throughput is being well-utilized. No action needed. <!-- Source: monitor-normalized-request-units.md -->
+When normalized RU consumption sustains 100%, any additional requests to that partition key range in that second get a 429. But here's the nuance: momentary spikes to 100% aren't necessarily a problem. The SDKs automatically retry 429s (up to 9 times by default), and if your end-to-end latency is acceptable and only 1–5% of requests return 429s, your throughput is being well-utilized. No action needed. <!-- Source: manage-your-account/monitor/use-azure-monitor-metrics/monitor-normalized-request-units.md -->
 
 If normalized RU consumption is *consistently* 100% across multiple partition key ranges and your 429 rate exceeds 5%, it's time to increase throughput or investigate whether a hot partition is the root cause (more on that in the troubleshooting section).
 
 ### Throttled Requests (429s)
 
-You can track 429s by filtering `TotalRequests` where `StatusCode == 429`. This gives you a count of rate-limited operations per minute, split by database, container, region, and operation type. Pair this with normalized RU consumption to distinguish between "healthy full utilization" (low 429 rate, high normalized RU) and "genuine throughput starvation" (high 429 rate sustained over time). <!-- Source: monitor-reference.md -->
+You can track 429s by filtering `TotalRequests` where `StatusCode == 429`. This gives you a count of rate-limited operations per minute, split by database, container, region, and operation type. Pair this with normalized RU consumption to distinguish between "healthy full utilization" (low 429 rate, high normalized RU) and "genuine throughput starvation" (high 429 rate sustained over time). <!-- Source: manage-your-account/monitor/monitor-reference.md -->
 
 ### Latency Percentiles
 
@@ -109,23 +109,23 @@ Cosmos DB provides server-side latency metrics for both connection modes:
 - **Server Side Latency Direct** (`ServerSideLatencyDirect`) — latency for requests using direct connectivity mode
 - **Server Side Latency Gateway** (`ServerSideLatencyGateway`) — latency for requests using gateway connectivity mode
 
-<!-- Source: monitor-server-side-latency.md, monitor-reference.md -->
+<!-- Source: manage-your-account/monitor/use-azure-monitor-metrics/monitor-server-side-latency.md, manage-your-account/monitor/monitor-reference.md -->
 
-Both support Average, Minimum, Maximum, and Total (Sum) aggregations, and can be split by `DatabaseName`, `CollectionName`, `Region`, and `OperationType`. To get P50 and P99 latency, you'll need to use diagnostic logs and KQL — the built-in metrics give you average, min, max, and sum — not percentile distributions. <!-- Source: monitor-reference.md -->
+Both support Average, Minimum, Maximum, and Total (Sum) aggregations, and can be split by `DatabaseName`, `CollectionName`, `Region`, and `OperationType`. To get P50 and P99 latency, you'll need to use diagnostic logs and KQL — the built-in metrics give you average, min, max, and sum — not percentile distributions. <!-- Source: manage-your-account/monitor/monitor-reference.md -->
 
 The important distinction: these are **server-side** latency metrics — the time Cosmos DB spends processing your request on the backend, *not* end-to-end latency including network round trips. If you see low server-side latency but high end-to-end latency in your application, the problem is in your network path or SDK configuration, not in Cosmos DB itself. For the NoSQL API, use the Direct metric if you're using direct mode (the default and recommended mode in .NET and Java) and the Gateway metric if you're using gateway mode.
 
-> **Note:** The old unified `ServerSideLatency` metric is deprecated and will be removed. Use the Direct and Gateway variants instead. <!-- Source: monitor-reference.md -->
+> **Note:** The old unified `ServerSideLatency` metric is deprecated and will be removed. Use the Direct and Gateway variants instead. <!-- Source: manage-your-account/monitor/monitor-reference.md -->
 
 ### Storage Consumption
 
 **Data Usage** (`DataUsage`) reports the total bytes stored in each container, split by database, collection, and region. **Index Usage** (`IndexUsage`) shows how much storage your indexes consume. **Document Count** (`DocumentCount`) gives you the total item count.
 
-These metrics are emitted at 5-minute granularity. They're important for capacity planning and cost tracking, but they won't change fast enough to drive real-time alerts — they're dashboard metrics.
+These metrics are emitted at 5-minute granularity. They're important for capacity planning and cost tracking, but they won't change fast enough to drive real-time alerts — they're dashboard metrics. <!-- Source: manage-your-account/monitor/monitor-reference.md --> <!-- TODO: source needed for "5-minute granularity" — monitor.md says 1-minute default with variability by metric, but does not confirm 5-minute for storage metrics -->
 
 ### Replication Latency
 
-For multi-region accounts, **P99 Replication Latency** (`ReplicationLatency`) measures the time it takes for a write in the source region to be acknowledged in each target region, at the 99th percentile. It's split by `SourceRegion` and `TargetRegion`. <!-- Source: monitor-reference.md -->
+For multi-region accounts, **P99 Replication Latency** (`ReplicationLatency`) measures the time it takes for a write in the source region to be acknowledged in each target region, at the 99th percentile. It's split by `SourceRegion` and `TargetRegion`. <!-- Source: manage-your-account/monitor/monitor-reference.md -->
 
 This is a critical metric for globally distributed applications. If replication latency spikes, reads in secondary regions may be returning stale data (depending on your consistency level). It can also indicate a regional issue or a throughput bottleneck in the target region.
 
@@ -156,7 +156,7 @@ Azure Monitor supports three types of alerts relevant to Cosmos DB:
 - **Log alerts** run a KQL query against your Log Analytics data on a schedule. More flexible but slower (there's always some ingestion latency).
 - **Activity log alerts** fire on control-plane events like key rotations, region failovers, or account changes.
 
-<!-- Source: monitor.md -->
+<!-- Source: manage-your-account/monitor/monitor.md -->
 
 ### Recommended Alert Rules
 
@@ -182,7 +182,7 @@ Here are the alerts every production Cosmos DB deployment should have:
 - **Key rotation** (activity log alert, Event: Informational, Status: started) — notifies when account keys are rotated so you can update your apps.
 - **Partition near limit** (log alert, KQL on `CDBPartitionKeyStatistics` where `SizeKb > 18874368`) — warns before a logical partition hits the 20 GB limit.
 
-<!-- Source: monitor.md, create-alerts.md -->
+<!-- Source: manage-your-account/monitor/monitor.md, manage-your-account/monitor/configure-alerts/create-alerts.md -->
 
 ### Creating a Metric Alert: A Walkthrough
 
@@ -197,9 +197,9 @@ Let's walk through creating the throttling alert:
 7. Under **Actions**, create or select an action group — email, SMS, webhook, Azure Function, Logic App, or ITSM connector.
 8. Name the rule, set severity (Sev 2 is appropriate for throttling), and save.
 
-<!-- Source: create-alerts.md -->
+<!-- Source: manage-your-account/monitor/configure-alerts/create-alerts.md -->
 
-> **Practical note:** Don't alert on *every* 429. As noted in the metrics section above, a low 429 rate is healthy — it means you're fully utilizing your provisioned throughput. Set thresholds that catch sustained throttling, not transient spikes.
+> **Note:** Don't alert on *every* 429. As noted in the metrics section above, a low 429 rate is healthy — it means you're fully utilizing your provisioned throughput. Set thresholds that catch sustained throttling, not transient spikes.
 
 For dynamic workloads where "normal" traffic varies dramatically, consider using Azure Monitor's **dynamic thresholds** instead of static ones. Dynamic thresholds use machine learning to learn your metric's behavior pattern and alert only on deviations from the norm — useful for workloads with strong daily or weekly seasonality.
 
@@ -219,7 +219,7 @@ With resource-specific diagnostic settings, your logs land in dedicated tables i
 
 **`CDBPartitionKeyStatistics`** — storage size per logical partition key. Use this to find partitions approaching the 20 GB limit.
 
-<!-- Source: monitor-reference.md, diagnostic-queries.md -->
+<!-- Source: manage-your-account/monitor/monitor-reference.md, manage-your-account/monitor/use-azure-monitor-logs/diagnostic-queries.md -->
 
 ### Essential KQL Queries
 
@@ -239,7 +239,7 @@ CDBQueryRuntimeStatistics
 | take 10
 ```
 
-<!-- Source: diagnostic-queries.md -->
+<!-- Source: manage-your-account/monitor/use-azure-monitor-logs/diagnostic-queries.md -->
 
 This is your single most useful query. Run it weekly. The results will almost always point to one or two queries that are burning more RUs than everything else combined. Those are the queries to optimize (see Chapter 8).
 
@@ -257,7 +257,7 @@ CDBDataPlaneRequests
 | limit 100
 ```
 
-<!-- Source: monitor-logs-basic-queries.md -->
+<!-- Source: manage-your-account/monitor/use-azure-monitor-logs/monitor-logs-basic-queries.md -->
 
 **Identify which queries are being throttled (returning 429):**
 
@@ -271,7 +271,7 @@ CDBQueryRuntimeStatistics
 | project DatabaseName, CollectionName, QueryText, OperationName, TimeGenerated
 ```
 
-<!-- Source: diagnostic-queries.md -->
+<!-- Source: manage-your-account/monitor/use-azure-monitor-logs/diagnostic-queries.md -->
 
 **Get P50 and P99 latency by operation type over the last 2 days:**
 
@@ -287,7 +287,7 @@ CDBDataPlaneRequests
   by OperationName, CollectionName, bin(TimeGenerated, 1h)
 ```
 
-<!-- Source: monitor-logs-basic-queries.md -->
+<!-- Source: manage-your-account/monitor/use-azure-monitor-logs/monitor-logs-basic-queries.md -->
 
 **Find RU consumption by physical partition to detect hot partitions:**
 
@@ -299,7 +299,7 @@ CDBPartitionKeyRUConsumption
 | render columnchart
 ```
 
-<!-- Source: diagnostic-queries.md -->
+<!-- Source: manage-your-account/monitor/use-azure-monitor-logs/diagnostic-queries.md -->
 
 If one `PartitionKeyRangeId` is consuming dramatically more RUs than the others, you've found your hot partition. The next step is identifying the logical partition key behind it — drill into the `PartitionKey` column in the same table:
 
@@ -312,7 +312,7 @@ CDBPartitionKeyRUConsumption
 | take 20
 ```
 
-<!-- Source: diagnostic-queries.md -->
+<!-- Source: manage-your-account/monitor/use-azure-monitor-logs/diagnostic-queries.md -->
 
 **Find logical partitions with significant storage consumption:**
 
@@ -322,15 +322,15 @@ CDBPartitionKeyStatistics
 | project RegionName, DatabaseName, CollectionName, PartitionKey, SizeKb
 ```
 
-<!-- Source: monitor-logs-basic-queries.md (query adapted — original has no descriptive framing) -->
+<!-- Source: manage-your-account/monitor/use-azure-monitor-logs/monitor-logs-basic-queries.md (query adapted — original has no descriptive framing) -->
 
-> **Note:** The 800,000 KB (~781 MB) threshold comes from the docs and serves as a starting point. Adjust it to match your own alerting needs. For example, if you want early warning when a partition approaches the 20 GB logical partition limit, filter on `SizeKb > 14680064` (70% of 20 GB) — which is what the official alerting guide recommends. <!-- Source: how-to-alert-on-logical-partition-key-storage-size.md -->
+> **Note:** The 800,000 KB (~781 MB) threshold comes from the docs and serves as a starting point. Adjust it to match your own alerting needs. For example, if you want early warning when a partition approaches the 20 GB logical partition limit, filter on `SizeKb > 14680064` (70% of 20 GB) — which is what the official alerting guide recommends. <!-- Source: manage-your-account/monitor/configure-alerts/how-to-alert-on-logical-partition-key-storage-size.md -->
 
 ### Using Aggregated Logs for Cost-Effective Monitoring
 
 Per-request logging in `CDBDataPlaneRequests` is detailed but expensive at scale. If your account handles millions of requests per hour, the Log Analytics ingestion cost can rival the Cosmos DB bill itself.
 
-The **aggregated diagnostics logs** feature addresses this. The `CDBDataPlaneRequests5M` and `CDBDataPlaneRequests15M` tables roll up data plane operations into 5-minute and 15-minute buckets, giving you summary statistics (total RU charge, max/avg duration, sample count, total request/response length) per operation type, partition, and status code. Microsoft estimates up to **95% reduction in logging costs** compared to per-request logging. <!-- Source: monitor-aggregated-logs.md -->
+The **aggregated diagnostics logs** feature addresses this. The `CDBDataPlaneRequests5M` and `CDBDataPlaneRequests15M` tables roll up data plane operations into 5-minute and 15-minute buckets, giving you summary statistics (total RU charge, max/avg duration, sample count, total request/response length) per operation type, partition, and status code. Microsoft estimates up to **95% reduction in logging costs** compared to per-request logging. <!-- Source: manage-your-account/monitor/use-azure-monitor-logs/monitor-aggregated-logs.md -->
 
 Here's a typical investigation using the 5-minute aggregated table:
 
@@ -355,15 +355,15 @@ CDBDataPlaneRequests5M
 | extend ThrottledPct = ThrottledOps * 1.0 / TotalOps
 ```
 
-<!-- Source: monitor-aggregated-logs.md -->
+<!-- Source: manage-your-account/monitor/use-azure-monitor-logs/monitor-aggregated-logs.md -->
 
 The recommended approach for production: enable aggregated logs (`DataPlaneRequests5M`) for always-on monitoring, and turn on the detailed `DataPlaneRequests` category only when you need to drill into specific operations during a troubleshooting session.
 
 ## OpenTelemetry and Distributed Tracing
 
-Azure Monitor metrics and logs give you Cosmos DB-side observability. But in a microservices architecture, you need to trace a request from the moment it enters your API gateway, through your application logic, into Cosmos DB, and back. That's **distributed tracing**, and the Cosmos DB SDKs support it through **OpenTelemetry**. <!-- Source: sdk-observability.md -->
+Azure Monitor metrics and logs give you Cosmos DB-side observability. But in a microservices architecture, you need to trace a request from the moment it enters your API gateway, through your application logic, into Cosmos DB, and back. That's **distributed tracing**, and the Cosmos DB SDKs support it through **OpenTelemetry**. <!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/sdk-observability.md -->
 
-The .NET SDK (v3, version 3.36.0+) and Java SDK (v4, version 4.43.0+) emit OpenTelemetry-compatible traces that follow the OpenTelemetry database specification. Each Cosmos DB operation produces a span with attributes including the database name, container name, operation type, status code, RU charge, connection mode, and regions contacted. <!-- Source: sdk-observability.md -->
+The .NET SDK (v3, version 3.36.0+) and Java SDK (v4, version 4.43.0+) emit OpenTelemetry-compatible traces that follow the OpenTelemetry database specification. Each Cosmos DB operation produces a span with attributes including the database name, container name, operation type, status code, RU charge, connection mode, and regions contacted. <!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/sdk-observability.md -->
 
 | Attribute | Description |
 |-----------|-------------|
@@ -378,7 +378,7 @@ The .NET SDK (v3, version 3.36.0+) and Java SDK (v4, version 4.43.0+) emit OpenT
 | `db.cosmosdb.regions_contacted` | Regions involved |
 | `db.cosmosdb.client_id` | Client instance ID |
 
-<!-- Source: sdk-observability.md -->
+<!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/sdk-observability.md -->
 
 These traces can be exported to Azure Monitor (Application Insights), Jaeger, Zipkin, or any other OpenTelemetry-compatible collector. The key line is adding the `Azure.Cosmos.Operation` source to your trace provider:
 
@@ -390,13 +390,13 @@ var traceProvider = Sdk.CreateTracerProviderBuilder()
     .Build();
 ```
 
-<!-- Source: sdk-observability.md -->
+<!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/sdk-observability.md -->
 
 The SDK can also automatically emit diagnostics for failed requests and high-latency operations — you configure latency thresholds and telemetry options on `CosmosClientOptions`. We'll cover the full SDK instrumentation setup — including threshold configuration, Java setup, Application Insights integration, and advanced tracing patterns — in Chapter 21. The point here is that Cosmos DB's tracing story fits cleanly into the OpenTelemetry ecosystem. You don't need a proprietary monitoring stack.
 
 ## The Azure Cosmos DB Insights Workbook
 
-If you want a monitoring experience without writing any KQL or configuring custom dashboards, the **Azure Cosmos DB Insights** workbook is the fastest path to visibility. It's a built-in Azure Monitor workbook that provides an at-scale view of performance, failures, capacity, and operational health across all your Cosmos DB accounts. <!-- Source: insights-overview.md -->
+If you want a monitoring experience without writing any KQL or configuring custom dashboards, the **Azure Cosmos DB Insights** workbook is the fastest path to visibility. It's a built-in Azure Monitor workbook that provides an at-scale view of performance, failures, capacity, and operational health across all your Cosmos DB accounts. <!-- Source: manage-your-account/monitor/use-azure-monitor-metrics/insights-overview.md -->
 
 You can access it two ways:
 
@@ -414,7 +414,7 @@ The workbook is organized into tabs:
 - **System** — Metadata request counts and throttled metadata requests.
 - **Management Operations** — Control plane operations: account creation, deletion, key updates, network changes.
 
-<!-- Source: insights-overview.md -->
+<!-- Source: manage-your-account/monitor/use-azure-monitor-metrics/insights-overview.md -->
 
 The workbook requires no additional configuration — it's free and uses the same platform metrics that Azure Monitor collects automatically. You can filter by time range, database, and container. You can customize it, fork it into your own workbook, and pin individual charts to Azure dashboards.
 

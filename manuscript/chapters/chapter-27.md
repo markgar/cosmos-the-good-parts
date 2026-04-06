@@ -19,7 +19,7 @@ The metrics you need for step 1 come from Azure Monitor — the same dashboards 
 
 Chapter 7 introduced the two SDK connection modes. Here's where the choice actually matters for production performance.
 
-<!-- Source: sdk-connection-modes.md -->
+<!-- Source: develop-modern-applications/sdk-connection-modes.md -->
 
 **Gateway mode** routes every request through an HTTPS gateway endpoint. It's simple — one DNS name, port 443, works through corporate firewalls. The tradeoff is an extra network hop on every read and write. The gateway server fans out your request to the appropriate backend partition, adding latency.
 
@@ -36,25 +36,25 @@ Chapter 7 introduced the two SDK connection modes. Here's where the choice actua
 - **Best for gateway:** firewall-restricted environments, Azure Functions Consumption plan.
 - **Best for direct:** production workloads where latency matters.
 
-<!-- Source: sdk-connection-modes.md -->
+<!-- Source: develop-modern-applications/sdk-connection-modes.md -->
 
-Direct mode is the default in the .NET SDK v3 and the recommended choice for the Java SDK v4. If you're on Python or JavaScript, you're on gateway mode — there's no direct mode option for those SDKs today. <!-- Source: sdk-connection-modes.md -->
+Direct mode is the default in the .NET SDK v3 and the recommended choice for the Java SDK v4. If you're on Python or JavaScript, you're on gateway mode — there's no direct mode option for those SDKs today. <!-- Source: develop-modern-applications/sdk-connection-modes.md -->
 
 ### How Direct Mode Connections Work
 
-When the SDK operates in direct mode, it first fetches container metadata and routing information from a gateway node — this tells it which physical partitions exist and what their TCP addresses are. Then it opens persistent TCP connections directly to the replica sets. Each physical partition has four replicas (one primary, three secondaries). Writes go to the primary; reads can be served from any replica. <!-- Source: sdk-connection-modes.md -->
+When the SDK operates in direct mode, it first fetches container metadata and routing information from a gateway node — this tells it which physical partitions exist and what their TCP addresses are. Then it opens persistent TCP connections directly to the replica sets. Each physical partition has four replicas (one primary, three secondaries). Writes go to the primary; reads can be served from any replica. <!-- Source: develop-modern-applications/sdk-connection-modes.md -->
 
 These connections are cached and reused across operations. The SDK refreshes routing information only when replicas move (maintenance, upgrades, partition splits), so the gateway overhead is a one-time cost, not per-request.
 
-The number of TCP connections scales with your partition count. In steady state, expect roughly one connection per replica per physical partition — so a container with 10 physical partitions opens around 40 connections. High-concurrency workloads may open additional connections when concurrent requests exceed the per-connection threshold. <!-- Source: sdk-connection-modes.md -->
+The number of TCP connections scales with your partition count. In steady state, expect roughly one connection per replica per physical partition — so a container with 10 physical partitions opens around 40 connections. High-concurrency workloads may open additional connections when concurrent requests exceed the per-connection threshold. <!-- Source: develop-modern-applications/sdk-connection-modes.md -->
 
 ### When to Stick with Gateway Mode
 
-Use gateway mode when your environment restricts outbound TCP ports to 443 only, when you're running in Azure Functions on the Consumption plan with strict connection limits, or when you're using the Python or JavaScript SDKs (which don't support direct mode). For everything else — especially latency-sensitive .NET or Java workloads — use direct mode. <!-- Source: sdk-connection-modes.md -->
+Use gateway mode when your environment restricts outbound TCP ports to 443 only, when you're running in Azure Functions on the Consumption plan with strict connection limits, or when you're using the Python or JavaScript SDKs (which don't support direct mode). For everything else — especially latency-sensitive .NET or Java workloads — use direct mode. <!-- Source: develop-modern-applications/sdk-connection-modes.md -->
 
 ## Optimizing Document Size and Structure
 
-Chapter 4 covered data modeling principles. Here's the performance angle: **bigger documents cost more RUs**. With automatic indexing turned off, a point read of a 1 KB document costs 1 RU; a 100 KB document costs 10 RUs. Writes follow the same pattern — 5 RUs for a 1 KB write, 50 RUs for 100 KB. Notice that 100× the document size doesn't mean 100× the RU cost — the scaling is sub-linear, not proportional. But don't let that lull you into complacency. With the default indexing policy (everything indexed), write costs climb further because the index must be updated, and those extra RUs compound across every read and write your application performs. <!-- Source: key-value-store-cost.md -->
+Chapter 4 covered data modeling principles. Here's the performance angle: **bigger documents cost more RUs**. With automatic indexing turned off, a point read of a 1 KB document costs 1 RU; a 100 KB document costs 10 RUs. Writes follow the same pattern — 5 RUs for a 1 KB write, 50 RUs for 100 KB. Notice that 100× the document size doesn't mean 100× the RU cost — the scaling is sub-linear, not proportional. But don't let that lull you into complacency. With the default indexing policy (everything indexed), write costs climb further because the index must be updated, and those extra RUs compound across every read and write your application performs. <!-- Source: develop-modern-applications/performance/key-value-store-cost.md -->
 
 This means document bloat is a silent cost multiplier. Every unnecessary property, every deeply nested array you never query, every base64-encoded thumbnail you embedded "for convenience" — they all inflate RU charges on every operation that touches the document.
 
@@ -62,7 +62,7 @@ This means document bloat is a silent cost multiplier. Every unnecessary propert
 
 **Project only the properties you need** — we'll see this in action in the query optimization walk-through below.
 
-**Move large blobs out of Cosmos DB.** Store images, PDFs, and large binary payloads in Azure Blob Storage. Keep a URL reference in your Cosmos DB item. The 2 MB item size limit (Chapter 2) enforces this eventually — you might as well design for it from the start.
+**Move large blobs out of Cosmos DB.** Store images, PDFs, and large binary payloads in Azure Blob Storage. Keep a URL reference in your Cosmos DB item. The 2 MB item size limit (Chapter 2) enforces this eventually — you might as well design for it from the start. <!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md -->
 
 **Flatten when you don't need depth.** Every level of nesting increases serialization overhead. If a nested object is always read and written as a unit, consider flattening it into top-level properties. This doesn't apply to arrays of complex types where the nesting *is* the model — it applies to structural nesting that adds no querying value.
 
@@ -70,7 +70,7 @@ This means document bloat is a silent cost multiplier. Every unnecessary propert
 
 ## Indexing Policy Tuning for Write-Heavy Workloads
 
-By default, Cosmos DB indexes every property of every document. That's great for query flexibility, but it has a cost: every write must update the index for every indexed property. For read-heavy workloads, the default is fine. For write-heavy workloads, targeted index exclusion can meaningfully reduce RU consumption per write. <!-- Source: index-policy.md -->
+By default, Cosmos DB indexes every property of every document. That's great for query flexibility, but it has a cost: every write must update the index for every indexed property. For read-heavy workloads, the default is fine. For write-heavy workloads, targeted index exclusion can meaningfully reduce RU consumption per write. <!-- Source: develop-modern-applications/performance/indexing/index-policy.md -->
 
 Chapter 9 covers indexing policy configuration in detail. Here we focus on the performance trade-off.
 
@@ -85,7 +85,7 @@ There are two approaches:
 
 Use **include-all** for most workloads — exclude only paths you never filter or sort on. Use **exclude-all** for write-heavy workloads with known, narrow query patterns — only index what you actually query.
 
-<!-- Source: index-policy.md -->
+<!-- Source: develop-modern-applications/performance/indexing/index-policy.md -->
 
 For a write-heavy IoT telemetry container where you only query by `deviceId` and `timestamp`, excluding the root and including just those two paths can cut write RU costs substantially. You're trading query flexibility for write throughput — any query that filters on an excluded path will require a full scan.
 
@@ -102,15 +102,15 @@ For a write-heavy IoT telemetry container where you only query by `deviceId` and
 }
 ```
 
-**One gotcha:** when you exclude the root path, the partition key property is *not* indexed by default. If your queries filter on the partition key hierarchy, explicitly include those paths — otherwise you'll get full scans with high RU costs even on queries that look like they should be efficient. <!-- Source: index-policy.md -->
+> **Gotcha:** When you exclude the root path, the partition key property is *not* indexed by default. If your queries filter on the partition key hierarchy, explicitly include those paths — otherwise you'll get full scans with high RU costs even on queries that look like they should be efficient. <!-- Source: develop-modern-applications/performance/indexing/index-policy.md -->
 
 ### Indexing Mode: None
 
-For containers used purely as key-value stores — point reads and writes by `id` and partition key, no queries — you can set the indexing mode to `None`. This eliminates all index maintenance overhead. But it's a hard tradeoff: any query against the container will fail unless you explicitly opt into full scans. Reserve this for containers where you're certain you'll never need to query. <!-- Source: index-policy.md -->
+For containers used purely as key-value stores — point reads and writes by `id` and partition key, no queries — you can set the indexing mode to `None`. This eliminates all index maintenance overhead. But it's a hard tradeoff: any query against the container will fail unless you explicitly opt into full scans. Reserve this for containers where you're certain you'll never need to query. <!-- Source: develop-modern-applications/performance/indexing/index-policy.md -->
 
 ### Use Index Metrics to Validate
 
-Don't guess which indexes matter. Set `PopulateIndexMetrics = true` on your query request options (or the equivalent in your SDK) to get a report of which indexes the query engine used and which potential indexes could improve performance. This tells you exactly which paths to include and which are dead weight. We covered this in Chapter 9 — use it here as part of the tuning loop. <!-- Source: query-metrics.md -->
+Don't guess which indexes matter. Set `PopulateIndexMetrics = true` on your query request options (or the equivalent in your SDK) to get a report of which indexes the query engine used and which potential indexes could improve performance. This tells you exactly which paths to include and which are dead weight. We covered this in Chapter 9 — use it here as part of the tuning loop. <!-- Source: develop-modern-applications/performance/query/query-metrics.md -->
 
 ## Query Optimization Walk-Through: From Expensive to Efficient
 
@@ -150,7 +150,7 @@ If your application *doesn't* know the `customerId` when it needs to look up an 
 
 Adding the partition key got you to the right partition. Now make sure the filter predicates within that partition are index-served. Check that `/type/?` and `/orderId/?` are included in your indexing policy. If either path is excluded, the engine performs a scan within the partition — loading every document belonging to `cust-337` just to evaluate the `WHERE` clause.
 
-You can verify this with index metrics. Set `PopulateIndexMetrics = true` on your query request options to see exactly which indexes were used. Look for `IndexHitRatio` in the query metrics — a value of 1.0 means the filter was fully served by the index. A value significantly below 1.0 means documents were loaded and discarded, which wastes RUs. <!-- Source: query-metrics.md -->
+You can verify this with index metrics. Set `PopulateIndexMetrics = true` on your query request options to see exactly which indexes were used. Look for `IndexHitRatio` in the query metrics — a value of 1.0 means the filter was fully served by the index. A value significantly below 1.0 means documents were loaded and discarded, which wastes RUs. <!-- Source: develop-modern-applications/performance/query/query-metrics.md -->
 
 ### Step 3: Project Only What You Need
 
@@ -183,15 +183,15 @@ Look at the query execution metrics to confirm your optimizations worked:
 
 `RetrievedDocumentCount` should be close to `OutputDocumentCount` — a large gap means your filter isn't fully index-served. High `DocumentLoadTime` confirms too many documents are being loaded. `IndexLookupTime` should be low relative to total execution time.
 
-<!-- Source: query-metrics.md -->
+<!-- Source: develop-modern-applications/performance/query/query-metrics.md -->
 
 If `RetrievedDocumentCount` is much larger than `OutputDocumentCount`, your filter isn't being served by the index. Either the path isn't indexed, or you're using a function that prevents index usage (like `LOWER()` on a non-computed property).
 
 ### Step 5: Consider an Optimistic Direct Execution Path
 
-For single-partition queries that don't require pagination, the .NET SDK offers **Optimistic Direct Execution (ODE)**. ODE skips client-side query plan generation and sends the query directly to the target partition, reducing both latency and RU cost. Enable it with `EnableOptimisticDirectExecution = true` in `QueryRequestOptions`. <!-- Source: performance-tips-query-sdk.md -->
+For single-partition queries that don't require pagination, the .NET SDK offers **Optimistic Direct Execution (ODE)**. ODE skips client-side query plan generation and sends the query directly to the target partition, reducing both latency and RU cost. Enable it with `EnableOptimisticDirectExecution = true` in `QueryRequestOptions`. <!-- Source: develop-modern-applications/performance/query/performance-tips-query-sdk.md -->
 
-A single-partition query fetching line items for one order is a textbook ODE candidate — it targets one partition and typically fits in a single response page. If the query actually requires cross-partition execution or pagination, ODE can increase both latency and RU cost, so only enable it when you're confident the query targets one partition and fits in a single response page. <!-- Source: performance-tips-query-sdk.md -->
+A single-partition query fetching line items for one order is a textbook ODE candidate — it targets one partition and typically fits in a single response page. If the query actually requires cross-partition execution or pagination, ODE can increase both latency and RU cost, so only enable it when you're confident the query targets one partition and fits in a single response page. <!-- Source: develop-modern-applications/performance/query/performance-tips-query-sdk.md -->
 
 ## Leveraging Query Advisor in the Tuning Loop
 
@@ -203,7 +203,7 @@ A **hot partition** occurs when one physical partition consumes a disproportiona
 
 ### Detecting Hot Partitions
 
-Navigate to **Insights → Throughput → Normalized RU Consumption (%) By PartitionKeyRangeID** in the Azure portal. Each `PartitionKeyRangeId` maps to a physical partition. If one partition is consistently at 100% while others are at 30% or less, you have a hot partition. <!-- Source: monitor-normalized-request-units.md -->
+Navigate to **Insights → Throughput → Normalized RU Consumption (%) By PartitionKeyRangeID** in the Azure portal. Each `PartitionKeyRangeId` maps to a physical partition. If one partition is consistently at 100% while others are at 30% or less, you have a hot partition. <!-- Source: manage-your-account/monitor/use-azure-monitor-metrics/monitor-normalized-request-units.md -->
 
 For deeper analysis, enable diagnostic logs and query the `CDBPartitionKeyRUConsumption` table to identify which *logical* partition keys within the hot physical partition are consuming the most RUs:
 
@@ -216,7 +216,7 @@ CDBPartitionKeyRUConsumption
 | order by sum_RequestCharge desc
 ```
 
-<!-- Source: how-to-redistribute-throughput-across-partitions.md -->
+<!-- Source: throughput-request-units/distribute-throughput-across-partitions-preview-container/how-to-redistribute-throughput-across-partitions.md -->
 
 ### Remediation Strategy 1: Fix the Partition Key
 
@@ -224,18 +224,18 @@ The best fix is the one that addresses the root cause. If a single logical parti
 
 ### Remediation Strategy 2: Throughput Redistribution Across Physical Partitions
 
-> **Preview feature.** As of this writing, throughput redistribution is a preview feature — verify its status before relying on it in production. <!-- Source: how-to-redistribute-throughput-across-partitions.md -->
+> **Note:** As of this writing, throughput redistribution is a preview feature — verify its status before relying on it in production. <!-- Source: throughput-request-units/distribute-throughput-across-partitions-preview-container/how-to-redistribute-throughput-across-partitions.md -->
 
-When you can't change the partition key — or need relief right now — Cosmos DB lets you redistribute provisioned throughput unevenly across physical partitions. By default, throughput is spread equally. This feature lets you assign more RU/s to the hot partition and fewer to the cold ones. <!-- Source: how-to-redistribute-throughput-across-partitions.md -->
+When you can't change the partition key — or need relief right now — Cosmos DB lets you redistribute provisioned throughput unevenly across physical partitions. By default, throughput is spread equally. This feature lets you assign more RU/s to the hot partition and fewer to the cold ones. <!-- Source: throughput-request-units/distribute-throughput-across-partitions-preview-container/how-to-redistribute-throughput-across-partitions.md -->
 
 Key constraints:
 
 - Available for provisioned throughput (manual or autoscale), not serverless.
 - Each physical partition can hold a maximum of **10,000 RU/s**.
 - You can set a target of up to **20,000 RU/s** on a single partition — this triggers an automatic partition split, distributing the throughput evenly across the two new partitions.
-- Once you customize throughput distribution, the throughput policy changes from "Equal" to "Custom." At that point, you can no longer use the portal throughput slider or standard CLI throughput-update commands — all changes must go through the redistribution API until you reset the policy back to "Equal." <!-- Source: how-to-redistribute-throughput-across-partitions.md -->
+- Once you customize throughput distribution, the throughput policy changes from "Equal" to "Custom." At that point, you can no longer use the portal throughput slider or standard CLI throughput-update commands — all changes must go through the redistribution API until you reset the policy back to "Equal." <!-- Source: throughput-request-units/distribute-throughput-across-partitions-preview-container/how-to-redistribute-throughput-across-partitions.md -->
 
-<!-- Source: how-to-redistribute-throughput-across-partitions.md -->
+<!-- Source: throughput-request-units/distribute-throughput-across-partitions-preview-container/how-to-redistribute-throughput-across-partitions.md -->
 
 Here's an example using Azure CLI. Suppose your container has 6,000 RU/s across two physical partitions (P0 and P1), each with 3,000 RU/s. P1 is hot. You want to give P1 more headroom:
 
@@ -250,7 +250,7 @@ az cosmosdb sql container redistribute-partition-throughput \
 
 This gives P0 1,000 RU/s and P1 5,000 RU/s. The total container throughput stays at 6,000 RU/s.
 
-If P1 truly needs more than 10,000 RU/s, set its target above 10,000 (up to 20,000). Cosmos DB will split the partition and distribute the throughput across the resulting halves. But if the hotness comes from a single logical partition key, splitting won't help — all data for that key stays on one physical partition, capped at 10,000 RU/s. In that case, you're back to Strategy 1. <!-- Source: how-to-redistribute-throughput-across-partitions.md -->
+If P1 truly needs more than 10,000 RU/s, set its target above 10,000 (up to 20,000). Cosmos DB will split the partition and distribute the throughput across the resulting halves. But if the hotness comes from a single logical partition key, splitting won't help — all data for that key stays on one physical partition, capped at 10,000 RU/s. In that case, you're back to Strategy 1. <!-- Source: throughput-request-units/distribute-throughput-across-partitions-preview-container/how-to-redistribute-throughput-across-partitions.md -->
 
 ### Remediation Strategy 3: Scale Up the Container
 
@@ -260,7 +260,7 @@ Sometimes the simplest answer is to increase the container's overall throughput.
 
 Before you launch, you need to estimate how many RU/s your workload requires. Guessing is expensive — overprovision and you waste money, underprovision and you get throttled.
 
-The **Azure Cosmos DB Capacity Planner** at [cosmos.azure.com/capacitycalculator](https://cosmos.azure.com/capacitycalculator/) gives you an RU/s and cost estimate based on your workload profile. It has two modes: <!-- Source: estimate-ru-with-capacity-planner.md -->
+The **Azure Cosmos DB Capacity Planner** at [cosmos.azure.com/capacitycalculator](https://cosmos.azure.com/capacitycalculator/) gives you an RU/s and cost estimate based on your workload profile. It has two modes: <!-- Source: throughput-request-units/provisioned-throughput/estimate-ru-with-capacity-planner.md -->
 
 | Mode | Best For |
 |---|---|
@@ -270,9 +270,9 @@ The **Azure Cosmos DB Capacity Planner** at [cosmos.azure.com/capacitycalculator
 - **Basic inputs:** item size, reads/sec, writes/sec, queries/sec, region count.
 - **Advanced inputs:** all of the above plus indexing policy, consistency level, peak-vs-steady ratios, and sample JSON documents.
 
-<!-- Source: estimate-ru-with-capacity-planner.md -->
+<!-- Source: throughput-request-units/provisioned-throughput/estimate-ru-with-capacity-planner.md -->
 
-The advanced mode lets you upload a sample JSON document for accurate size estimation, specify your indexing policy (automatic, custom, or off), and set the consistency level — which matters because strong and bounded staleness consistency cost 2x the read RUs of session or eventual. <!-- Source: estimate-ru-with-capacity-planner.md -->
+The advanced mode lets you upload a sample JSON document for accurate size estimation, specify your indexing policy (automatic, custom, or off), and set the consistency level — which matters because strong and bounded staleness consistency cost 2x the read RUs of session or eventual. <!-- Source: throughput-request-units/provisioned-throughput/estimate-ru-with-capacity-planner.md -->
 
 ### Load Testing in Practice
 
@@ -284,7 +284,7 @@ The capacity planner gives you a *starting* estimate. Real-world validation requ
 4. **Monitor** normalized RU consumption, P99 latency, and 429 rate in Azure Monitor during the test.
 5. **Adjust.** If 429 rates exceed 1–5% of total requests, increase throughput. If P99 latency is too high, investigate connection mode and query patterns.
 
-The 1–5% 429 rate guideline comes directly from Microsoft's guidance: for production workloads, a small percentage of 429s with acceptable end-to-end latency is a healthy sign that you're fully utilizing your provisioned throughput. <!-- Source: monitor-normalized-request-units.md -->
+The 1–5% 429 rate guideline comes directly from Microsoft's guidance: for production workloads, a small percentage of 429s with acceptable end-to-end latency is a healthy sign that you're fully utilizing your provisioned throughput. <!-- Source: manage-your-account/monitor/use-azure-monitor-metrics/monitor-normalized-request-units.md -->
 
 ## Per-Language SDK Best Practices
 
@@ -306,11 +306,11 @@ SDK fundamentals are covered in Chapter 7, and advanced patterns in Chapter 21. 
 - Don't switch to gateway unless firewalls force it. One `CosmosClient` per app — creating multiple wastes resources.
 - Set `gcServer = true`. Use `async`/`await` throughout — never `Task.Wait()` or `Task.Result`.
 - Set `EnableContentResponseOnWrite = false` on write-heavy paths to skip deserializing the response body.
-- `DefaultTraceListener` is auto-removed in SDK 3.24.0+. <!-- Source: performance-tips-dotnet-sdk-v3.md -->
+- `DefaultTraceListener` is auto-removed in SDK 3.24.0+. <!-- Source: develop-modern-applications/performance/net/performance-tips-dotnet-sdk-v3.md -->
 - Accelerated Networking bypasses the host virtual switch, reducing CPU jitter.
 - The SDK depends on `Newtonsoft.Json` but doesn't manage the version — use ≥ 13.0.3 to avoid security vulnerabilities.
 
-<!-- Source: performance-tips-dotnet-sdk-v3.md, best-practice-dotnet.md -->
+<!-- Source: develop-modern-applications/performance/net/performance-tips-dotnet-sdk-v3.md, develop-modern-applications/performance/net/best-practice-dotnet.md -->
 
 ```csharp
 CosmosClient client = new CosmosClientBuilder("connection-string")
@@ -335,12 +335,12 @@ await container.CreateItemAsync(order, new PartitionKey(order.CustomerId), optio
 | **Disable Netty logging** | Verbose; steals CPU |
 | **Raise `nofile` on Linux** | Direct mode needs many FDs |
 
-- Set `directMode()` explicitly to configure `DirectConnectionConfig`. <!-- Source: tune-connection-configurations-java-sdk-v4.md -->
+- Set `directMode()` explicitly to configure `DirectConnectionConfig`. <!-- Source: develop-modern-applications/performance/java/tune-connection-configurations-java-sdk-v4.md -->
 - Prefer `CosmosAsyncClient` — its non-blocking I/O saturates throughput far better than the sync wrapper.
 - Passing just the item forces the SDK to parse the document to extract the partition key, adding latency.
 - Offload CPU-intensive work to `Schedulers.parallel()` to keep Netty event loop threads free.
 
-<!-- Source: performance-tips-java-sdk-v4.md -->
+<!-- Source: develop-modern-applications/performance/java/performance-tips-java-sdk-v4.md -->
 
 ```java
 CosmosAsyncClient client = new CosmosClientBuilder()
@@ -368,7 +368,7 @@ asyncContainer.createItem(order, new PartitionKey(order.getCustomerId()),
 
 The Python SDK has no direct mode — it uses gateway mode exclusively, making CPU-bound environments more impactful on latency. Increase `max_item_count` beyond the default of 100 items to reduce round trips for large result sets.
 
-<!-- Source: best-practice-python.md, performance-tips-python-sdk.md -->
+<!-- Source: develop-modern-applications/performance/python/best-practice-python.md, develop-modern-applications/performance/python/performance-tips-python-sdk.md -->
 
 ```python
 client = CosmosClient(
@@ -398,14 +398,14 @@ items = container.query_items(
 
 Set `preferredLocations` in `ConnectionPolicy` to drive read routing and failover. Single-threaded Node.js can become the bottleneck before Cosmos DB does — use the `cluster` module under load. Set a higher `maxItemCount` to reduce round trips for large result sets.
 
-<!-- Source: best-practices-javascript.md -->
+<!-- Source: develop-modern-applications/performance/javascript/best-practices-javascript.md -->
 
 ### Cross-SDK Summary
 
 Some practices apply everywhere, regardless of language:
 
 - **Use a single client instance.** This is the number-one SDK performance mistake across all languages. Every SDK is designed to be a singleton.
-- **Collocate your app and your Cosmos DB account in the same Azure region.** Cross-region calls add 50+ ms of latency that no SDK optimization can fix.
+- **Collocate your app and your Cosmos DB account in the same Azure region.** Cross-region calls add 50+ ms of latency that no SDK optimization can fix. <!-- Source: develop-modern-applications/performance/python/performance-tips-python-sdk.md -->
 - **Always specify preferred regions.** Without them, the SDK can't route reads to nearby replicas or fail over gracefully.
 - **Use the latest SDK version.** Performance improvements ship with every release. Running an old SDK means leaving performance on the table.
 
