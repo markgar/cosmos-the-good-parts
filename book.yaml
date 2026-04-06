@@ -1,0 +1,31 @@
+# Book Project Configuration
+# The writer, reviewer, and linter agents all read this file.
+
+title: "Azure Cosmos DB: The Good Parts"
+subtitle: "NoSQL API Edition"
+author: "Mark Garner"
+
+# Who is this book for?
+audience: >
+  Professional developers building production applications on Azure Cosmos DB's
+  NoSQL API. Assumes comfort with cloud services, REST APIs, and at least one
+  SDK language (C#, Java, Python, JavaScript/TypeScript).
+
+# What makes this book different from just reading the docs?
+angle: >
+  Opinionated practitioner guide. Focuses on what matters in real projects,
+  what doesn't, and why. Reorders the docs for learning instead of reference —
+  building mental models before diving into features.
+
+# How should the prose sound?
+voice: >
+  Conversational, confident, practitioner-to-practitioner. Like a senior
+  engineer explaining the service to a skilled colleague over coffee.
+  Short-spoken, direct, uses contractions. Opinionated where it helps.
+  No hedging, no filler, no marketing.
+
+# Paths (relative to repo root)
+manuscript_dir: manuscript/chapters
+outline: manuscript/outline/outline.md
+docs_mirror: mslearn-docs/content
+mirror_config: mslearn-docs/mirror-config.yaml

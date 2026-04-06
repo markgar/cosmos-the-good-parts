@@ -46,10 +46,10 @@ $backMatterDir  = Join-Path $bookDir "backmatter"
 # Assemble source files in book order
 $sources = @()
 
-# Metadata (build config, lives in project root)
-$metadataPath = Join-Path $rootDir "metadata.yaml"
+# Metadata (pandoc build config, lives in assets/)
+$metadataPath = Join-Path $rootDir "assets" "metadata.yaml"
 if (Test-Path $metadataPath) { $sources += $metadataPath }
-else { Write-Warning "Metadata missing: metadata.yaml" }
+else { Write-Warning "Metadata missing: assets/metadata.yaml" }
 
 # Front matter
 $frontMatter = @("copyright.md", "preface.md")
