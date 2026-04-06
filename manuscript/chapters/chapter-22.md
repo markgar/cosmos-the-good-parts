@@ -6,13 +6,13 @@ This chapter is a practical tour of the integrations that matter most. We'll foc
 
 ## Azure Functions
 
-Azure Functions is the most common entry point for event-driven Cosmos DB workloads. The integration comes in three flavors: a **change feed trigger**, **input bindings**, and **output bindings**. All three are supported exclusively for the API for NoSQL — other APIs require using the SDK directly inside your function code. <!-- Source: serverless-computing-database.md, change-feed-functions.md -->
+Azure Functions is the most common entry point for event-driven Cosmos DB workloads. The integration comes in three flavors: a **change feed trigger**, **input bindings**, and **output bindings**. All three are supported exclusively for the API for NoSQL — other APIs require using the SDK directly inside your function code. <!-- Source: integrate-with-azure-services/azure-functions/serverless-computing-database.md, develop-modern-applications/change-feed/change-feed-functions.md -->
 
 ### The Change Feed Trigger
 
 The change feed trigger is the killer feature here. It wraps the change feed processor (covered in depth in Chapter 15) into a serverless function that fires every time documents are created or updated in a monitored container. You don't manage polling, lease distribution, or scaling — Functions handles all of it.
 
-Under the hood, the trigger uses the **latest version change feed mode**, which means you get the most recent state of each changed document. It requires two containers: the **monitored container** (your data) and a **lease container** that tracks processing state across function instances. The lease container must have `/id` as its partition key. You can let Functions create it automatically by setting `CreateLeaseContainerIfNotExists` to `true` in your trigger configuration. <!-- Source: change-feed-functions.md -->
+Under the hood, the trigger uses the **latest version change feed mode**, which means you get the most recent state of each changed document. It requires two containers: the **monitored container** (your data) and a **lease container** that tracks processing state across function instances. The lease container must have `/id` as its partition key. You can let Functions create it automatically by setting `CreateLeaseContainerIfNotExists` to `true` in your trigger configuration. <!-- Source: develop-modern-applications/change-feed/change-feed-functions.md -->
 
 Here's a minimal C# trigger:
 
@@ -39,7 +39,7 @@ public void Run(
 
 A few things to watch out for:
 
-- **Connection mode defaults to Gateway.** For performance-sensitive scenarios, switch to Direct/TCP by adding a `host.json` configuration. This matters when your function runs on a Premium or Dedicated plan rather than the Consumption plan, which has socket connection limits that make Gateway the safer choice. <!-- Source: how-to-configure-cosmos-db-trigger.md -->
+- **Connection mode defaults to Gateway.** For performance-sensitive scenarios, switch to Direct/TCP by adding a `host.json` configuration. This matters when your function runs on a Premium or Dedicated plan rather than the Consumption plan, which has socket connection limits that make Gateway the safer choice. <!-- Source: develop-modern-applications/change-feed/how-to-configure-cosmos-db-trigger.md -->
 - **Don't write back to the same container you're monitoring** without careful design — you'll create a recursive loop.
 - **Multiple functions can listen to the same change feed**, but each needs its own lease container (or a distinct `LeaseContainerPrefix`).
 
@@ -71,15 +71,15 @@ For the reverse direction — ingesting data from Kafka topics into Cosmos DB �
 
 ## Azure Synapse Link and Synapse Analytics
 
-> **Important:** Synapse Link for Cosmos DB is no longer supported for new projects. Microsoft's guidance is explicit: use Microsoft Fabric Mirroring instead, which is now generally available. <!-- Source: synapse-link.md, configure-synapse-link.md, analytics-and-business-intelligence-overview.md -->
+> **Important:** Synapse Link for Cosmos DB is no longer supported for new projects. Microsoft's guidance is explicit: use Microsoft Fabric Mirroring instead, which is now generally available. <!-- Source: analytics-with-microsoft-fabric/azure-synapse-link/synapse-link.md, analytics-with-microsoft-fabric/azure-synapse-link/configure-synapse-link.md, analytics-with-microsoft-fabric/analytics-and-business-intelligence-overview.md -->
 
 If you have an *existing* Synapse Link deployment, here's what you need to know to understand what you have and plan your migration.
 
 ### What Synapse Link Was
 
-Azure Synapse Link created a **column-store analytical replica** of your transactional data — an *analytical store* — that auto-synced with your operational container in near real time. This let you run Spark jobs and serverless SQL pool queries directly against your Cosmos DB data without consuming transactional RU/s or building ETL pipelines. It was a genuine HTAP (Hybrid Transactional/Analytical Processing) capability. <!-- Source: synapse-link.md -->
+Azure Synapse Link created a **column-store analytical replica** of your transactional data — an *analytical store* — that auto-synced with your operational container in near real time. This let you run Spark jobs and serverless SQL pool queries directly against your Cosmos DB data without consuming transactional RU/s or building ETL pipelines. It was a genuine HTAP (Hybrid Transactional/Analytical Processing) capability. <!-- Source: analytics-with-microsoft-fabric/azure-synapse-link/synapse-link.md -->
 
-You enabled it in two steps: turn on Synapse Link at the account level, then set the `AnalyticalStoreTimeToLiveInSeconds` property on each container (set to `-1` for infinite retention). The analytical store maintained a separate column-format copy of your data, completely isolated from transactional throughput. <!-- Source: configure-synapse-link.md -->
+You enabled it in two steps: turn on Synapse Link at the account level, then set the `AnalyticalStoreTimeToLiveInSeconds` property on each container (set to `-1` for infinite retention). The analytical store maintained a separate column-format copy of your data, completely isolated from transactional throughput. <!-- Source: analytics-with-microsoft-fabric/azure-synapse-link/configure-synapse-link.md -->
 
 ### Limitations That Drove the Replacement
 
@@ -89,7 +89,7 @@ Synapse Link had real constraints:
 - No granular RBAC — anyone with access to the Synapse workspace could query all containers in the linked account
 - Dedicated SQL pools couldn't access the analytical store
 - Multi-region write accounts weren't recommended for production use with Synapse Link
-<!-- Source: synapse-link.md -->
+<!-- Source: analytics-with-microsoft-fabric/azure-synapse-link/synapse-link.md -->
 
 These limitations, combined with Microsoft's strategic investment in Fabric, led to Synapse Link being deprecated for new projects in favor of Fabric Mirroring.
 
@@ -99,7 +99,7 @@ Your existing deployment continues to work. But don't build new workloads on it 
 
 ## Microsoft Fabric Mirroring
 
-**Fabric Mirroring** is the successor to Synapse Link, and it's the recommended path for running analytics over Cosmos DB operational data. It replicates your data continuously into **Microsoft Fabric OneLake** in near real time, stored in the open-source **Delta format**. This means your operational data is automatically available to every analytical engine in Fabric — Spark notebooks, serverless SQL (T-SQL), Power BI in DirectLake mode, and Copilot — without consuming a single RU. <!-- Source: analytics-and-business-intelligence-overview.md -->
+**Fabric Mirroring** is the successor to Synapse Link, and it's the recommended path for running analytics over Cosmos DB operational data. It replicates your data continuously into **Microsoft Fabric OneLake** in near real time, stored in the open-source **Delta format**. This means your operational data is automatically available to every analytical engine in Fabric — Spark notebooks, serverless SQL (T-SQL), Power BI in DirectLake mode, and Copilot — without consuming a single RU. <!-- Source: analytics-with-microsoft-fabric/analytics-and-business-intelligence-overview.md -->
 
 | Characteristic | Synapse Link | Fabric Mirroring |
 |---|---|---|
@@ -123,18 +123,18 @@ If you're running Synapse Link today, the migration is conceptual more than mech
 
 ### Reverse ETL: Writing Analytical Results Back to Cosmos DB
 
-Analytics isn't just about reading from your operational store — sometimes the insights need to flow back. **Reverse ETL** takes enriched, cleaned data from your data warehouse or lakehouse and pushes it into Cosmos DB so your applications can use it in real time. Think product recommendations, personalized pricing, fraud scores, or feature store data. <!-- Source: reverse-extract-transform-load.md -->
+Analytics isn't just about reading from your operational store — sometimes the insights need to flow back. **Reverse ETL** takes enriched, cleaned data from your data warehouse or lakehouse and pushes it into Cosmos DB so your applications can use it in real time. Think product recommendations, personalized pricing, fraud scores, or feature store data. <!-- Source: analytics-with-microsoft-fabric/azure-cosmos-db-mirroring-in-microsoft-fabric/reverse-extract-transform-load.md -->
 
 The architecture uses Apache Spark with the Cosmos DB OLTP connector (covered later in this chapter):
 
 1. **Initial load**: A one-time batch job to hydrate Cosmos DB with historical enriched data from Delta tables.
 2. **CDC sync**: Ongoing incremental replication using Delta Change Data Feed (CDF) — either batch-scheduled or streaming.
 
-For the initial load, use standard provisioned throughput rather than autoscale if you'll be consistently maxing out your allocated RU/s. For the ongoing CDC sync, autoscale is the better fit since the workload is bursty by nature. Always use throughput control to prevent the sync job from starving your operational workload — see the Spark Connector section later in this chapter for configuration details. <!-- Source: reverse-extract-transform-load.md -->
+For the initial load, use standard provisioned throughput rather than autoscale if you'll be consistently maxing out your allocated RU/s. For the ongoing CDC sync, autoscale is the better fit since the workload is bursty by nature. Always use throughput control to prevent the sync job from starving your operational workload — see the Spark Connector section later in this chapter for configuration details. <!-- Source: analytics-with-microsoft-fabric/azure-cosmos-db-mirroring-in-microsoft-fabric/reverse-extract-transform-load.md -->
 
 ## Azure Data Factory
 
-**Azure Data Factory (ADF)** is Azure's managed ETL/ELT orchestration service, and it has a native Cosmos DB connector for both reading and writing. It supports copying data from 85+ sources into Cosmos DB and can perform relational-to-hierarchical mapping transformations in code-free mapping data flows. <!-- Source: analytics-and-business-intelligence-use-cases.md -->
+**Azure Data Factory (ADF)** is Azure's managed ETL/ELT orchestration service, and it has a native Cosmos DB connector for both reading and writing. It supports copying data from 85+ sources into Cosmos DB and can perform relational-to-hierarchical mapping transformations in code-free mapping data flows. <!-- Source: analytics-with-microsoft-fabric/analytics-and-business-intelligence-use-cases.md -->
 
 ADF is the workhorse for two main scenarios:
 
@@ -149,7 +149,7 @@ There's no special connector to install for running Cosmos DB workloads on **AKS
 
 ### AKS Patterns
 
-For Spring Boot on AKS, Microsoft provides a reference architecture that packages a Cosmos DB-backed REST API as a Docker image, pushes it to Azure Container Registry, and deploys it to an AKS cluster. The application uses **Spring Data Azure Cosmos DB** (covered later in this chapter) for data access. <!-- Source: tutorial-springboot-azure-kubernetes-service.md -->
+For Spring Boot on AKS, Microsoft provides a reference architecture that packages a Cosmos DB-backed REST API as a Docker image, pushes it to Azure Container Registry, and deploys it to an AKS cluster. The application uses **Spring Data Azure Cosmos DB** (covered later in this chapter) for data access. <!-- Source: integrate-with-azure-services/tutorial-springboot-azure-kubernetes-service.md -->
 
 Key considerations for Cosmos DB on Kubernetes:
 
@@ -165,7 +165,7 @@ On App Service, the same rules apply: singleton SDK client, preferred region mat
 
 IoT is one of Cosmos DB's strongest use cases. The canonical pattern routes telemetry from **Azure IoT Hub** into Cosmos DB for hot-path storage, using either a direct IoT Hub routing rule or an intermediate processor like Azure Functions or Stream Analytics.
 
-The data modeling challenge with IoT is volume and partition key choice. Devices generate data every second — 50,000 sensors at one-second intervals produce 4.32 billion records per day. A flat `deviceId` partition key hits the 20 GB logical partition limit within months. The recommended approach is a **hierarchical partition key** with `deviceId` as the first level and a timestamp bucket (e.g., date/hour/minute) as the second level. This keeps device data collocated on the same physical partitions for efficient queries while avoiding the 20 GB ceiling. <!-- Source: design-partitioning-iot.md -->
+The data modeling challenge with IoT is volume and partition key choice. Devices generate data every second — 50,000 sensors at one-second intervals produce 4.32 billion records per day. A flat `deviceId` partition key hits the 20 GB logical partition limit within months. The recommended approach is a **hierarchical partition key** with `deviceId` as the first level and a timestamp bucket (e.g., date/hour/minute) as the second level. This keeps device data collocated on the same physical partitions for efficient queries while avoiding the 20 GB ceiling. <!-- Source: model-data-for-partitioning/real-world-examples/design-partitioning-iot.md -->
 
 For real-time analytics on IoT data, pair Cosmos DB with Fabric Mirroring — operational writes stay fast, and your data science team gets near real-time access to the full telemetry dataset without touching your transactional throughput.
 
@@ -187,7 +187,7 @@ For Cosmos DB's native full-text and vector search capabilities (which don't req
 
 ## Azure Stream Analytics
 
-**Azure Stream Analytics** is a real-time stream processing engine that supports Cosmos DB as both an input (reference data) and an output (stream sink). The most common pattern is to write the results of a continuous query — aggregations, windowed computations, anomaly detection — into a Cosmos DB container. <!-- Source: analytics-and-business-intelligence-use-cases.md -->
+**Azure Stream Analytics** is a real-time stream processing engine that supports Cosmos DB as both an input (reference data) and an output (stream sink). The most common pattern is to write the results of a continuous query — aggregations, windowed computations, anomaly detection — into a Cosmos DB container. <!-- Source: analytics-with-microsoft-fabric/analytics-and-business-intelligence-use-cases.md -->
 
 Stream Analytics is a good fit when you need SQL-like transformations on streaming data from IoT Hub or Event Hubs and want the processed results to land in Cosmos DB for low-latency serving. It handles windowing functions (tumbling, hopping, sliding), temporal joins, and late-arriving event handling — all things that are painful to build from scratch.
 
@@ -195,7 +195,7 @@ When configuring the Cosmos DB output binding, pay attention to the **partition 
 
 ## Apache Spark Connector (OLTP)
 
-The **Azure Cosmos DB Spark connector** is a first-party connector for reading and writing data from Cosmos DB's transactional store using Apache Spark. It's distinct from the Synapse Link analytical store connector — this one operates against your live operational data and consumes RU/s. Use it in Azure Databricks, Fabric Spark, or any Spark 3.4+ environment. <!-- Source: tutorial-spark-connector.md -->
+The **Azure Cosmos DB Spark connector** is a first-party connector for reading and writing data from Cosmos DB's transactional store using Apache Spark. It's distinct from the Synapse Link analytical store connector — this one operates against your live operational data and consumes RU/s. Use it in Azure Databricks, Fabric Spark, or any Spark 3.4+ environment. <!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/spark-connector/tutorial-spark-connector.md -->
 
 ### Setup
 
@@ -209,7 +209,7 @@ config = {
     "spark.cosmos.container": "products"
 }
 ```
-<!-- Source: tutorial-spark-connector.md -->
+<!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/spark-connector/tutorial-spark-connector.md -->
 
 You can also use the **Catalog API** to manage Cosmos DB resources directly from Spark SQL:
 
@@ -231,7 +231,7 @@ spark.sql("""
 
 ### Change Feed via Spark Structured Streaming
 
-The Spark connector can also read the change feed as a Spark Structured Streaming source. This is the right choice when your change feed processing involves complex transformations, joins with other datasets, or needs to run at large scale across a distributed Spark cluster. The connector uses the **pull model** underneath and includes built-in **checkpointing** for fault tolerance — a capability not available when using the SDKs directly. <!-- Source: change-feed-spark.md -->
+The Spark connector can also read the change feed as a Spark Structured Streaming source. This is the right choice when your change feed processing involves complex transformations, joins with other datasets, or needs to run at large scale across a distributed Spark cluster. The connector uses the **pull model** underneath and includes built-in **checkpointing** for fault tolerance — a capability not available when using the SDKs directly. <!-- Source: develop-modern-applications/change-feed/change-feed-spark.md -->
 
 ```python
 changeFeedConfig = {
@@ -251,7 +251,7 @@ changeFeedDF = spark \
     .options(**changeFeedConfig) \
     .load()
 ```
-<!-- Source: change-feed-spark.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-spark.md -->
 
 ### Throughput Control
 
@@ -266,9 +266,9 @@ throughput_config = {
     "spark.cosmos.throughputControl.globalControl.container": "ThroughputControl"
 }
 ```
-<!-- Source: throughput-control-spark.md -->
+<!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/spark-connector/throughput-control-spark.md -->
 
-The `targetThroughputThreshold` setting caps this Spark job at 95% of available throughput. For serverless accounts, you must use an absolute `targetThroughput` value instead of a percentage threshold. <!-- Source: throughput-control-spark.md -->
+The `targetThroughputThreshold` setting caps this Spark job at 95% of available throughput. For serverless accounts, you must use an absolute `targetThroughput` value instead of a percentage threshold. <!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/spark-connector/throughput-control-spark.md -->
 
 ## Kafka Connect for Cosmos DB
 
@@ -288,9 +288,9 @@ If your architecture centers on Apache Kafka, the **Kafka Connect Cosmos DB conn
 
 V1's source connector achieved exactly-once only in single-task mode; multi-task mode was at-least-once.
 
-<!-- Source: kafka-connector-v2.md, kafka-connector.md, how-to-migrate-from-kafka-connector-v1-to-v2.md -->
+<!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/kafka-connect/kafka-connector-v2.md, develop-modern-applications/tools-software-development-kits-sdks-and-providers/kafka-connect/kafka-connector.md, develop-modern-applications/tools-software-development-kits-sdks-and-providers/kafka-connect/how-to-migrate-from-kafka-connector-v1-to-v2.md -->
 
-V2 is a significant architectural improvement. It uses Kafka's native offset management instead of a Cosmos DB lease container, upgrades the source connector to exactly-once delivery regardless of task count, and handles multiple containers in a single connector instance. The sink connector already supported exactly-once in V1, so that's unchanged. If you're still on V1, migrate — the V1 connector is legacy. <!-- Source: kafka-connector.md, how-to-migrate-from-kafka-connector-v1-to-v2.md -->
+V2 is a significant architectural improvement. It uses Kafka's native offset management instead of a Cosmos DB lease container, upgrades the source connector to exactly-once delivery regardless of task count, and handles multiple containers in a single connector instance. The sink connector already supported exactly-once in V1, so that's unchanged. If you're still on V1, migrate — the V1 connector is legacy. <!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/kafka-connect/kafka-connector.md, develop-modern-applications/tools-software-development-kits-sdks-and-providers/kafka-connect/how-to-migrate-from-kafka-connector-v1-to-v2.md -->
 
 ### Sink Connector Configuration
 
@@ -314,7 +314,7 @@ The sink connector writes data from Kafka topics into Cosmos DB containers. A mi
   }
 }
 ```
-<!-- Source: kafka-connector-sink-v2.md -->
+<!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/kafka-connect/kafka-connector-sink-v2.md -->
 
 ### Source Connector Configuration
 
@@ -338,9 +338,9 @@ The source connector reads the Cosmos DB change feed and publishes changes to Ka
   }
 }
 ```
-<!-- Source: kafka-connector-source-v2.md -->
+<!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/kafka-connect/kafka-connector-source-v2.md -->
 
-Both connectors support Plain JSON, JSON with schema, and AVRO data formats. Configure your preferred region list to co-locate with your Kafka cluster for best performance. <!-- Source: kafka-connector-v2.md -->
+Both connectors support Plain JSON, JSON with schema, and AVRO data formats. Configure your preferred region list to co-locate with your Kafka cluster for best performance. <!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/kafka-connect/kafka-connector-v2.md -->
 
 ### V1 to V2 Migration
 
@@ -350,11 +350,11 @@ The migration involves breaking changes:
 2. Deploy V2 JARs and remove V1 JARs from the plugin path.
 3. Rewrite your configuration — property names changed from `connect.cosmos.*` to `azure.cosmos.*`.
 4. V2 uses Kafka's internal offset topics instead of a Cosmos DB lease container, so offsets are **not transferable**. You'll restart from the beginning or from "now."
-<!-- Source: how-to-migrate-from-kafka-connector-v1-to-v2.md -->
+<!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/kafka-connect/how-to-migrate-from-kafka-connector-v1-to-v2.md -->
 
 ## Spring Data Azure Cosmos DB
 
-For Java developers on Spring Boot, **Spring Data Azure Cosmos DB** provides the familiar Spring Data repository abstraction over Cosmos DB for NoSQL. The current major version is **v5**, which supports both sync and reactive (async) APIs from the same Maven artifact. <!-- Source: sdk-java-spring-data-v5.md -->
+For Java developers on Spring Boot, **Spring Data Azure Cosmos DB** provides the familiar Spring Data repository abstraction over Cosmos DB for NoSQL. The current major version is **v5**, which supports both sync and reactive (async) APIs from the same Maven artifact. <!-- Source: reference/java-sdks-and-connectors/sdk-java-spring-data-v5.md -->
 
 The Spring Boot Starter handles CosmosClient lifecycle, connection pooling, and configuration via `application.properties`:
 
@@ -385,11 +385,11 @@ public interface ProductRepository
 }
 ```
 
-Spring Data Azure Cosmos DB works on AKS, App Service, or any container runtime that hosts Spring Boot applications. It exposes the Spring Data interface for database and container management, CRUD operations, and derived query methods — a productive option if your team already thinks in Spring idioms. (Azure Spring Apps, previously listed as a supported host, is being retired with end of support in March 2025. AKS and App Service are the go-forward options for managed Spring Boot hosting on Azure.) <!-- Source: sdk-java-spring-data-v5.md -->
+Spring Data Azure Cosmos DB works on AKS, App Service, or any container runtime that hosts Spring Boot applications. It exposes the Spring Data interface for database and container management, CRUD operations, and derived query methods — a productive option if your team already thinks in Spring idioms. (Azure Spring Apps, previously listed as a supported host, is being retired with end of support in March 2025. AKS and App Service are the go-forward options for managed Spring Boot hosting on Azure.) <!-- Source: reference/java-sdks-and-connectors/sdk-java-spring-data-v5.md -->
 
 ## ASP.NET Session State and Cache Provider
 
-Cosmos DB ships a first-party NuGet package — `Microsoft.Extensions.Caching.Cosmos` — that implements the ASP.NET Core `IDistributedCache` interface. This means you can use Cosmos DB as a **session state store** and a **general-purpose distributed cache** with the same API you'd use for Redis or SQL Server distributed cache. <!-- Source: session-state-and-caching-provider.md -->
+Cosmos DB ships a first-party NuGet package — `Microsoft.Extensions.Caching.Cosmos` — that implements the ASP.NET Core `IDistributedCache` interface. This means you can use Cosmos DB as a **session state store** and a **general-purpose distributed cache** with the same API you'd use for Redis or SQL Server distributed cache. <!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/session-state-and-caching-provider.md -->
 
 ```csharp
 services.AddCosmosCache((CosmosCacheOptions cacheOptions) =>
@@ -411,9 +411,9 @@ services.AddSession(options =>
     options.Cookie.IsEssential = true;
 });
 ```
-<!-- Source: session-state-and-caching-provider.md -->
+<!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/session-state-and-caching-provider.md -->
 
-If you provide an existing container, make sure it has **time to live (TTL) enabled** — the provider uses TTL for session expiration. If you let it create the container via `CreateIfNotExists`, TTL is configured automatically. <!-- Source: session-state-and-caching-provider.md -->
+If you provide an existing container, make sure it has **time to live (TTL) enabled** — the provider uses TTL for session expiration. If you let it create the container via `CreateIfNotExists`, TTL is configured automatically. <!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/session-state-and-caching-provider.md -->
 
 Why choose Cosmos DB over Redis for session state? A few scenarios where it makes sense:
 
@@ -421,13 +421,13 @@ Why choose Cosmos DB over Redis for session state? A few scenarios where it make
 - You need **global distribution** for your session data — users in Tokyo and Berlin hitting the same session store with low latency.
 - You need the stronger consistency guarantees that Cosmos DB offers over a typical Redis deployment.
 
-Use **Session consistency** if you can make requests sticky, or **Bounded Staleness / Strong** if you need any instance to read the latest session data without stickiness. <!-- Source: session-state-and-caching-provider.md -->
+Use **Session consistency** if you can make requests sticky, or **Bounded Staleness / Strong** if you need any instance to read the latest session data without stickiness. <!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/session-state-and-caching-provider.md -->
 
 ## Cosmos DB in Microsoft Fabric
 
-Beyond Mirroring (which replicates your *existing* Azure Cosmos DB data into Fabric), Microsoft offers **Cosmos DB in Microsoft Fabric** — a native Fabric database product. This isn't replication; it's a Cosmos DB account that lives *inside* Fabric, tightly integrated with the Fabric experience. <!-- Source: analytics-and-business-intelligence-overview.md -->
+Beyond Mirroring (which replicates your *existing* Azure Cosmos DB data into Fabric), Microsoft offers **Cosmos DB in Microsoft Fabric** — a native Fabric database product. This isn't replication; it's a Cosmos DB account that lives *inside* Fabric, tightly integrated with the Fabric experience. <!-- Source: analytics-with-microsoft-fabric/analytics-and-business-intelligence-overview.md -->
 
-Cosmos DB in Fabric uses the same engine and infrastructure as Azure Cosmos DB for NoSQL. Your application code, data model, and performance characteristics are identical — the difference is where you manage the resource. It's purpose-built for the Fabric ecosystem, with simplified provisioning and direct access from Fabric's analytical tools. <!-- Source: analytics-and-business-intelligence-overview.md -->
+Cosmos DB in Fabric uses the same engine and infrastructure as Azure Cosmos DB for NoSQL. Your application code, data model, and performance characteristics are identical — the difference is where you manage the resource. It's purpose-built for the Fabric ecosystem, with simplified provisioning and direct access from Fabric's analytical tools. <!-- Source: analytics-with-microsoft-fabric/analytics-and-business-intelligence-overview.md -->
 
 Use cases for Cosmos DB in Fabric:
 
@@ -439,15 +439,15 @@ If you're already invested in the Fabric ecosystem and starting a new project, C
 
 ## Vercel Integration
 
-For frontend developers deploying Next.js or other frameworks on **Vercel**, there's a first-party integration in the Vercel Marketplace that connects your Vercel project to a Cosmos DB account. The integration injects the necessary environment variables (`COSMOSDB_CONNECTION_STRING`, `COSMOSDB_DATABASE_NAME`, `COSMOSDB_CONTAINER_NAME`) into your Vercel project automatically. <!-- Source: vercel-integration.md -->
+For frontend developers deploying Next.js or other frameworks on **Vercel**, there's a first-party integration in the Vercel Marketplace that connects your Vercel project to a Cosmos DB account. The integration injects the necessary environment variables (`COSMOSDB_CONNECTION_STRING`, `COSMOSDB_DATABASE_NAME`, `COSMOSDB_CONTAINER_NAME`) into your Vercel project automatically. <!-- Source: integrate-with-azure-services/vercel-integration.md -->
 
 You can set it up in two ways:
 
 1. **Vercel Integrations Marketplace**: Visit the Azure Cosmos DB integration page on Vercel, select your projects, authenticate with your Microsoft account, and either connect an existing Cosmos DB account or create a new Try Cosmos DB account.
 2. **Command line**: Bootstrap a new Next.js project with `npx create-next-app --example with-azure-cosmos`, configure your environment variables, and deploy.
-<!-- Source: vercel-integration.md -->
+<!-- Source: integrate-with-azure-services/vercel-integration.md -->
 
-The integration currently supports the NoSQL and MongoDB APIs. In your application code, you use the `@azure/cosmos` JavaScript SDK as you would in any Node.js environment — the Vercel integration just handles credential plumbing so you don't have to manage connection strings in your deployment configuration manually. <!-- Source: vercel-integration.md -->
+The integration currently supports the NoSQL and MongoDB APIs. In your application code, you use the `@azure/cosmos` JavaScript SDK as you would in any Node.js environment — the Vercel integration just handles credential plumbing so you don't have to manage connection strings in your deployment configuration manually. <!-- Source: integrate-with-azure-services/vercel-integration.md -->
 
 ## Choosing the Right Integration
 

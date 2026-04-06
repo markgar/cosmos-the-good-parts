@@ -12,7 +12,7 @@ Not all operations are created equal. A point read and a cross-partition query m
 
 A **point read** is a direct lookup by `id` and partition key. No query engine involved, no index scan — the service goes straight to the correct physical partition and fetches the item. For a 1 KB item, this costs approximately **1 RU**. Chapter 2 introduced that baseline; here's the complete picture of how costs scale and what drives them.
 
-<!-- Source: mslearn-docs/content/throughput-(request-units)/request-units.md -->
+<!-- Source: throughput-request-units/request-units.md -->
 
 The cost scales linearly with item size. A 100 KB item costs roughly 10 RUs to read with default indexing. The table below shows the relationship:
 
@@ -21,13 +21,13 @@ The cost scales linearly with item size. A 100 KB item costs roughly 10 RUs to r
 | 1 KB      | ~1 RU          | ~5 RUs                   |
 | 100 KB    | ~10 RUs        | ~50 RUs                  |
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/performance/key-value-store-cost.md -->
+<!-- Source: develop-modern-applications/performance/key-value-store-cost.md -->
 
 These numbers assume default automatic indexing is turned off. With indexing on (the default), writes cost more because the engine must update index entries for every indexed property. Reads aren't affected by indexing policy — the cost is the same whether the item's properties are indexed or not.
 
 One more factor: **consistency level**. If your account uses strong or bounded staleness consistency, reads cost approximately **2x** the RUs compared to session, consistent prefix, or eventual consistency. That's because the service must confirm the read against the quorum. For most applications using session consistency (the default), this isn't a concern — but if you've configured strong consistency, factor in the doubled read cost.
 
-<!-- Source: mslearn-docs/content/throughput-(request-units)/request-units.md -->
+<!-- Source: throughput-request-units/request-units.md -->
 
 ### Writes: Creates, Replaces, Upserts, and Deletes
 
@@ -35,7 +35,7 @@ Write operations — creates, replaces, upserts, and deletes — are more expens
 
 For a 1 KB item with default indexing turned off, a write costs roughly **5 RUs**. Turn default indexing on (which indexes every property), and that number climbs based on how many properties the item has and how deeply nested they are. A real-world document with 20–30 properties and a couple of nested objects might cost 10–15 RUs to write at 1 KB. A 10 KB document with rich nested arrays could cost 50+ RUs.
 
-<!-- Source: mslearn-docs/content/throughput-(request-units)/request-units.md, key-value-store-cost.md -->
+<!-- Source: throughput-request-units/request-units.md, develop-modern-applications/performance/key-value-store-cost.md -->
 
 The key insight: **writes are where indexing policy pays for itself — or bleeds you dry.** If you're writing documents with 50 properties but only ever query on 5 of them, you're paying to index 45 unused paths on every single write. Chapter 9 covers how to trim your indexing policy; this chapter just wants you to understand why it matters for RU cost.
 
@@ -43,7 +43,7 @@ Upserts cost the same as a create when the item doesn't exist, and the same as a
 
 Deletes cost roughly the same as other write operations — approximately 5 RUs for a 1 KB item with default indexing off. The docs categorize deletes alongside inserts, replaces, and upserts as writes, and they're priced accordingly.
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/performance/key-value-store-cost.md -->
+<!-- Source: develop-modern-applications/performance/key-value-store-cost.md -->
 
 ### Queries: The Cost Spectrum
 
@@ -65,7 +65,7 @@ The factors that drive query cost:
 - **Complexity:** Aggregations (`COUNT`, `SUM`, `AVG`), cross-partition `ORDER BY`, `DISTINCT`, and joins all add compute overhead.
 - **Pagination:** Large result sets are paginated. Each page is a separate round trip with its own RU charge; total cost is the sum across all pages.
 
-<!-- Source: mslearn-docs/content/throughput-(request-units)/request-units.md, query-metrics.md -->
+<!-- Source: throughput-request-units/request-units.md, develop-modern-applications/performance/query/query-metrics.md -->
 
 **Why cross-partition queries cost more.** When you issue a query without a partition key in the `WHERE` clause, the SDK sends it to every physical partition in parallel. Each partition searches its local index, returns its results, and the SDK merges them client-side.
 
@@ -75,19 +75,19 @@ Chapter 8 explains the mechanics of cross-partition queries in detail. Here, the
 
 One critical property of RU charges: **the same query on the same data always costs the same number of RUs on repeated executions.** RU cost is deterministic. That's what makes the budgeting workflow in the next section possible — you can measure a representative set of operations during development, multiply by expected volume, and arrive at a reliable capacity estimate. Without determinism, capacity planning would be guesswork.
 
-<!-- Source: mslearn-docs/content/throughput-(request-units)/request-units.md -->
+<!-- Source: throughput-request-units/request-units.md -->
 
 ### Stored Procedures and Triggers
 
 Stored procedures and triggers execute server-side JavaScript within the database engine. Their RU cost is the sum of every database operation they perform internally (reads, writes, queries) plus a small overhead for the JavaScript runtime itself.
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/server-side-programming/stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/stored-procedures-triggers-udfs.md -->
 
 Because everything runs server-side, stored procedures eliminate the network round-trip latency between your client and the database for each internal operation — a significant win when you're batching dozens of writes in a single call. But stored procedures can also consume RUs fast. A procedure that loops through hundreds of items, updating each one, can burn through your partition's throughput budget in a single invocation. If it hits the provisioned throughput limit, it gets rate-limited just like any other request.
 
 Stored procedures also have a **5-second timeout**. If the procedure doesn't finish within that window, the entire transaction is rolled back. That means your procedure must be designed to complete within that window — large or unbounded loops risk timeout and rollback. Between the timeout and the RU consumption, stored procedures work best for write-heavy batch operations on a small, bounded set of items within a single logical partition.
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/server-side-programming/stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/stored-procedures-triggers-udfs.md -->
 
 > **Gotcha:** Stored procedures are scoped to a single logical partition key. You cannot execute a stored procedure across multiple partition keys. If your batch spans partitions, you'll need to use transactional batch operations from the SDK instead.
 
@@ -99,7 +99,7 @@ You can't optimize what you don't measure. Every response from Cosmos DB include
 
 Every Cosmos DB response — whether it's a point read, a write, a query page, or a stored procedure execution — includes an `x-ms-request-charge` header with the RU cost of that operation. The SDKs expose this through typed properties so you don't have to parse raw HTTP headers.
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/operations-on-containers-and-items/find-request-unit-charge.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/find-request-unit-charge.md -->
 
 Here's the quick version — every SDK response exposes the charge:
 
@@ -109,7 +109,7 @@ ItemResponse<Product> response = await container.ReadItemAsync<Product>(
 Console.WriteLine($"Point read cost: {response.RequestCharge} RUs");
 ```
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/operations-on-containers-and-items/find-request-unit-charge.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/find-request-unit-charge.md -->
 
 Chapter 7 covers reading RU charges across all SDKs (C#, Python, JavaScript, Java) in detail, including the pattern for accumulating per-page costs on paginated queries. Here, the point is: **log the RU charge for your critical operations during development.** It's the single most useful number for understanding your cost profile.
 
@@ -123,7 +123,7 @@ This is great for ad hoc exploration and debugging. For production monitoring, y
 
 For ongoing visibility, Azure Monitor exposes the **Total Request Units** metric for your Cosmos DB account. You can split this metric by operation type, database, container, status code, or region to see exactly where your RUs are going. The **Normalized RU Consumption** metric (0–100%) shows how close each physical partition is to its throughput ceiling — invaluable for spotting hot partitions before they cause throttling.
 
-<!-- Source: mslearn-docs/content/manage-your-account/monitor/use-azure-monitor-metrics/monitor-request-unit-usage.md, monitor-normalized-request-units.md -->
+<!-- Source: manage-your-account/monitor/use-azure-monitor-metrics/monitor-request-unit-usage.md, manage-your-account/monitor/use-azure-monitor-metrics/monitor-normalized-request-units.md -->
 
 We'll cover the monitoring dashboard setup in Chapter 18. For now, know that these metrics exist and that you should be watching them from day one.
 
@@ -153,7 +153,7 @@ You'd provision at least 2,100 RU/s to handle this peak — or use autoscale if 
 
 Microsoft provides an online **Capacity Calculator** at [cosmos.azure.com/capacitycalculator](https://cosmos.azure.com/capacitycalculator/) that helps you estimate RU/s and cost. You plug in your expected item sizes, operation volumes, number of regions, consistency level, and indexing policy. It gives you an RU/s estimate and a monthly cost projection.
 
-<!-- Source: mslearn-docs/content/throughput-(request-units)/provisioned-throughput/estimate-ru-with-capacity-planner.md -->
+<!-- Source: throughput-request-units/provisioned-throughput/estimate-ru-with-capacity-planner.md -->
 
 The calculator has two modes:
 
@@ -166,7 +166,7 @@ The calculator is a starting point, not a contract. Real workloads are spikier a
 
 One detail that catches people off guard: if you provision *R* RU/s on a container and your account has *N* regions, Cosmos DB provisions *R* RU/s **in each region**. The total RU/s available globally is R × N — and you're billed for all of it.
 
-<!-- Source: mslearn-docs/content/throughput-(request-units)/request-units.md -->
+<!-- Source: throughput-request-units/request-units.md -->
 
 A container provisioned at 10,000 RU/s across 3 regions uses 30,000 RU/s for billing purposes. This is by design — each region gets its own full throughput allocation so that local reads and writes are fast everywhere. But it means your multi-region bill is a straight multiple of the single-region cost. Factor this in when budgeting.
 
@@ -177,6 +177,7 @@ You've measured your costs and built a budget. Now let's shrink it. These strate
 ### Prefer Point Reads Over Queries for Known IDs
 
 This is the single highest-leverage optimization available to you. If you know the `id` and partition key of the item you want, **use a point read, not a query**. A point read on a 1 KB document costs ~1 RU. A `SELECT * FROM c WHERE c.id = 'xyz'` query on the same document costs at least 2.8 RUs — and more if it's cross-partition.
+<!-- TODO: source needed for "query on the same document costs at least 2.8 RUs" -->
 
 Many applications use queries by habit where point reads would work. Any time your code does `SELECT * FROM c WHERE c.id = @id AND c.partitionKey = @pk`, you're paying a query tax for no reason. Replace it with `ReadItemAsync` (or your SDK's equivalent) and you'll cut the cost by half or more.
 
@@ -205,7 +206,7 @@ Projections reduce the **result set size**, which means fewer bytes to read, ser
 
 By default, Cosmos DB indexes every property at every nesting level of every document. That's great for query flexibility but expensive for writes. If your documents have properties you never query or filter on — audit metadata, large description blobs, internal tracking fields — excluding them from the index reduces write RU cost.
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-policy.md -->
+<!-- Source: develop-modern-applications/performance/indexing/index-policy.md -->
 
 A custom indexing policy that includes only the paths you actually query can substantially reduce the latency and RU charge of write operations. The tradeoff: if you later need to query on an excluded path, you'll have to update the policy and wait for reindexing.
 
@@ -217,7 +218,7 @@ When you need to update a single field on a document — say, incrementing an in
 
 The **Patch API** lets you send just the change — an increment, a set, a remove — without reading or replacing the entire document. It's a single operation, and you avoid sending the full document payload over the network.
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/operations-on-containers-and-items/partial-document-update/partial-document-update.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/partial-document-update/partial-document-update.md -->
 
 A quick example — incrementing a quantity field:
 
@@ -240,7 +241,8 @@ A note of honesty: the Patch API's RU cost per operation isn't dramatically lowe
 
 The real savings come from **eliminating the read** in the read-modify-write cycle and from sending less data over the network. For large documents where you're changing one field, that's a meaningful win in both RUs (you skip the read) and latency. For small documents, the improvement is modest.
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/operations-on-containers-and-items/partial-document-update/partial-document-update-faq.md -->
+<!-- TODO: source needed for "users shouldn't expect a significant reduction in RU" — partial-document-update-faq.md not in mslearn-docs mirror -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/partial-document-update/partial-document-update.md -->
 
 Patch operations are limited to **10 operations per call**. Chapter 6 covers the full Patch API surface — supported operations, conditional patches, and real-world patterns.
 
@@ -262,7 +264,7 @@ Not all requests deserve equal treatment. A user browsing your product catalog s
 
 > **Note:** Priority-based execution is a **preview feature** and is subject to change. There are no SLAs linked to its performance, and it operates on a best-effort basis. Plan accordingly before relying on it in production.
 
-<!-- Source: mslearn-docs/content/throughput-(request-units)/priority-based-execution-(preview)/priority-based-execution.md -->
+<!-- Source: throughput-request-units/priority-based-execution-preview/priority-based-execution.md -->
 
 ### How It Works
 
@@ -270,7 +272,7 @@ When priority-based execution is enabled and total RU consumption on a container
 
 There are exactly **two priority levels**: High and Low. By default, all requests are **High** priority. You opt specific workloads *down* to Low priority, not the other way around.
 
-<!-- Source: mslearn-docs/content/throughput-(request-units)/priority-based-execution-(preview)/priority-based-execution-faq.md -->
+<!-- Source: throughput-request-units/priority-based-execution-preview/priority-based-execution.md -->
 
 A few important details:
 
@@ -307,7 +309,7 @@ item = container.read_item("product-42", partition_key="electronics", priority="
 container.create_item(body=new_product, priority="Low")
 ```
 
-<!-- Source: mslearn-docs/content/throughput-(request-units)/priority-based-execution-(preview)/priority-based-execution.md -->
+<!-- Source: throughput-request-units/priority-based-execution-preview/priority-based-execution.md -->
 
 ### SDK Version Requirements
 
@@ -320,7 +322,7 @@ container.create_item(body=new_product, priority="Low")
 
 <!-- Note: The docs list v4.5.2b2 in the requirements table but v4.6.0 in the Python code sample. We use v4.6.0 as the safer minimum. -->
 
-<!-- Source: mslearn-docs/content/throughput-(request-units)/priority-based-execution-(preview)/priority-based-execution.md -->
+<!-- Source: throughput-request-units/priority-based-execution-preview/priority-based-execution.md -->
 
 ### When to Use It
 
@@ -344,12 +346,12 @@ az cosmosdb update \
 
 > **Gotcha:** When priority-based execution is enabled, the Azure portal's Data Explorer runs with **low** priority by default. If you're troubleshooting a throttled container and wondering why your portal queries are slow, that's why. You can change it in the Data Explorer's Settings menu.
 
-<!-- Source: mslearn-docs/content/throughput-(request-units)/priority-based-execution-(preview)/priority-based-execution.md -->
+<!-- Source: throughput-request-units/priority-based-execution-preview/priority-based-execution.md -->
 
 ### Limitations
 
 Priority-based execution has non-deterministic behavior for shared throughput database containers (where multiple containers share database-level RU/s). It also doesn't work well for read prioritization with strong or bounded staleness consistency — low-priority write requests may execute even when there's contending high-priority read traffic under those consistency levels.
 
-<!-- Source: mslearn-docs/content/throughput-(request-units)/priority-based-execution-(preview)/priority-based-execution.md -->
+<!-- Source: throughput-request-units/priority-based-execution-preview/priority-based-execution.md -->
 
 Now you know what operations cost and how to spend less. The next question is *how you pay* — whether you pre-commit to a fixed RU/s budget, let the service scale for you, or go pure pay-per-request. Chapter 11 covers provisioned throughput, autoscale, and serverless — the three capacity models that turn your RU knowledge into a billing strategy.

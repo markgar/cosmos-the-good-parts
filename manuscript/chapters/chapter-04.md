@@ -85,13 +85,13 @@ public class Address
 
 One point read, one deserialized object, addresses included — no joins, no second query.
 
-<!-- Source: modeling-data.md -->
+<!-- Source: model-data-for-partitioning/modeling-data.md -->
 
 That's the power of embedding. But it's not free — you're trading read simplicity for coupling. If addresses were shared across entities (say, a shipping address linked to both a customer and an order), embedding creates redundant copies that you'd need to update in multiple places.
 
 ### When to Embed
 
-Embed related data when these conditions are true: <!-- Source: modeling-data.md -->
+Embed related data when these conditions are true: <!-- Source: model-data-for-partitioning/modeling-data.md -->
 
 - **The relationship is "contained."** The child data has no meaning outside the parent. Addresses belong to a customer. Line items belong to an order. They don't exist independently.
 - **The relationship is one-to-few.** A customer with 2–3 addresses, an order with 5–10 line items, a product with a handful of reviews. The embedded array has a natural, practical upper bound.
@@ -99,7 +99,7 @@ Embed related data when these conditions are true: <!-- Source: modeling-data.md
 - **The child data changes infrequently.** Addresses don't change every minute. Line items are written once when the order is placed. If the embedded data were updated constantly by independent processes, embedding would mean rewriting the entire parent document on every change.
 - **The embedded data doesn't grow without bound.** This is the critical constraint. An array that can grow indefinitely will eventually push the document past the **2 MB item size limit** — and long before you hit that wall, you'll feel the pain of increasing RU costs on every read and write as the document bloats.
 
-<!-- Source: concepts-limits.md (2 MB maximum item size, UTF-8 length of JSON representation) -->
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md (2 MB maximum item size, UTF-8 length of JSON representation) -->
 
 When all five conditions hold, embedding is almost always the right call. You get atomic reads, atomic writes, and a data model that maps naturally to how your application thinks about the entity.
 
@@ -146,11 +146,11 @@ Here's the same customer, but with orders stored as separate items:
 
 Notice that the line items are *embedded* within each order (one-to-few, always read together), but the orders themselves are *referenced* from the customer (one-to-many, grow over time, often queried independently). This hybrid approach — embedding within a level, referencing across levels — is the norm in well-designed Cosmos DB data models.
 
-<!-- Source: modeling-data.md -->
+<!-- Source: model-data-for-partitioning/modeling-data.md -->
 
 ### When to Reference
 
-Use references when any of these apply: <!-- Source: modeling-data.md -->
+Use references when any of these apply: <!-- Source: model-data-for-partitioning/modeling-data.md -->
 
 - **The relationship is one-to-many or many-to-many.** A customer could have hundreds or thousands of orders. Embedding them all would bloat the customer document beyond usability.
 - **The related data is unbounded.** Blog comments, IoT telemetry readings, transaction logs — anything where you can't predict or control the count. Unbounded arrays are the single most common anti-pattern in document databases.
@@ -173,7 +173,7 @@ Here's the cheat sheet. For every relationship in your model, ask these question
 | Shared across parents? | Reference | Embed |
 | Combined doc under 2 MB? | Embed | Ref. or chunk |
 
-When the answers conflict — the data is read together *and* grows without bound — you'll use a hybrid approach. Embed a summary or the N most recent items and reference the full collection. The docs call this a "hybrid data model," and it's the pragmatic middle ground for many real-world scenarios. <!-- Source: modeling-data.md -->
+When the answers conflict — the data is read together *and* grows without bound — you'll use a hybrid approach. Embed a summary or the N most recent items and reference the full collection. The docs call this a "hybrid data model," and it's the pragmatic middle ground for many real-world scenarios. <!-- Source: model-data-for-partitioning/modeling-data.md -->
 
 Here's what that hybrid looks like for blog posts with comments:
 
@@ -196,7 +196,7 @@ Here's what that hybrid looks like for blog posts with comments:
 
 The post embeds the three most recent comments for display on a "post summary" page. The full 347 comments live as separate items, queryable by `postId`. The `commentCount` is a denormalized aggregate, updated on each new comment. This pattern gives you fast reads for the common case (show the post with a preview of recent comments) and scalable access to the full comment list when needed.
 
-<!-- Source: model-partition-example.md (blog example with denormalized counts and hybrid embedding) -->
+<!-- Source: model-data-for-partitioning/real-world-examples/model-partition-example.md (blog example with denormalized counts and hybrid embedding) -->
 
 ## Denormalization as a Feature, Not a Flaw
 
@@ -206,11 +206,11 @@ Except it isn't. Not here.
 
 In a relational database, denormalization is a calculated compromise — you trade data integrity risk for read performance, and the JOIN capability is always there as a fallback. In Cosmos DB, denormalization isn't a compromise. It's the *primary mechanism* for efficient reads. Without JOINs across documents, the only way to avoid multiple round trips is to put the data where it's needed.
 
-The docs put it simply: "Denormalizing data might reduce the number of queries and updates your application needs to complete common operations." <!-- Source: modeling-data.md --> That's an understatement. The Microsoft documentation walks through a blogging platform — users, posts, comments, likes — and iterates from a fully normalized model (V1) to a denormalized one (V3). The results are striking.
+The docs put it simply: "Denormalizing data might reduce the number of queries and updates your application needs to complete common operations." <!-- Source: model-data-for-partitioning/modeling-data.md --> That's an understatement. The Microsoft documentation walks through a blogging platform — users, posts, comments, likes — and iterates from a fully normalized model (V1) to a denormalized one (V3). The results are striking.
 
-Consider the operation "list a user's posts in short form" — the kind of query that runs every time someone visits a profile page. In the normalized V1 model, each post is a bare document: no author name, no comment count, no like count. To display a post summary, the application has to query for the user's posts (a fan-out across partitions, since posts aren't partitioned by `userId`), then issue *additional queries per post* to look up the author's username, count comments, and count likes. The result: **130 ms and 619 RU** for a single page load. <!-- Source: model-partition-example.md -->
+Consider the operation "list a user's posts in short form" — the kind of query that runs every time someone visits a profile page. In the normalized V1 model, each post is a bare document: no author name, no comment count, no like count. To display a post summary, the application has to query for the user's posts (a fan-out across partitions, since posts aren't partitioned by `userId`), then issue *additional queries per post* to look up the author's username, count comments, and count likes. The result: **130 ms and 619 RU** for a single page load. <!-- Source: model-data-for-partitioning/real-world-examples/model-partition-example.md -->
 
-In the denormalized V3 model, the author's username, comment count, and like count are embedded directly on each post item, and a copy of the user's posts is maintained in a `users` container partitioned by `userId`. Now the same operation is a single-partition query: **4 ms and 6.46 RU**. <!-- Source: model-partition-example.md -->
+In the denormalized V3 model, the author's username, comment count, and like count are embedded directly on each post item, and a copy of the user's posts is maintained in a `users` container partitioned by `userId`. Now the same operation is a single-partition query: **4 ms and 6.46 RU**. <!-- Source: model-data-for-partitioning/real-world-examples/model-partition-example.md -->
 
 That's a 97% reduction in latency and a 99% reduction in RU cost — from a design change, not a hardware upgrade. The full walkthrough is worth reading (search for "model and partition data using a real-world example" in the Azure Cosmos DB documentation), but the takeaway is simple: denormalization isn't a compromise in Cosmos DB. It's how you build fast, cheap reads.
 
@@ -228,7 +228,7 @@ This is a real cost. But it's a manageable one:
 
 ### The Relational Safety Net You Don't Have
 
-In a relational database, foreign keys enforce referential integrity. Delete a customer, and the database can cascade-delete their orders or reject the operation. Cosmos DB has no such mechanism. References between documents are "weak links" — the database doesn't validate that a `customerId` in an order actually points to an existing customer item. <!-- Source: modeling-data.md -->
+In a relational database, foreign keys enforce referential integrity. Delete a customer, and the database can cascade-delete their orders or reject the operation. Cosmos DB has no such mechanism. References between documents are "weak links" — the database doesn't validate that a `customerId` in an order actually points to an existing customer item. <!-- Source: model-data-for-partitioning/modeling-data.md -->
 
 This means referential integrity is your application's responsibility. You enforce it through:
 
@@ -246,7 +246,7 @@ Cosmos DB is **schema-agnostic**. There's no `CREATE TABLE` with fixed columns, 
 
 It's common — and encouraged — to store multiple entity types in a single container. A `posts` container might hold post items, comment items, and like items, all sharing the same partition key (`postId`) so they live in the same logical partition and can be transacted together.
 
-When you do this, you need a way to tell the types apart. The standard pattern is a **type discriminator field**: <!-- Source: modeling-data.md -->
+When you do this, you need a way to tell the types apart. The standard pattern is a **type discriminator field**: <!-- Source: model-data-for-partitioning/modeling-data.md -->
 
 ```json
 {
@@ -409,11 +409,11 @@ Now for the mistakes. These are the modeling choices that seem reasonable but le
 
 ### Excessively Large Documents
 
-The hard limit is 2 MB per item (measured as the UTF-8 length of the JSON representation). But you shouldn't get anywhere near it. <!-- Source: concepts-limits.md -->
+The hard limit is 2 MB per item (measured as the UTF-8 length of the JSON representation). But you shouldn't get anywhere near it. <!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md -->
 
 Large documents hurt in three ways:
 
-1. **Higher RU cost on every operation.** RU charges scale roughly linearly with item size. A 100 KB point read costs about 10 RU; a 1 KB point read costs about 1 RU (point-read cost is independent of indexing policy). Scale that up to a 1 MB document and the math gets ugly fast — especially if you're reading it frequently. <!-- Source: key-value-store-cost.md -->
+1. **Higher RU cost on every operation.** RU charges scale roughly linearly with item size. A 100 KB point read costs about 10 RU; a 1 KB point read costs about 1 RU (point-read cost is independent of indexing policy). Scale that up to a 1 MB document and the math gets ugly fast — especially if you're reading it frequently. <!-- Source: develop-modern-applications/performance/key-value-store-cost.md -->
 2. **Network latency.** Transferring a 1 MB document over the wire takes longer than transferring a 2 KB one. Cosmos DB's single-digit millisecond latency guarantee is for the server-side operation — network transfer time is on top of that.
 3. **Write amplification.** If you update one field in a 1 MB document, the entire document is rewritten. (The Patch API, covered in Chapter 6, can mitigate this for specific operations, but the item still needs to be stored and indexed in full.)
 
@@ -423,7 +423,7 @@ Large documents hurt in three ways:
 
 ### Deeply Nested Arrays
 
-Cosmos DB supports nesting up to 128 levels deep — but that's a technical ceiling, not a design target. <!-- Source: concepts-limits.md --> Deeply nested structures are hard to query, hard to index efficiently, and hard to reason about in application code.
+Cosmos DB supports nesting up to 128 levels deep — but that's a technical ceiling, not a design target. <!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md --> Deeply nested structures are hard to query, hard to index efficiently, and hard to reason about in application code.
 
 **The fix:** Flatten where possible. Instead of nesting categories three levels deep (`product.category.subcategory.subsubcategory`), use a flat `categoryPath` string (`"electronics/phones/smartphones"`) that you can query with `STARTSWITH`. If you need the hierarchy for navigation, store it as a separate lookup document.
 

@@ -10,11 +10,11 @@ This chapter is the canonical reference for three things: how single-item atomic
 
 Every individual write operation in Cosmos DB — create, replace, upsert, delete, patch — is **automatically atomic**. If you replace a document, the entire document is committed or nothing is. There's no scenario where half the properties update and the other half don't. You don't need to request this behavior; it's always on.
 
-<!-- Source: database-transactions-optimistic-concurrency.md -->
+<!-- Source: manage-your-account/containers-and-items/database-transactions-optimistic-concurrency.md -->
 
 This matters because some other NoSQL stores *can* produce partial writes during failures. Cosmos DB provides full ACID guarantees with snapshot isolation for every operation within a logical partition — atomic, consistent, isolated, and durable once acknowledged.
 
-<!-- Source: database-transactions-optimistic-concurrency.md -->
+<!-- Source: manage-your-account/containers-and-items/database-transactions-optimistic-concurrency.md -->
 
 Here's the operation-to-transaction mapping that matters:
 
@@ -33,7 +33,7 @@ Here's the operation-to-transaction mapping that matters:
 - **Write with trigger:** any insert, replace, upsert, or delete that fires a trigger — the trigger logic participates in the transaction.
 - **Explicit scope:** for stored procedures, you write the transactional logic; for batches, you build the operation set.
 
-<!-- Source: database-transactions-optimistic-concurrency.md -->
+<!-- Source: manage-your-account/containers-and-items/database-transactions-optimistic-concurrency.md -->
 
 The key insight: if your use case only ever needs to modify one item at a time, you already have ACID transactions. No stored procedures, no batch API, no special configuration. This covers a surprising number of real-world scenarios — updating a user profile, recording a single event, changing an order status.
 
@@ -47,7 +47,7 @@ Cosmos DB offers two mechanisms for multi-item ACID transactions: **stored proce
 
 This isn't a temporary limitation — it's an architectural reality. Each logical partition is hosted on a single replica set, and ACID transactions require all participants to be on the same replica. Cross-partition transactions would require a distributed transaction coordinator (two-phase commit), which Cosmos DB's architecture intentionally avoids because it would destroy the latency and availability guarantees the service is built on.
 
-<!-- Source: database-transactions-optimistic-concurrency.md, stored-procedures-triggers-udfs.md -->
+<!-- Source: manage-your-account/containers-and-items/database-transactions-optimistic-concurrency.md, develop-modern-applications/server-side-programming/stored-procedures-triggers-udfs.md -->
 
 If you need atomic operations across different partition keys, you're looking at application-level compensation patterns — sagas, outbox patterns, idempotent retries. Those are real solutions, but they're not database transactions. Plan your partition key accordingly (Chapter 5), and co-locate items that must be transactionally consistent.
 
@@ -57,25 +57,26 @@ Chapter 14 covers stored procedure mechanics — how to write, register, and exe
 
 When a stored procedure executes, the JavaScript runtime wraps all operations in an ambient ACID transaction with snapshot isolation. There's no explicit `BEGIN TRANSACTION` or `COMMIT` — those are implicit. If the procedure completes without throwing an exception, all writes commit atomically. If any exception is thrown, the entire transaction rolls back. Throwing an exception in a stored procedure is the equivalent of `ROLLBACK TRANSACTION` in SQL Server.
 
-<!-- Source: stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/stored-procedures-triggers-udfs.md -->
 
 A few transactional behaviors to know:
 
 **Snapshot isolation.** The stored procedure's operations run under snapshot isolation. The docs specifically note that queries executed within a stored procedure — both SQL queries via `getContext().getCollection().queryDocuments()` and integrated language queries via `getContext().getCollection().filter()` — may not see changes made by the same transaction. This is a quirk of the JavaScript runtime's query pipeline, not a general property of snapshot isolation. Point reads of items you've just written *may* behave differently, but treat queries within a sproc as reading from a frozen snapshot.
 
-<!-- Source: stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/stored-procedures-triggers-udfs.md -->
 
 **Implicit ETag checking.** The `_etag` values are implicitly checked for all items touched by a stored procedure. If an external write modifies an item between the procedure's read and write of that same item, the conflicting ETag causes the transaction to roll back and throw an exception. This is the same optimistic concurrency mechanism we'll cover later in this chapter, but it happens automatically inside stored procedures — you don't need to set `if-match` headers.
 
-<!-- Source: database-transactions-optimistic-concurrency.md -->
+<!-- Source: manage-your-account/containers-and-items/database-transactions-optimistic-concurrency.md -->
 
 **Bounded execution.** Stored procedures must complete within 5 seconds. If they don't, the transaction is rolled back. For large operations, you need a continuation-based pattern where the procedure processes a batch, returns a continuation token, and the client calls it again. Each invocation is its own transaction.
 
-<!-- Source: stored-procedures-triggers-udfs.md, concepts-limits.md -->
+<!-- Source: develop-modern-applications/server-side-programming/stored-procedures-triggers-udfs.md -->
+<!-- TODO: concepts-limits.md not found in mslearn-docs mirror — verify TOC path if mirror is updated -->
 
 **Strong consistency reads.** Stored procedures always execute on the primary replica, so reads within a procedure get strong consistency regardless of your account's default consistency level. One caveat: in a multi-region account, sproc writes are local to the region, so "strong consistency reads inside a sproc" doesn't mean globally consistent behavior. The docs explicitly note that using stored procedures with strong consistency isn't suggested because mutations are local.
 
-<!-- Source: stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/stored-procedures-triggers-udfs.md -->
 
 Stored procedures are the right choice when you need custom transactional logic — conditional writes based on reads, counter updates that depend on current values, or complex multi-item mutations that aren't expressible as a batch of independent operations. But they come with the JavaScript requirement and the operational overhead of managing server-side code (versioning, deployment, debugging). For simpler "all succeed or all fail" semantics, transactional batch is the better tool.
 
@@ -83,7 +84,7 @@ Stored procedures are the right choice when you need custom transactional logic 
 
 **Transactional batch** is the SDK-native way to execute multiple point operations as a single atomic unit. It was introduced specifically to address the cases where stored procedures are overkill — you just want a set of creates, replaces, deletes, patches, or reads to either all succeed or all fail, without writing JavaScript.
 
-<!-- Source: transactional-batch.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/transactional-batch.md -->
 
 The docs highlight four advantages of transactional batch over stored procedures:
 
@@ -94,7 +95,7 @@ The docs highlight four advantages of transactional batch over stored procedures
 | **Performance** | Up to 30% lower latency | Higher JS runtime overhead |
 | **Serialization** | Custom per operation | JSON via JS runtime |
 
-<!-- Source: transactional-batch.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/transactional-batch.md -->
 
 ### How It Works
 
@@ -107,7 +108,7 @@ The rules are simple:
 3. **Bounded size and count.** There are caps on how many operations a batch can contain and the total payload size. See the limits table later in this section for the specific numbers.
 4. **Bounded execution time.** The batch must complete within a fixed timeout or it rolls back.
 
-<!-- Source: transactional-batch.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/transactional-batch.md -->
 
 Supported operations within a batch include create, read, replace, upsert, delete, and patch. You can mix and match — a single batch can create one item, replace another, delete a third, and patch a fourth, as long as they all share a partition key.
 
@@ -209,7 +210,7 @@ except exceptions.CosmosBatchOperationError as e:
           f"{e.operation_responses[e.error_index]}")
 ```
 
-<!-- Source: transactional-batch.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/transactional-batch.md -->
 
 Notice the Python SDK raises a `CosmosBatchOperationError` on failure rather than returning a response object you inspect. The exception gives you the index of the failed operation and all operation responses so you can determine what went wrong.
 
@@ -261,7 +262,7 @@ batch_operations = [
 ]
 ```
 
-<!-- Source: transactional-batch.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/transactional-batch.md -->
 
 ### Error Handling: The 424 Pattern
 
@@ -294,7 +295,7 @@ Common failure causes:
 
 A 404 means a read, replace, delete, or patch targeted a nonexistent item. A 409 means a create tried to insert an item with an `id` that already exists. A 412 indicates a precondition failure on a conditional operation (ETag-based). A 413 means the batch payload exceeded the 2 MB limit.
 
-<!-- Source: transactional-batch.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/transactional-batch.md -->
 
 ### Transactional Batch Limits
 
@@ -305,7 +306,7 @@ A 404 means a read, replace, delete, or patch targeted a nonexistent item. A 409
 | Max execution time | 5 seconds |
 | Partition key scope | Single partition key |
 
-<!-- Source: transactional-batch.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/transactional-batch.md -->
 
 The 100-operation limit is generous for most use cases. If you genuinely need more, split into multiple batches — but remember, each batch is its own transaction. There's no way to make two separate batches atomic with respect to each other.
 
@@ -331,7 +332,7 @@ Imagine two service instances read the same inventory item, both see `quantity: 
 
 Cosmos DB's answer is **optimistic concurrency control (OCC)** using the `_etag` system property. The word "optimistic" means you don't lock the item when you read it — you proceed optimistically, assuming no one else will modify it, and check at write time whether that assumption held.
 
-<!-- Source: database-transactions-optimistic-concurrency.md -->
+<!-- Source: manage-your-account/containers-and-items/database-transactions-optimistic-concurrency.md -->
 
 ### How ETags Work
 
@@ -352,7 +353,8 @@ When you read an item, you get the current `_etag`. When you write the item back
 - **Match:** The item hasn't changed since you read it. The write proceeds, and the server generates a new ETag.
 - **Mismatch:** Someone else modified the item after your read. The server rejects the write with **HTTP 412 Precondition Failure**.
 
-<!-- Source: database-transactions-optimistic-concurrency.md, faq.md -->
+<!-- Source: manage-your-account/containers-and-items/database-transactions-optimistic-concurrency.md -->
+<!-- TODO: faq.md not found in mslearn-docs mirror — verify TOC path if mirror is updated -->
 
 This is the same pattern as HTTP conditional requests (RFC 7232), applied to database writes. The `_etag` is the entity tag; `if-match` is the precondition header.
 
@@ -530,7 +532,7 @@ catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Prec
 }
 ```
 
-<!-- Source: database-transactions-optimistic-concurrency.md -->
+<!-- Source: manage-your-account/containers-and-items/database-transactions-optimistic-concurrency.md -->
 
 The `IfNoneMatchEtag = "*"` tells the server "only succeed if *no* version of this item exists." On `UpsertItemAsync`, this effectively turns the upsert into a conditional insert: if the item is absent, it's created; if the item already exists, the server returns **HTTP 412 Precondition Failed** instead of overwriting. Note that `CreateItemAsync` doesn't need this trick — it already returns 409 Conflict when the item exists. The `if-none-match: *` pattern is specifically useful with upsert, where you want insert-if-absent semantics without the overwrite behavior.
 
@@ -582,7 +584,7 @@ It breaks down when:
 
     If you need cross-region write protection, you have two options: use strong consistency (which disables multi-region writes entirely) or implement application-level conflict resolution that can detect and reconcile divergent writes after the fact.
 
-<!-- Source: database-transactions-optimistic-concurrency.md -->
+<!-- Source: manage-your-account/containers-and-items/database-transactions-optimistic-concurrency.md -->
 
 ### Optimistic Concurrency vs. the Patch API
 

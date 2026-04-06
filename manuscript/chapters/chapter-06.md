@@ -10,7 +10,7 @@ If you're coming from relational databases, your instinct is one table per entit
 
 The **item type pattern** stores multiple entity types in the same container, distinguished by a `type` property (or `docType`, `entityType` — pick a name and be consistent). This isn't a hack. It's the recommended approach when entities share a partition key and are frequently accessed together.
 
-<!-- Source: modeling-data.md -->
+<!-- Source: model-data-for-partitioning/modeling-data.md -->
 
 Here's an e-commerce container partitioned by `customerId`, holding both customer profiles and their orders:
 
@@ -126,7 +126,7 @@ The critical question is: *how do you keep the view in sync?* The answer is the 
 
 Data doesn't always need to live forever. Session tokens, shopping carts, audit logs, temporary cache entries, one-time-use invite codes — all of these have a natural lifespan. Instead of building a cleanup job that queries for stale data and deletes it (burning RUs the whole way), you can let Cosmos DB handle it with **time-to-live (TTL)**.
 
-<!-- Source: time-to-live.md -->
+<!-- Source: manage-your-account/containers-and-items/time-to-live.md -->
 
 TTL lets you set an expiration period on items, measured in seconds from the item's last modified time (`_ts`). When the clock runs out, Cosmos DB deletes the item automatically as a background task — no client-side delete call required.
 
@@ -146,7 +146,7 @@ TTL operates at two levels: the **container** and the **item**.
 - **`-1`:** Items don't expire by default, but individual items *can* opt in by setting their own `ttl`.
 - **Positive *n*:** Items can still override with their own `ttl` value.
 
-<!-- Source: time-to-live.md -->
+<!-- Source: manage-your-account/containers-and-items/time-to-live.md -->
 
 **Item-level TTL** is set via a `ttl` property on individual items. It only takes effect when the container's `DefaultTimeToLive` is present and not null. When set, it overrides the container default for that specific item.
 
@@ -159,15 +159,16 @@ TTL operates at two levels: the **container** and the **item**.
 | `-1` | `2000` | Expires after 2,000 sec |
 | Null (not set) | `2000` | **Never** expires (TTL off) |
 
-<!-- Source: time-to-live.md -->
+<!-- Source: manage-your-account/containers-and-items/time-to-live.md -->
 
 The maximum TTL value is **2,147,483,647 seconds** — approximately 68 years. That's the upper bound of a signed 32-bit integer.
 
 <!-- Source: concepts-limits.md -->
+<!-- TODO: source doc "concepts-limits.md" not found in mslearn-docs mirror — add to mirror or find alternate source -->
 
 > **Gotcha:** You can't set an item's `ttl` to `null`. The value must be a positive integer, `-1`, or simply absent from the item. If you want an item to use the container default, omit the `ttl` property entirely.
 
-<!-- Source: time-to-live.md -->
+<!-- Source: manage-your-account/containers-and-items/time-to-live.md -->
 
 ### The Deletion Mechanics
 
@@ -179,7 +180,7 @@ Expired items are deleted as a **background task**. There are a few important de
 
 3. **Serverless accounts are charged for deletions.** Unlike provisioned accounts where TTL deletions ride on leftover capacity, serverless accounts are billed for TTL deletions at the same rate as regular delete operations.
 
-<!-- Source: time-to-live.md -->
+<!-- Source: manage-your-account/containers-and-items/time-to-live.md -->
 
 ### Configuring TTL
 
@@ -196,7 +197,7 @@ ContainerProperties properties = new()
 Container container = await database.CreateContainerAsync(properties);
 ```
 
-<!-- Source: how-to-time-to-live.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/how-to-time-to-live.md -->
 
 To enable TTL without a default expiration (allowing individual items to opt in):
 
@@ -251,13 +252,13 @@ That's a full round trip, the entire document transmitted both directions, and a
 
 The **Patch API** (formally called **partial document update**) lets you send just the change: "increment `/inventory/quantity` by 10." One call, no read required, no full document transmitted. The server applies the change atomically.
 
-<!-- Source: partial-document-update.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/partial-document-update/partial-document-update.md -->
 
 ### Supported Operations
 
 The Patch API supports six operations, inspired by (but not identical to) JSON Patch RFC 6902:
 
-<!-- Source: partial-document-update.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/partial-document-update/partial-document-update.md -->
 
 | Operation | Description | If Target Missing |
 |---|---|---|
@@ -272,7 +273,7 @@ The Patch API supports six operations, inspired by (but not identical to) JSON P
 - **Set** differs from Add only for arrays: it *updates* the element at the given index rather than inserting.
 - **Move** errors if the source path is missing but creates the destination if needed.
 
-<!-- Source: partial-document-update.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/partial-document-update/partial-document-update.md -->
 
 The practical differences between Add, Set, and Replace matter when you're working with arrays:
 
@@ -320,7 +321,7 @@ ItemResponse<Product> response = await container.PatchItemAsync<Product>(
 );
 ```
 
-<!-- Source: partial-document-update.md, partial-document-update-getting-started.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/partial-document-update/partial-document-update.md, develop-modern-applications/operations-on-containers-and-items/partial-document-update/partial-document-update-getting-started.md -->
 
 After patching:
 
@@ -343,6 +344,7 @@ Six changes in one atomic operation. No read-modify-write cycle. No conflict to 
 You can combine up to **10 patch operations** in a single patch specification. If you need more, split them across multiple calls.
 
 <!-- Source: partial-document-update-faq.md -->
+<!-- TODO: source doc "partial-document-update-faq.md" not found in mslearn-docs mirror — add to mirror or find alternate source -->
 
 ### Conditional Patching with Predicates
 
@@ -367,7 +369,7 @@ ItemResponse<Product> response = await container.PatchItemAsync<Product>(
 );
 ```
 
-<!-- Source: partial-document-update-getting-started.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/partial-document-update/partial-document-update-getting-started.md -->
 
 If the predicate doesn't match — say `used` is `true` — the operation fails with a precondition failure. The document is untouched. This is server-side conditional logic without the read-check-write round trip.
 
@@ -404,7 +406,7 @@ Either both inventory decrements succeed or neither does. Combined with conditio
 
 If you're running multi-region writes, the Patch API has a significant advantage over full-document Replace. Patch operations resolve conflicts at the **path level**, not the document level. Two concurrent patches to the same document from different regions — one setting `/level` to `"platinum"`, another removing an element from `/phone` — are automatically merged because they target different paths.
 
-<!-- Source: partial-document-update.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/partial-document-update/partial-document-update.md -->
 
 With a full Replace, the same scenario would trigger document-level Last Write Wins, and one region's change would be lost. Path-level conflict resolution is a compelling reason to use Patch over Replace in multi-region write configurations.
 
@@ -423,6 +425,7 @@ A few constraints to know:
 - **The `ttl` property *can* be patched.** This is a handy way to extend or shorten an item's lifespan without a full replace.
 
 <!-- Source: partial-document-update-faq.md -->
+<!-- TODO: source doc "partial-document-update-faq.md" not found in mslearn-docs mirror — add to mirror or find alternate source -->
 
 ### When to Use Patch vs. Replace
 
@@ -442,6 +445,7 @@ For SDK-specific Patch API syntax in Java, Python, and Node.js, see Chapter 7.
 The maximum item size in Cosmos DB is **2 MB**, measured as the UTF-8 length of the JSON representation. That's a hard limit — the service will reject writes that exceed it. And you'll feel the cost of large items long before you hit the ceiling: RU charges scale with document size, so a 500 KB item costs significantly more per read and write than a 5 KB one.
 
 <!-- Source: concepts-limits.md -->
+<!-- TODO: source doc "concepts-limits.md" not found in mslearn-docs mirror — add to mirror or find alternate source -->
 
 When your data naturally exceeds what fits comfortably in a single item, you have three strategies.
 
@@ -574,6 +578,7 @@ For trees with limited depth and a small number of nodes — a product configura
 One point read gives you the entire configuration tree. This works well when the tree is small, rarely changes, and is always read as a unit. Cosmos DB supports nesting up to **128 levels** deep — far more than any sane tree structure needs.
 
 <!-- Source: concepts-limits.md -->
+<!-- TODO: source doc "concepts-limits.md" not found in mslearn-docs mirror — add to mirror or find alternate source -->
 
 **When to use which:** Materialized path for wide or deep trees that are queried at multiple levels and updated at individual nodes (category taxonomies, org charts). Embedded children for small, shallow trees that are always read as a whole (configuration hierarchies, menu structures).
 
@@ -581,7 +586,7 @@ One point read gives you the entire configuration tree. This works well when the
 
 In relational databases, many-to-many relationships get a join table. In Cosmos DB, you don't have JOINs across documents, so you need a different approach.
 
-<!-- Source: modeling-data.md -->
+<!-- Source: model-data-for-partitioning/modeling-data.md -->
 
 ### Embed Reference Arrays on Both Sides
 
@@ -603,7 +608,7 @@ The most common pattern: each entity stores an array of IDs referencing the rela
 }
 ```
 
-<!-- Source: modeling-data.md -->
+<!-- Source: model-data-for-partitioning/modeling-data.md -->
 
 Given an author, you can immediately see their book IDs. Given a book, you can see its author IDs. To load the full details, you issue a second query — `SELECT * FROM c WHERE c.id IN ("book-b1", "book-b2", "book-b3")` — which is a single partition query if the books share a partition key, or a cross-partition query if they don't.
 
@@ -655,7 +660,7 @@ Deleting items one at a time is fine when you're removing a handful. But what if
 
 The **delete by partition key** operation lets you delete all items sharing a logical partition key value in a single API call. You provide the partition key value, and Cosmos DB handles the rest.
 
-<!-- Source: how-to-delete-by-partition-key.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/how-to-delete-by-partition-key.md -->
 
 ```csharp
 Container container = cosmosClient.GetContainer("SaasDb", "TenantData");
@@ -670,7 +675,7 @@ if (response.IsSuccessStatusCode)
 }
 ```
 
-<!-- Source: how-to-delete-by-partition-key.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/how-to-delete-by-partition-key.md -->
 
 ### How It Works
 
@@ -680,18 +685,18 @@ The operation runs as an **asynchronous background task**. A few key behaviors:
 - **Throttle-aware.** The operation consumes at most **10% of the container's total RU/s** on a best-effort basis. The other 90% remains available for your normal workload. If your container has 10,000 RU/s provisioned, the deletion will use up to 1,000 RU/s; the remaining 9,000 RU/s stays available for reads, writes, and queries.
 - **New writes are safe.** If you write a new item with the same partition key while the delete is in progress, the new item is not affected — only items that existed when the operation started are deleted.
 
-<!-- Source: how-to-delete-by-partition-key.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/how-to-delete-by-partition-key.md -->
 
 > **Important:** This feature is in **public preview** and requires you to enable the `DeleteAllItemsByPartitionKey` capability on your account before use. Preview features don't carry an SLA.
 
-<!-- Source: how-to-delete-by-partition-key.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/how-to-delete-by-partition-key.md -->
 
 ### Limitations
 
 - **Hierarchical partition keys** are supported, but you must specify the *complete* partition key — all levels. You can't delete by just the first level (e.g., only by `tenantId` without also specifying `userId` and `sessionId`). If your deletion pattern is "all data for a tenant regardless of sub-keys," you'll need a different approach (like TTL or an iterative delete loop).
 - **Aggregate queries during deletion** may still include items that are in the process of being deleted. Point reads and non-aggregate queries correctly exclude them.
 
-<!-- Source: how-to-delete-by-partition-key.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/how-to-delete-by-partition-key.md -->
 
 ### When to Use It
 
@@ -751,7 +756,7 @@ Cosmos DB is a natural fit for the event store side of this pattern:
 
 Partition by `streamId` (e.g., `cart-user42`), and all events for an entity stream land in the same partition — queryable in order by `sequenceNumber`, writable at high throughput.
 
-<!-- Source: change-feed-design-patterns.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-design-patterns.md -->
 
 ### Why Cosmos DB Works for Event Sourcing
 

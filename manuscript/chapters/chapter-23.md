@@ -16,15 +16,15 @@ Not every application benefits from Cosmos DB. We covered the decision framework
 
 **Throughput characteristics.** Is the load steady or spiky? How much read vs. write? Cosmos DB handles both patterns well, but the capacity mode you choose (provisioned, autoscale, or serverless — covered in Chapter 11) depends on the answer. Gather your current IOPS, CPU utilization, and peak request rates. You'll need them for the next step.
 
-**Latency requirements.** If you need single-digit millisecond reads at the 99th percentile, Cosmos DB delivers that with an SLA. If your current latency target is "under 500 ms and nobody cares," you might be overpaying for Cosmos DB's guarantees.
+**Latency requirements.** If you need single-digit millisecond reads at the 99th percentile, Cosmos DB delivers that with an SLA. If your current latency target is "under 500 ms and nobody cares," you might be overpaying for Cosmos DB's guarantees. <!-- Source: high-availability/global-distribution/distribute-data-globally.md -->
 
-**Compliance and residency.** Cosmos DB supports data residency with per-region control. If your data must stay in specific geographies, verify that the required Azure regions are available before you commit. <!-- Source: distribute-data-globally.md -->
+**Compliance and residency.** Cosmos DB supports data residency with per-region control. If your data must stay in specific geographies, verify that the required Azure regions are available before you commit. <!-- Source: high-availability/global-distribution/distribute-data-globally.md -->
 
 ## Converting vCores to Request Units
 
 The first concrete question every migration team asks: "We have X vCores today — how many RU/s do we need?"
 
-Microsoft provides a formula based on experience with thousands of migrations. For the NoSQL API: <!-- Source: convert-vcore-to-request-unit.md -->
+Microsoft provides a formula based on experience with thousands of migrations. For the NoSQL API: <!-- Source: throughput-request-units/convert-vcore-to-request-unit.md -->
 
 ```
 Provisioned RU/s = C × T / R
@@ -38,7 +38,7 @@ Where:
 | **R** | Replication factor |
 | **C** | 600 RU/s per vCore (NoSQL) |
 
-The formula accounts for the fact that Cosmos DB handles its own replication (with a 4× replication factor internally), so you divide out the replication you're already paying for in your source system. If you don't know your replication factor, use **R = 3** as a reasonable default. <!-- Source: convert-vcore-to-request-unit.md -->
+The formula accounts for the fact that Cosmos DB handles its own replication (with a 4× replication factor internally), so you divide out the replication you're already paying for in your source system. If you don't know your replication factor, use **R = 3** as a reasonable default. <!-- Source: throughput-request-units/convert-vcore-to-request-unit.md -->
 
 ### Worked Example
 
@@ -51,7 +51,7 @@ Say you're running a sharded cluster with three replica sets, each using four-co
 Provisioned RU/s = 600 × 36 / 3 = 7,200 RU/s
 ```
 
-Here's a quick reference table for common configurations (assuming R = 3): <!-- Source: convert-vcore-to-request-unit.md -->
+Here's a quick reference table for common configurations (assuming R = 3): <!-- Source: throughput-request-units/convert-vcore-to-request-unit.md -->
 
 | Total vCores | Estimated RU/s (NoSQL API) |
 |-------------|---------------------------|
@@ -64,18 +64,18 @@ Here's a quick reference table for common configurations (assuming R = 3): <!-- 
 | 192 | 38,400 |
 | 384 | 76,800 |
 
-**A critical nuance for cloud-managed databases:** many managed services advertise a vCore count that's actually per-replica, not total. If your managed database says "4 vCores" but runs a three-node replica set behind the scenes, your true T is 12, not 4. Check the fine print. <!-- Source: convert-vcore-to-request-unit.md -->
+**A critical nuance for cloud-managed databases:** many managed services advertise a vCore count that's actually per-replica, not total. If your managed database says "4 vCores" but runs a three-node replica set behind the scenes, your true T is 12, not 4. Check the fine print. <!-- Source: throughput-request-units/convert-vcore-to-request-unit.md -->
 
 ### The Capacity Planner
 
-The vCore formula gives you a rough starting point. For a more precise estimate, use the **Azure Cosmos DB Capacity Planner** at [cosmos.azure.com/capacitycalculator](https://cosmos.azure.com/capacitycalculator/). <!-- Source: estimate-ru-with-capacity-planner.md -->
+The vCore formula gives you a rough starting point. For a more precise estimate, use the **Azure Cosmos DB Capacity Planner** at [cosmos.azure.com/capacitycalculator](https://cosmos.azure.com/capacitycalculator/). <!-- Source: throughput-request-units/provisioned-throughput/estimate-ru-with-capacity-planner.md -->
 
 The planner has two modes:
 
 - **Basic mode** — plug in your item size, expected point reads/sec, creates/sec, updates/sec, queries/sec, and number of regions. It gives you a ballpark RU/s and monthly cost estimate.
 - **Advanced mode** — requires signing in, but lets you tune indexing policy, consistency level, workload variability (steady vs. spiky), and upload sample JSON documents for more accurate item size estimates.
 
-The advanced mode is worth the extra effort for production migrations. Upload a representative sample document and set your consistency level to whatever you plan to use — **Strong** and **Bounded Staleness** require roughly double the read RU/s compared to **Session**, **Consistent Prefix**, or **Eventual**. <!-- Source: estimate-ru-with-capacity-planner.md -->
+The advanced mode is worth the extra effort for production migrations. Upload a representative sample document and set your consistency level to whatever you plan to use — **Strong** and **Bounded Staleness** require roughly double the read RU/s compared to **Session**, **Consistent Prefix**, or **Eventual**. <!-- Source: throughput-request-units/provisioned-throughput/estimate-ru-with-capacity-planner.md -->
 
 Both tools are estimates. After migration, you'll tune based on real metrics (Chapter 18 covers monitoring). Start with the estimate, provision with autoscale to absorb the initial load, and right-size once you have production telemetry.
 
@@ -93,11 +93,11 @@ We covered the modeling principles in depth in Chapter 4: when to embed vs. refe
 
 **Don't try to migrate table-for-table.** The worst thing you can do is create one Cosmos DB container per SQL table and try to join them at the application level. You'll pay more RU/s, get worse latency, and hate every minute of it. Invest the time to design your document model *before* you move a single row.
 
-**Prototype with a subset first.** Microsoft's own migration guidance recommends migrating a subset of data first to validate partition key choice, query performance, and data modeling before committing to a full migration. <!-- Source: migrate.md -->
+**Prototype with a subset first.** Microsoft's own migration guidance recommends migrating a subset of data first to validate partition key choice, query performance, and data modeling before committing to a full migration. <!-- Source: migrate-data/migrate.md -->
 
 ### One-to-Few Patterns with Azure Data Factory
 
-For straightforward relational-to-document transformations, **Azure Data Factory** (ADF) is the standard tool. The trick is getting the nested JSON right, because ADF's copy activity can't directly produce nested arrays from a SQL JOIN in a single step. <!-- Source: migrate-relational-data.md -->
+For straightforward relational-to-document transformations, **Azure Data Factory** (ADF) is the standard tool. The trick is getting the nested JSON right, because ADF's copy activity can't directly produce nested arrays from a SQL JOIN in a single step. <!-- Source: migrate-data/migrate-relational-data.md -->
 
 The proven pattern uses a two-step pipeline:
 
@@ -125,7 +125,7 @@ SELECT [value] FROM OPENJSON(
 )
 ```
 
-<!-- Source: migrate-relational-data.md -->
+<!-- Source: migrate-data/migrate-relational-data.md -->
 
 **Step 2: Blob to Cosmos DB.** A second ADF copy activity reads the JSON text file from Blob Storage and writes directly to Cosmos DB as properly structured documents.
 
@@ -135,7 +135,7 @@ The intermediate blob step is a workaround for ADF's inability to produce nested
 
 When your transformation logic goes beyond what SQL `FOR JSON` can express — conditional embedding, data enrichment from multiple sources, type conversions, deduplication — **Azure Databricks** gives you the full power of Spark.
 
-The pattern works in both Scala and Python. Here's the Python approach: <!-- Source: migrate-relational-data.md -->
+The pattern works in both Scala and Python. Here's the Python approach: <!-- Source: migrate-data/migrate-relational-data.md -->
 
 1. Read from your source database using JDBC into a Spark DataFrame.
 2. Read child tables into separate DataFrames.
@@ -175,7 +175,7 @@ NoSQL-to-Cosmos DB migrations are structurally simpler because the data is alrea
 
 ### DynamoDB to Cosmos DB
 
-DynamoDB is the most common source for AWS-to-Azure migrations. Microsoft documents two distinct tracks: **data migration** (getting the bits across) and **application migration** (rewriting the data access layer). <!-- Source: dynamodb-data-migration-cosmos-db.md, dynamo-to-cosmos.md -->
+DynamoDB is the most common source for AWS-to-Azure migrations. Microsoft documents two distinct tracks: **data migration** (getting the bits across) and **application migration** (rewriting the data access layer). <!-- Source: migrate-data/dynamodb-data-migration-cosmos-db.md, migrate-data/dynamo-to-cosmos.md -->
 
 **Concept mapping first.** The terminology shift is straightforward:
 
@@ -193,11 +193,11 @@ DynamoDB is the most common source for AWS-to-Azure migrations. Microsoft docume
 - **Capacity units → RUs:** A single RU currency covers both reads and writes.
 - **Global Tables → multi-region writes:** Configured at the account level.
 
-<!-- Source: dynamo-to-cosmos.md -->
+<!-- Source: migrate-data/dynamo-to-cosmos.md -->
 
 One difference that catches people: DynamoDB has separate read and write capacity units. Cosmos DB has a single **Request Unit** currency that's fungible — the same RU/s budget serves both reads and writes. That actually simplifies capacity planning.
 
-**Data migration — the offline path.** The recommended approach uses a three-stage pipeline: <!-- Source: dynamodb-data-migration-cosmos-db.md -->
+**Data migration — the offline path.** The recommended approach uses a three-stage pipeline: <!-- Source: migrate-data/dynamodb-data-migration-cosmos-db.md -->
 
 1. **Export from DynamoDB to S3** using DynamoDB's built-in export feature (DynamoDB JSON format).
 2. **Transfer S3 → Azure Data Lake Storage Gen2** using an Azure Data Factory pipeline.
@@ -205,13 +205,13 @@ One difference that catches people: DynamoDB has separate read and write capacit
 
 The Databricks step handles the DynamoDB-specific JSON format (which wraps every attribute in a type descriptor like `{"S": "value"}`) and flattens it into clean Cosmos DB documents.
 
-**Data migration — the online path.** If you can't afford downtime, use DynamoDB Streams or Kinesis Data Streams as a CDC source. Process the stream with Lambda or Flink and write to Cosmos DB in near real-time. This requires custom code and careful handling of ordering guarantees. <!-- Source: dynamodb-data-migration-cosmos-db.md -->
+**Data migration — the online path.** If you can't afford downtime, use DynamoDB Streams or Kinesis Data Streams as a CDC source. Process the stream with Lambda or Flink and write to Cosmos DB in near real-time. This requires custom code and careful handling of ordering guarantees. <!-- Source: migrate-data/dynamodb-data-migration-cosmos-db.md -->
 
-**Application migration.** The code changes are more mechanical than you'd expect. DynamoDB's `PutItem` becomes `CreateItemAsync`. `GetItem` with a hash+range becomes a point read with `id` + partition key. The Cosmos DB SDK provides type safety via POCOs or model classes — no more casting `AttributeValue` objects. The biggest code-level win is that Cosmos DB queries use SQL syntax, so range scans that required `ScanRequest` in DynamoDB become straightforward `SELECT ... WHERE ... BETWEEN` queries. <!-- Source: dynamo-to-cosmos.md -->
+**Application migration.** The code changes are more mechanical than you'd expect. DynamoDB's `PutItem` becomes `CreateItemAsync`. `GetItem` with a hash+range becomes a point read with `id` + partition key. The Cosmos DB SDK provides type safety via POCOs or model classes — no more casting `AttributeValue` objects. The biggest code-level win is that Cosmos DB queries use SQL syntax, so range scans that required `ScanRequest` in DynamoDB become straightforward `SELECT ... WHERE ... BETWEEN` queries. <!-- Source: migrate-data/dynamo-to-cosmos.md -->
 
 ### Couchbase to Cosmos DB
 
-Couchbase migrations are conceptually the simplest because both databases store JSON documents. The mapping is: <!-- Source: couchbase-cosmos-migration.md -->
+Couchbase migrations are conceptually the simplest because both databases store JSON documents. The mapping is: <!-- Source: migrate-data/couchbase-cosmos-migration.md -->
 
 | Couchbase | Cosmos DB |
 |-----------|-----------|
@@ -220,17 +220,17 @@ Couchbase migrations are conceptually the simplest because both databases store 
 | Bucket (also) | Container |
 | JSON Document | Item |
 
-The structural difference that matters: Couchbase stores the document ID externally (as metadata on the bucket), while Cosmos DB requires an `id` field *inside* the document. Your migration pipeline needs to inject the Couchbase document ID into each document's `id` property. <!-- Source: couchbase-cosmos-migration.md -->
+The structural difference that matters: Couchbase stores the document ID externally (as metadata on the bucket), while Cosmos DB requires an `id` field *inside* the document. Your migration pipeline needs to inject the Couchbase document ID into each document's `id` property. <!-- Source: migrate-data/couchbase-cosmos-migration.md -->
 
-Couchbase's top-level collection wrapper (a type-discriminator envelope around the actual data) can also be flattened. In Couchbase you might have `{"TravelDocument": {"Country": "India", ...}}`. In Cosmos DB, the container name provides the context, so the document becomes `{"id": "99FF4444", "Country": "India", ...}` — simpler and cheaper to store. <!-- Source: couchbase-cosmos-migration.md -->
+Couchbase's top-level collection wrapper (a type-discriminator envelope around the actual data) can also be flattened. In Couchbase you might have `{"TravelDocument": {"Country": "India", ...}}`. In Cosmos DB, the container name provides the context, so the document becomes `{"id": "99FF4444", "Country": "India", ...}` — simpler and cheaper to store. <!-- Source: migrate-data/couchbase-cosmos-migration.md -->
 
-**Query translation.** Couchbase N1QL queries translate to Cosmos DB SQL with a few adjustments. The `META().id` accessor becomes the `c.id` property. The `ANY ... SATISFIES` pattern becomes a `JOIN` on a subdocument. `LIMIT ... OFFSET` order is reversed — Cosmos DB uses `OFFSET` first, then `LIMIT`. <!-- Source: couchbase-cosmos-migration.md -->
+**Query translation.** Couchbase N1QL queries translate to Cosmos DB SQL with a few adjustments. The `META().id` accessor becomes the `c.id` property. The `ANY ... SATISFIES` pattern becomes a `JOIN` on a subdocument. `LIMIT ... OFFSET` order is reversed — Cosmos DB uses `OFFSET` first, then `LIMIT`. <!-- Source: migrate-data/couchbase-cosmos-migration.md -->
 
-**Data transfer.** Azure Data Factory with a Couchbase source connector and Cosmos DB sink is the recommended approach for bulk data transfer. <!-- Source: couchbase-cosmos-migration.md -->
+**Data transfer.** Azure Data Factory with a Couchbase source connector and Cosmos DB sink is the recommended approach for bulk data transfer. <!-- Source: migrate-data/couchbase-cosmos-migration.md -->
 
 ### HBase to Cosmos DB
 
-HBase is the most architecturally different source you'll encounter. It's a wide-column store built on HDFS, organized by RowKey and Column Families. The mapping to Cosmos DB requires flattening the column family structure into JSON properties. <!-- Source: migrate-hbase.md -->
+HBase is the most architecturally different source you'll encounter. It's a wide-column store built on HDFS, organized by RowKey and Column Families. The mapping to Cosmos DB requires flattening the column family structure into JSON properties. <!-- Source: migrate-data/migrate-hbase.md -->
 
 | HBase | Cosmos DB |
 |-------|-----------|
@@ -241,11 +241,11 @@ HBase is the most architecturally different source you'll encounter. It's a wide
 | Column Family | Flattened into properties |
 | Version (Timestamp) | Use change feed instead |
 
-<!-- Source: migrate-hbase.md -->
+<!-- Source: migrate-data/migrate-hbase.md -->
 
-**The RowKey trap.** HBase sorts data by RowKey and distributes it via range partitioning. Cosmos DB hash-distributes by partition key. Using the same RowKey as your partition key typically won't give optimal performance. Spend time designing your partition key separately — the principles from Chapter 5 apply in full. <!-- Source: migrate-hbase.md -->
+**The RowKey trap.** HBase sorts data by RowKey and distributes it via range partitioning. Cosmos DB hash-distributes by partition key. Using the same RowKey as your partition key typically won't give optimal performance. Spend time designing your partition key separately — the principles from Chapter 5 apply in full. <!-- Source: migrate-data/migrate-hbase.md -->
 
-**Migration tooling.** For HBase versions before 2.0, Azure Data Factory has a built-in HBase connector. For HBase 2.0+, use Apache Spark with the HBase Connector to read data into DataFrames, then write to Cosmos DB via the Spark connector. <!-- Source: migrate-hbase.md -->
+**Migration tooling.** For HBase versions before 2.0, Azure Data Factory has a built-in HBase connector. For HBase 2.0+, use Apache Spark with the HBase Connector to read data into DataFrames, then write to Cosmos DB via the Spark connector. <!-- Source: migrate-data/migrate-hbase.md -->
 
 | Approach | Version | Best For |
 |----------|---------|----------|
@@ -253,15 +253,15 @@ HBase is the most architecturally different source you'll encounter. It's a wide
 | Spark (HBase + Cosmos) | All | Complex transforms |
 | Custom bulk executor | All | Max flexibility |
 
-<!-- Source: migrate-hbase.md -->
+<!-- Source: migrate-data/migrate-hbase.md -->
 
-If you're running Apache Phoenix on your HBase cluster, gather your Phoenix table schemas, indexes, and primary key definitions before starting. These inform your Cosmos DB container design and indexing policy. <!-- Source: migrate-hbase.md -->
+If you're running Apache Phoenix on your HBase cluster, gather your Phoenix table schemas, indexes, and primary key definitions before starting. These inform your Cosmos DB container design and indexing policy. <!-- Source: migrate-data/migrate-hbase.md -->
 
 ## The Desktop Data Migration Tool
 
-The **Azure Cosmos DB Desktop Data Migration Tool** (commonly called `dmt`) is an open-source, command-line utility for moving data into and out of Cosmos DB. It's the Swiss Army knife for smaller migrations, testing, and one-off data loading. <!-- Source: how-to-migrate-desktop-tool.md -->
+The **Azure Cosmos DB Desktop Data Migration Tool** (commonly called `dmt`) is an open-source, command-line utility for moving data into and out of Cosmos DB. It's the Swiss Army knife for smaller migrations, testing, and one-off data loading. <!-- Source: migrate-data/how-to-migrate-desktop-tool.md -->
 
-The tool is built on an extension model — sources and sinks are pluggable. Current extensions support: <!-- Source: how-to-migrate-desktop-tool.md -->
+The tool is built on an extension model — sources and sinks are pluggable. Current extensions support: <!-- Source: migrate-data/how-to-migrate-desktop-tool.md -->
 
 | Sources | Sinks |
 |---------|-------|
@@ -277,7 +277,7 @@ The tool is built on an extension model — sources and sinks are pluggable. Cur
 
 ### Running dmt
 
-The tool requires **.NET 8.0** or later. You can download a prebuilt binary from the [GitHub releases page](https://github.com/azurecosmosdb/data-migration-desktop-tool/releases) for Windows, macOS, or Linux (x64 and ARM64). There's also a Docker image: <!-- Source: how-to-migrate-desktop-tool.md -->
+The tool requires **.NET 8.0** or later. You can download a prebuilt binary from the [GitHub releases page](https://github.com/azurecosmosdb/data-migration-desktop-tool/releases) for Windows, macOS, or Linux (x64 and ARM64). There's also a Docker image: <!-- Source: migrate-data/how-to-migrate-desktop-tool.md -->
 
 ```bash
 docker pull mcr.microsoft.com/azurecosmosdb/linux/azure-cosmos-dmt:latest
@@ -303,7 +303,7 @@ Configuration lives in a `migrationsettings.json` file:
 }
 ```
 
-<!-- Source: how-to-migrate-desktop-tool.md -->
+<!-- Source: migrate-data/how-to-migrate-desktop-tool.md -->
 
 Run it:
 
@@ -319,11 +319,11 @@ docker run -v $(pwd)/config:/config -v $(pwd)/data:/data \
   run --settings /config/migrationsettings.json
 ```
 
-<!-- Source: how-to-migrate-desktop-tool.md -->
+<!-- Source: migrate-data/how-to-migrate-desktop-tool.md -->
 
 ### Batch Operations
 
-A single `migrationsettings.json` can define multiple migration operations using the `Operations` array. This is useful when migrating multiple tables or collections in one run: <!-- Source: how-to-migrate-desktop-tool.md -->
+A single `migrationsettings.json` can define multiple migration operations using the `Operations` array. This is useful when migrating multiple tables or collections in one run: <!-- Source: migrate-data/how-to-migrate-desktop-tool.md -->
 
 ```json
 {
@@ -353,7 +353,7 @@ A single `migrationsettings.json` can define multiple migration operations using
 }
 ```
 
-<!-- Source: how-to-migrate-desktop-tool.md -->
+<!-- Source: migrate-data/how-to-migrate-desktop-tool.md -->
 
 The `dmt` tool is ideal for development workflows, proof-of-concept migrations, and moving small-to-medium datasets (up to tens of GB). For production migrations at scale, use ADF or Databricks — they offer checkpointing, parallelism, and monitoring that `dmt` doesn't.
 
@@ -362,8 +362,8 @@ The `dmt` tool is ideal for development workflows, proof-of-concept migrations, 
 You might expect a single "migration assessment tool" that scores your workload and tells you whether Cosmos DB is a good fit. As of this writing, there isn't a standalone first-party tool dedicated to that purpose. What you *do* have is a set of tools and practices that, combined, give you a thorough assessment:
 
 1. **The Capacity Planner and vCore-to-RU formula** — both covered earlier in this chapter — give you throughput and cost estimates from your workload profile or existing hardware specs.
-2. **Proof-of-concept validation** — migrate a subset of data, run your most critical queries, and measure actual RU consumption. This is the most reliable "assessment" and it's what Microsoft recommends. <!-- Source: migrate.md -->
-3. **Partner ecosystem** — Microsoft maintains a list of migration partners (Striim, Pragmatic Works, Altoros, and others) who offer assessment services and tooling for large-scale migrations. <!-- Source: partners-migration.md -->
+2. **Proof-of-concept validation** — migrate a subset of data, run your most critical queries, and measure actual RU consumption. This is the most reliable "assessment" and it's what Microsoft recommends. <!-- Source: migrate-data/migrate.md -->
+3. **Partner ecosystem** — Microsoft maintains a list of migration partners (Striim, Pragmatic Works, Altoros, and others) who offer assessment services and tooling for large-scale migrations. <!-- Source: resources/partners-migration.md -->
 
 If a dedicated assessment tool ships after this book's publication, check Microsoft's migration documentation for the latest.
 
@@ -405,13 +405,13 @@ Dual-write is harder to implement correctly than blue/green, but it's the right 
 
 ## Container Copy Jobs
 
-Sometimes the migration isn't from an external database — it's within Cosmos DB itself. You need to change a partition key, switch from database-level to container-level throughput, adopt hierarchical partition keys, update unique key constraints, or rename a container. None of these changes can be made in-place. You need to create a new container with the desired settings and copy the data over. <!-- Source: container-copy.md -->
+Sometimes the migration isn't from an external database — it's within Cosmos DB itself. You need to change a partition key, switch from database-level to container-level throughput, adopt hierarchical partition keys, update unique key constraints, or rename a container. None of these changes can be made in-place. You need to create a new container with the desired settings and copy the data over. <!-- Source: develop-modern-applications/operations-on-containers-and-items/container-copy.md -->
 
-**Container copy jobs** are a server-side feature that handles this without external tooling. The platform allocates dedicated compute instances for the destination Cosmos DB account to perform the copy. <!-- Source: container-copy.md -->
+**Container copy jobs** are a server-side feature that handles this without external tooling. The platform allocates dedicated compute instances for the destination Cosmos DB account to perform the copy. <!-- Source: develop-modern-applications/operations-on-containers-and-items/container-copy.md -->
 
 ### Offline vs. Online Copy
 
-Container copy supports two modes: <!-- Source: container-copy.md -->
+Container copy supports two modes: <!-- Source: develop-modern-applications/operations-on-containers-and-items/container-copy.md -->
 
 | Mode | Mechanism | Use When |
 |------|-----------|----------|
@@ -421,11 +421,11 @@ Container copy supports two modes: <!-- Source: container-copy.md -->
 - **Offline:** Quiesce writes to the source container before starting the copy.
 - **Online:** Copies existing data, then continuously replicates incremental changes. Requires continuous backup and the all-versions-and-deletes change feed mode enabled on the source account. Doubles write RU cost on the source during copy.
 
-Online copy requires continuous backup and the "All version and delete change feed mode" preview feature enabled on the source account. It also charges **double RU/s on all writes** to the source account during the copy, because the system must preserve both previous and current versions of changes. <!-- Source: container-copy.md -->
+Online copy requires continuous backup and the "All version and delete change feed mode" preview feature enabled on the source account. It also charges **double RU/s on all writes** to the source account during the copy, because the system must preserve both previous and current versions of changes. <!-- Source: develop-modern-applications/operations-on-containers-and-items/container-copy.md -->
 
 ### Running a Container Copy Job
 
-Container copy jobs are managed via Azure CLI. The workflow: <!-- Source: container-copy.md -->
+Container copy jobs are managed via Azure CLI. The workflow: <!-- Source: develop-modern-applications/operations-on-containers-and-items/container-copy.md -->
 
 **Offline copy:**
 
@@ -445,14 +445,14 @@ Container copy jobs are managed via Azure CLI. The workflow: <!-- Source: contai
 
 ### Key Details
 
-- **Default compute:** the platform allocates two 4-vCPU, 16-GB server-side instances per account. <!-- Source: container-copy.md -->
-- **Throughput tip:** set the target container's throughput to at least **2× the source container's throughput** for faster completion. <!-- Source: container-copy.md -->
-- **Concurrency:** multiple copy jobs can exist in an account, but they run **consecutively**, not in parallel. <!-- Source: container-copy.md -->
-- **Multi-region:** the job runs in the write region. If a region failover occurs during the copy, incomplete jobs will fail and need to be re-created. <!-- Source: container-copy.md -->
-- **TTL behavior:** TTL counters reset in the destination container. A document that was halfway through its TTL in the source starts fresh in the target. <!-- Source: container-copy.md -->
-- **Partition key conflicts:** when changing partition keys, ensure that the new partition key + `id` combination is unique across all documents. If two source documents with different old partition keys map to the same new partition key and share an `id`, the copy will fail with an insertion error. <!-- Source: container-copy.md -->
-- **20 GB partition limit:** if your new partition key groups more than 20 GB of data into a single logical partition, the job fails. Hierarchical partition keys (Chapter 5) can help you avoid this. <!-- Source: container-copy.md -->
-- **No SLA on duration.** Container copy is best-effort — there's no guarantee on how long a job takes. <!-- Source: container-copy.md -->
+- **Default compute:** the platform allocates two 4-vCPU, 16-GB server-side instances per account. <!-- Source: develop-modern-applications/operations-on-containers-and-items/container-copy.md -->
+- **Throughput tip:** set the target container's throughput to at least **2× the source container's throughput** for faster completion. <!-- Source: develop-modern-applications/operations-on-containers-and-items/container-copy.md -->
+- **Concurrency:** multiple copy jobs can exist in an account, but they run **consecutively**, not in parallel. <!-- Source: develop-modern-applications/operations-on-containers-and-items/container-copy.md -->
+- **Multi-region:** the job runs in the write region. If a region failover occurs during the copy, incomplete jobs will fail and need to be re-created. <!-- Source: develop-modern-applications/operations-on-containers-and-items/container-copy.md -->
+- **TTL behavior:** TTL counters reset in the destination container. A document that was halfway through its TTL in the source starts fresh in the target. <!-- Source: develop-modern-applications/operations-on-containers-and-items/container-copy.md -->
+- **Partition key conflicts:** when changing partition keys, ensure that the new partition key + `id` combination is unique across all documents. If two source documents with different old partition keys map to the same new partition key and share an `id`, the copy will fail with an insertion error. <!-- Source: develop-modern-applications/operations-on-containers-and-items/container-copy.md -->
+- **20 GB partition limit:** if your new partition key groups more than 20 GB of data into a single logical partition, the job fails. Hierarchical partition keys (Chapter 5) can help you avoid this. <!-- Source: develop-modern-applications/operations-on-containers-and-items/container-copy.md -->
+- **No SLA on duration.** Container copy is best-effort — there's no guarantee on how long a job takes. <!-- Source: develop-modern-applications/operations-on-containers-and-items/container-copy.md -->
 
 Container copy jobs are the right tool for in-account reshaping. For cross-account migrations or migrations that require data transformation, use the other tools in this chapter.
 
@@ -473,7 +473,7 @@ With all the tools covered, here's how to pick:
 | Re-partition within Cosmos | Container copy jobs |
 | 100+ TB scale | Custom bulk executor + ADLS |
 
-For the terabyte-scale scenario, Microsoft's guidance boils down to: <!-- Source: migrate.md -->
+For the terabyte-scale scenario, Microsoft's guidance boils down to: <!-- Source: migrate-data/migrate.md -->
 
 - Partition source data into ~200 MB files in Azure Data Lake Storage.
 - Run the bulk executor library across multiple VMs, each consuming up to 500,000 RU/s per node.

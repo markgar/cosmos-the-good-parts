@@ -8,13 +8,13 @@ But server-side JavaScript also has sharp constraints. It's scoped to a single p
 
 This chapter is the canonical reference for server-side programming in Cosmos DB. We'll cover when to use it (and when not to), how to write and register each type, the transactional semantics, and the performance characteristics. For SDK registration and invocation mechanics, we'll build on the patterns from Chapter 7. For transactional batch as an alternative to stored procedures, see Chapter 16.
 
-<!-- Source: stored-procedures-triggers-udfs.md, how-to-write-stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/stored-procedures-triggers-udfs.md, develop-modern-applications/server-side-programming/how-to-write-stored-procedures-triggers-udfs.md -->
 
 ## When and Why to Use Server-Side JavaScript
 
 Server-side programming in Cosmos DB isn't a general-purpose compute layer. It's a targeted tool for a specific set of problems. Here's the honest assessment of where it earns its keep.
 
-<!-- Source: stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/stored-procedures-triggers-udfs.md -->
 
 **Atomic multi-item writes.** This is the primary use case. If you need to update three items within the same logical partition and either all three succeed or none do, a stored procedure gives you that ACID guarantee. The JavaScript runtime wraps all operations in an implicit transaction — no `BEGIN TRANSACTION` or `COMMIT` statements needed. If your code throws an exception, everything rolls back.
 
@@ -32,15 +32,15 @@ Server-side programming in Cosmos DB isn't a general-purpose compute layer. It's
 
 **Read-heavy workloads.** Stored procedures run on the primary replica. For read-heavy operations, you're better off using the SDK client-side, where reads can be served by any replica (primary or secondary) and you can saturate throughput more efficiently. The docs are explicit: stored procedures are "best suited for operations that are write-heavy and require a transaction across a partition key value."
 
-<!-- Source: stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/stored-procedures-triggers-udfs.md -->
 
 **Complex business logic.** Server-side JavaScript doesn't support importing modules. You can't `require()` lodash, use npm packages, or pull in shared libraries. Every function must be self-contained. If your logic is complex enough to need external dependencies, keep it client-side.
 
-<!-- Source: how-to-write-stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/how-to-write-stored-procedures-triggers-udfs.md -->
 
 **Long-running operations.** The 5-second execution timeout is a hard ceiling. You can work around it with continuation patterns (covered later in this chapter), but if your operation inherently requires extended computation, it doesn't belong in a stored procedure.
 
-<!-- Source: stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/stored-procedures-triggers-udfs.md -->
 
 | Use Case | Server-Side? | Alternative |
 |----------|:------------:|-------------|
@@ -61,7 +61,7 @@ Stored procedures are the most powerful — and most constrained — piece of se
 
 This constraint is non-negotiable and worth repeating: **a stored procedure executes within the scope of exactly one logical partition key value.** When you call a stored procedure, you must pass a partition key value in the request. The procedure can only see and modify items that belong to that partition key value. Items with different partition key values are invisible to it, even if they're in the same container or even the same physical partition.
 
-<!-- Source: how-to-write-stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/how-to-write-stored-procedures-triggers-udfs.md -->
 
 This scoping is what makes ACID transactions possible. Because a logical partition maps to a single physical partition (and therefore a single replica set), Cosmos DB doesn't need distributed transaction coordination. All reads and writes happen on the same node, against the same data, under the same lock scope. It's the same reason transactional batch has the same constraint — the architecture doesn't support cross-partition transactions.
 
@@ -122,7 +122,7 @@ A few things to notice:
 
 You can also use `async/await` with a Promise wrapper — the Cosmos DB JavaScript runtime supports it:
 
-<!-- Source: how-to-write-stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/how-to-write-stored-procedures-triggers-udfs.md -->
 
 ```javascript
 function updateOrderStatus() {
@@ -211,7 +211,7 @@ Console.WriteLine($"Result: {result.Resource}");
 Console.WriteLine($"RU charge: {result.RequestCharge}");
 ```
 
-<!-- Source: how-to-use-stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/how-to-use-stored-procedures-triggers-udfs.md -->
 
 **JavaScript (Node.js SDK)**
 ```javascript
@@ -271,7 +271,7 @@ Notice the partition key is always required when executing. This isn't optional 
 
 Here's the core guarantee: **all operations within a stored procedure execute as a single, implicit transaction.** If the procedure completes without throwing an exception, every read and write it performed is committed atomically. If it throws — whether your code throws deliberately or the runtime throws due to a timeout — the entire transaction rolls back. No partial writes, no orphaned state.
 
-<!-- Source: stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/stored-procedures-triggers-udfs.md -->
 
 This is real ACID:
 
@@ -282,15 +282,15 @@ This is real ACID:
 
 There are no `BEGIN TRANSACTION` or `COMMIT TRANSACTION` statements. The transaction boundary is the stored procedure itself. Throwing an exception is your `ROLLBACK`. This simplicity is elegant, but it means you need to be careful about error handling — an unhandled exception in a callback will abort everything.
 
-> **Key takeaway:** Pass data between operations through variables, not by querying for items you just wrote.
+> **Tip:** Pass data between operations through variables, not by querying for items you just wrote.
 
 Queries within a stored procedure don't see writes made earlier in the same execution. If you create an item and then immediately query for it in the same stored procedure, the query won't return it. This applies to both SQL queries via `queryDocuments()` and the JavaScript integrated query API via `filter()`.
 
-<!-- Source: stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/stored-procedures-triggers-udfs.md -->
 
-> **Note on consistency levels:** Stored procedures always execute on the primary replica, so reads within them are strongly consistent regardless of your account's default consistency level. However, the docs note that using stored procedures *with* strong consistency configured at the account level "isn't suggested as mutations are local" — the strong consistency guarantee applies to the reads *inside* the sproc, but replication to other regions still follows your configured consistency. For the full consistency model, see Chapter 13.
+> **Note:** Stored procedures always execute on the primary replica, so reads within them are strongly consistent regardless of your account's default consistency level. However, the docs note that using stored procedures *with* strong consistency configured at the account level "isn't suggested as mutations are local" — the strong consistency guarantee applies to the reads *inside* the sproc, but replication to other regions still follows your configured consistency. For the full consistency model, see Chapter 13.
 
-<!-- Source: stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/stored-procedures-triggers-udfs.md -->
 
 For a deeper dive into transaction concepts, optimistic concurrency with ETags, and transactional batch as a lighter-weight alternative to stored procedures, see Chapter 16.
 
@@ -298,7 +298,7 @@ For a deeper dive into transaction concepts, optimistic concurrency with ETags, 
 
 All server-side JavaScript — stored procedures, triggers, and UDFs — must complete within a **5-second timeout**. If the timeout expires, the transaction rolls back. For stored procedures that need to process more items than 5 seconds allows, you need a **continuation-based pattern**.
 
-<!-- Source: stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/stored-procedures-triggers-udfs.md -->
 
 The pattern works like this: every CRUD operation returns a boolean indicating whether it was accepted. If it returns `false`, the runtime is signaling that you're running low on time or throughput. Your procedure should stop, return the progress it's made so far, and let the caller re-invoke with the remaining work.
 
@@ -378,12 +378,12 @@ Each invocation is its own transaction — items deleted in one call are committ
 
 > **Gotcha:** Scripts that repeatedly violate execution boundaries may be marked inactive by the runtime and can't be executed until they're recreated. Always respect the boolean return value and implement proper continuation logic.
 
-<!-- Source: stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/stored-procedures-triggers-udfs.md -->
 
 ### The RU Charging Model for Stored Procedures
 
 Cosmos DB charges stored procedures differently from regular operations. Each execution reserves RUs upfront based on the average cost of previous invocations. This pre-reservation ensures that the procedure doesn't starve other workloads, but it means your budget utilization can be unpredictable if the RU cost varies significantly between invocations. If you're seeing budget surprises, the docs suggest considering batch or bulk requests as alternatives.
-<!-- Source: how-to-write-stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/how-to-write-stored-procedures-triggers-udfs.md -->
 
 Server-side operations also consume additional throughput beyond what the individual CRUD operations cost — though the database operations within a stored procedure are slightly cheaper than equivalent client-side operations. The tradeoff is reduced network overhead versus the compute cost of running your JavaScript in the database engine. For RU optimization strategies more broadly, see Chapter 10.
 
@@ -393,7 +393,7 @@ Triggers let you hook into write operations — running JavaScript before or aft
 
 One critical detail up front: **triggers do not fire automatically.** Unlike SQL Server or PostgreSQL triggers that run implicitly on every matching operation, Cosmos DB triggers must be explicitly specified in the request options for each operation. If your code doesn't ask for the trigger, it doesn't run. This is by design — it avoids hidden side effects and gives you explicit control.
 
-<!-- Source: stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/stored-procedures-triggers-udfs.md -->
 
 ### Pre-Triggers: Validate or Modify Items Before Writes
 
@@ -428,7 +428,7 @@ function ensureOrderDefaults() {
 }
 ```
 
-<!-- Source: how-to-write-stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/how-to-write-stored-procedures-triggers-udfs.md -->
 
 Key details about pre-triggers:
 
@@ -440,7 +440,7 @@ Key details about pre-triggers:
 
 A post-trigger runs *after* the operation completes but *within the same transaction.* This means if the post-trigger throws an exception, the entire operation — including the original write — rolls back. The post-trigger has access to the response body (the item as written) and can perform additional operations on the container.
 
-<!-- Source: how-to-write-stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/how-to-write-stored-procedures-triggers-udfs.md -->
 
 Here's a post-trigger that maintains a running count in a metadata document whenever a new order is created:
 
@@ -535,7 +535,7 @@ await container.CreateItemAsync(
 );
 ```
 
-<!-- Source: how-to-use-stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/how-to-use-stored-procedures-triggers-udfs.md -->
 
 **JavaScript (Node.js SDK)**
 ```javascript
@@ -557,17 +557,17 @@ await container.items.create(order, {
 
 > **Gotcha:** Even though trigger names are passed as an array (or `List`), you can only run one trigger per operation. The array type is a quirk of the API surface, not support for chaining multiple triggers.
 
-<!-- Source: how-to-use-stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/how-to-use-stored-procedures-triggers-udfs.md -->
 
 ## User-Defined Functions (UDFs) in Queries
 
 UDFs are the simplest of the three server-side constructs. They're pure JavaScript functions — no access to the context object, no reads, no writes, no transactions. They receive input values, compute something, and return a result. Their purpose is extending the SQL query language with custom logic.
 
-<!-- Source: stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/stored-procedures-triggers-udfs.md -->
 
 Because UDFs are compute-only and don't access the database, they can run on any replica — primary or secondary. This makes them fundamentally different from stored procedures and triggers, which always run on the primary.
 
-<!-- Source: stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/stored-procedures-triggers-udfs.md -->
 
 ### Writing and Registering a UDF
 
@@ -599,7 +599,7 @@ await container.Scripts.CreateUserDefinedFunctionAsync(
 );
 ```
 
-<!-- Source: how-to-use-stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/how-to-use-stored-procedures-triggers-udfs.md -->
 
 **JavaScript (Node.js SDK)**
 ```javascript
@@ -665,7 +665,7 @@ while (iterator.HasMoreResults)
 }
 ```
 
-<!-- Source: how-to-use-stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/how-to-use-stored-procedures-triggers-udfs.md -->
 
 ### UDF Limitations
 
@@ -673,7 +673,7 @@ UDFs keep things simple, but that simplicity comes with trade-offs:
 
 - **No database access.** A UDF can't read or write items. It's a pure function.
 - **No context object.** Unlike stored procedures and triggers, UDFs don't get `getContext()`. They receive parameters and return a value — that's it.
-- **Performance impact on queries.** A UDF in a `WHERE` clause forces the engine to evaluate the JavaScript function for every candidate document, effectively bypassing the index for that predicate. <!-- Source: community-confirmed behavior; no explicit docs statement --> For large datasets, this can make queries significantly more expensive in RUs. If you can express the same filter using built-in SQL operators, prefer that. Use UDFs for logic that genuinely can't be expressed any other way.
+- **Performance impact on queries.** A UDF in a `WHERE` clause forces the engine to evaluate the JavaScript function for every candidate document, effectively bypassing the index for that predicate. <!-- TODO: source needed for "UDF in WHERE clause bypasses the index" --> For large datasets, this can make queries significantly more expensive in RUs. If you can express the same filter using built-in SQL operators, prefer that. Use UDFs for logic that genuinely can't be expressed any other way.
 - **No module imports.** The same restriction as stored procedures and triggers — your function must be self-contained.
 
 ## Performance Considerations
@@ -684,7 +684,7 @@ Server-side JavaScript isn't a magic performance booster, but it has genuine adv
 
 Stored procedures, triggers, and UDFs are implicitly **pre-compiled to byte code** when they're registered. This means the compilation cost is paid once, at registration time, not on every invocation. Subsequent calls skip parsing and compiling, going straight to execution. This makes invocations fast and lightweight in terms of overhead — especially for frequently-called procedures.
 
-<!-- Source: stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/stored-procedures-triggers-udfs.md -->
 
 ### Batching Benefits
 
@@ -698,7 +698,7 @@ Server-side JavaScript isn't free. Beyond the 5-second timeout and the single-pa
 
 - **Debugging is harder.** You can enable script logging by setting `EnableScriptLogging` to `true` in the request options, which gives you `console.log()` output in the response headers. But there's no step debugger, no breakpoints, no stack traces with source maps. Test your logic locally before deploying.
 
-<!-- Source: how-to-write-stored-procedures-triggers-udfs.md -->
+<!-- Source: develop-modern-applications/server-side-programming/how-to-write-stored-procedures-triggers-udfs.md -->
 
 - **Versioning is your problem.** Stored procedures are registered by ID. Updating a procedure means replacing it — there's no built-in versioning. Treat your `.js` files as code artifacts: version them in source control, deploy them through your CI/CD pipeline, and test them against the emulator (Chapter 3) before pushing to production.
 - **RU cost variance.** If your procedure's RU consumption varies wildly between invocations (say, sometimes it touches 5 items and sometimes 500), the upfront reservation based on historical averages can lead to budget unpredictability. For more stable RU costs on bulk operations, consider transactional batch or SDK bulk mode instead.

@@ -4,7 +4,7 @@ This is a quick-reference card for the Cosmos DB for NoSQL query language. For n
 
 Every query targets a single container. The language is SQL-like but operates on schema-free JSON items — there are no cross-container joins, no foreign keys, no relational algebra.
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/tutorial-query.md -->
+<!-- Source: develop-modern-applications/tutorial-query.md -->
 
 ## Query Clause Reference
 
@@ -113,8 +113,8 @@ SELECT * FROM c WHERE c.name LIKE "Yamba%"
 SELECT * FROM c WHERE c.sku LIKE "PROD-____"
 ```
 
-> **Performance note:** `LIKE` uses a full index scan. Prefer `STARTSWITH` when matching prefixes — it uses a precise index scan and costs less.
-<!-- Source: mslearn-docs/content/manage-your-account/containers-and-items/index-overview.md -->
+> **Tip:** `LIKE` uses a full index scan. Prefer `STARTSWITH` when matching prefixes — it uses a precise index scan and costs less.
+<!-- Source: manage-your-account/containers-and-items/index-overview.md -->
 
 ### JOIN (Intra-Document)
 
@@ -232,8 +232,8 @@ Use `COUNT(1)` to count all items. All aggregate functions ignore items where th
 
 `CONTAINS`, `ENDSWITH`, `STARTSWITH`, and `StringEquals` accept an optional `ignoreCase` boolean parameter. `RegexMatch` accepts optional `modifiers` (e.g., `"i"` for case-insensitive).
 
-> **Index efficiency:** `STARTSWITH` and `StringEquals` use precise or expanded index scans. `CONTAINS`, `ENDSWITH`, `RegexMatch`, and `LIKE` use full index scans. `UPPER` and `LOWER` trigger full container scans — avoid them in WHERE clauses on large containers.
-<!-- Source: mslearn-docs/content/manage-your-account/containers-and-items/index-overview.md -->
+> **Tip:** `STARTSWITH` and `StringEquals` use precise or expanded index scans. `CONTAINS`, `ENDSWITH`, `RegexMatch`, and `LIKE` use full index scans. `UPPER` and `LOWER` trigger full container scans — avoid them in WHERE clauses on large containers.
+<!-- Source: manage-your-account/containers-and-items/index-overview.md -->
 
 ### Mathematical Functions
 
@@ -320,8 +320,8 @@ All datetime parameters expect ISO 8601 strings. Ticks are 100-nanosecond interv
 
 These functions require a spatial index on the queried property path. See Chapter 9 for spatial index configuration.
 
-<!-- Source: mslearn-docs/content/manage-your-account/containers-and-items/index-overview.md -->
-<!-- Source: mslearn-docs/content/develop-modern-applications/how-to-geospatial-index-query.md -->
+<!-- Source: manage-your-account/containers-and-items/index-overview.md -->
+<!-- Source: develop-modern-applications/how-to-geospatial-index-query.md -->
 
 | Function | Description |
 |----------|-------------|
@@ -346,7 +346,7 @@ WHERE ST_DISTANCE(c.location, {"type":"Point","coordinates":[-122.12, 47.66]}) <
 
 Vector search requires a container vector policy and vector index. See Chapter 25 for full configuration details.
 
-<!-- Source: mslearn-docs/content/build-ai-applications/use-vector-search/vector-search.md -->
+<!-- Source: build-ai-applications/use-vector-search/vector-search.md -->
 
 | Function | Description |
 |----------|-------------|
@@ -369,13 +369,13 @@ FROM c
 ORDER BY VectorDistance(c.contentVector, [1,2,3])
 ```
 
-> **Always use `TOP N`** with vector queries. Without it, the engine attempts to return all results, driving up RU cost and latency dramatically.
+> **Important:** Always use `TOP N` with vector queries. Without it, the engine attempts to return all results, driving up RU cost and latency dramatically.
 
 ### Full-Text Search Functions
 
 Full-text search requires a full-text index and full-text policy on the container. See Chapter 25 for setup.
 
-<!-- Source: mslearn-docs/content/build-ai-applications/full-text-indexing-and-search/gen-ai-full-text-search.md -->
+<!-- Source: build-ai-applications/full-text-indexing-and-search/full-text-search.md -->
 
 | Function | Used in |
 |----------|---------|
@@ -389,7 +389,7 @@ Full-text search requires a full-text index and full-text policy on the containe
 - **FullTextContainsAny** — true if property contains *any* given terms
 - **FullTextScore** — BM25 relevance score
 
-> **`FullTextScore` cannot be projected in `SELECT` or used in `WHERE`.** It can only appear inside an `ORDER BY RANK` clause.
+> **Gotcha:** `FullTextScore` cannot be projected in `SELECT` or used in `WHERE`. It can only appear inside an `ORDER BY RANK` clause.
 
 ```sql
 -- Full-text filter
@@ -411,7 +411,7 @@ WHERE FullTextContains(c.text, "red")
 
 ### Hybrid Search (RRF)
 
-<!-- Source: mslearn-docs/content/build-ai-applications/gen-ai-hybrid-search.md -->
+<!-- Source: build-ai-applications/hybrid-search.md -->
 
 | Function | Used in |
 |----------|---------|
@@ -437,7 +437,7 @@ ORDER BY RANK RRF(VectorDistance(c.vector, [1,2,3]), FullTextScore(c.text, "sear
 
 How you write a query determines which index strategy the engine uses — and that directly affects RU cost.
 
-<!-- Source: mslearn-docs/content/manage-your-account/containers-and-items/index-overview.md -->
+<!-- Source: manage-your-account/containers-and-items/index-overview.md -->
 
 | Strategy | RU Cost |
 |----------|---------|
@@ -461,7 +461,7 @@ When both `STARTSWITH` and `CONTAINS` would work for your query, use `STARTSWITH
 
 ## Per-Request Query Limits
 
-<!-- Source: mslearn-docs/content/manage-your-account/enterprise-readiness/concepts-limits.md -->
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md -->
 
 | Limit | Value |
 |-------|-------|

@@ -2,15 +2,15 @@
 
 This appendix is a copy-paste reference card for managing Azure Cosmos DB for NoSQL from the command line and through infrastructure as code. It covers Azure CLI commands, Bicep templates, and Terraform configurations for the resources you'll deploy most often. For the full CI/CD story — pipelines, environment promotion, and deployment strategies — see Chapter 20.
 
-> **Naming constraint:** Cosmos DB account names must be globally unique, lowercase, contain only letters, numbers, and hyphens, and be between 3–44 characters long. This applies regardless of which tool you use to create them.
-<!-- Source: mslearn-docs/content/manage-your-account/manage-azure-cosmos-db-resources/manage-with-cli.md -->
+> **Important:** Cosmos DB account names must be globally unique, lowercase, contain only letters, numbers, and hyphens, and be between 3–44 characters long. This applies regardless of which tool you use to create them.
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-cli.md -->
 
 ---
 
 ## Azure CLI Commands
 
 All commands use the `az cosmosdb` command group. You need Azure CLI 2.22.1 or later. Set these variables once and reuse them throughout your session:
-<!-- Source: mslearn-docs/content/manage-your-account/manage-azure-cosmos-db-resources/manage-with-cli.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-cli.md -->
 
 ```bash
 resourceGroupName='myResourceGroup'
@@ -39,7 +39,7 @@ az cosmosdb create \
     --locations regionName='East US' failoverPriority=0 isZoneRedundant=False \
     --locations regionName='West US' failoverPriority=1 isZoneRedundant=False
 ```
-<!-- Source: mslearn-docs/content/manage-your-account/manage-azure-cosmos-db-resources/manage-with-cli.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-cli.md -->
 
 **Add a region** to an existing account:
 
@@ -51,7 +51,7 @@ az cosmosdb update -n $accountName -g $resourceGroupName \
 ```
 
 > **Gotcha:** You can't add/remove regions and change other account properties in the same operation. Region modifications must be a separate `az cosmosdb update` call.
-<!-- Source: mslearn-docs/content/manage-your-account/manage-azure-cosmos-db-resources/manage-with-cli.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-cli.md -->
 
 **Enable multi-region writes:**
 
@@ -105,7 +105,7 @@ az cosmosdb keys regenerate \
     -g $resourceGroupName \
     --key-kind secondary
 ```
-<!-- Source: mslearn-docs/content/manage-your-account/manage-azure-cosmos-db-resources/manage-with-cli.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-cli.md -->
 
 ### Database Operations
 
@@ -182,7 +182,7 @@ az cosmosdb sql container create \
     -d $databaseName -n $containerName \
     -p '/customerId' --max-throughput 4000
 ```
-<!-- Source: mslearn-docs/content/manage-your-account/manage-azure-cosmos-db-resources/manage-with-cli.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-cli.md -->
 
 **Enable TTL** on an existing container (86400 seconds = 1 day):
 
@@ -249,7 +249,7 @@ az lock create --name "$containerName-Lock" \
     --parent "databaseAccounts/$accountName/sqlDatabases/$databaseName" \
     --resource $containerName
 ```
-<!-- Source: mslearn-docs/content/manage-your-account/manage-azure-cosmos-db-resources/manage-with-cli.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-cli.md -->
 
 > **Tip:** Use `--lock-type ReadOnly` instead of `CanNotDelete` to also prevent throughput changes — useful for production containers where accidental scaling could blow your budget.
 
@@ -266,8 +266,8 @@ az deployment group create \
     --parameters primaryRegion='eastus' secondaryRegion='westus'
 ```
 
-> **Key rule:** To change throughput (RU/s) values, redeploy the Bicep file with updated values. You can't modify throughput independently of a deployment.
-<!-- Source: mslearn-docs/content/manage-your-account/manage-azure-cosmos-db-resources/manage-with-bicep.md -->
+> **Important:** To change throughput (RU/s) values, redeploy the Bicep file with updated values. You can't modify throughput independently of a deployment.
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-bicep.md -->
 
 ### Account with Multi-Region and Configurable Consistency
 
@@ -354,7 +354,7 @@ resource account 'Microsoft.DocumentDB/databaseAccounts@2024-02-15-preview' = {
   }
 }
 ```
-<!-- Source: mslearn-docs/content/manage-your-account/manage-azure-cosmos-db-resources/manage-with-bicep.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-bicep.md -->
 
 ### Database and Container with Autoscale Throughput
 
@@ -438,7 +438,7 @@ resource container 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/container
   }
 }
 ```
-<!-- Source: mslearn-docs/content/manage-your-account/manage-azure-cosmos-db-resources/manage-with-bicep.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-bicep.md -->
 
 ### Stored Procedure, Trigger, and UDF
 
@@ -480,7 +480,7 @@ resource userDefinedFunction 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases
   }
 }
 ```
-<!-- Source: mslearn-docs/content/manage-your-account/manage-azure-cosmos-db-resources/manage-with-bicep.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-bicep.md -->
 
 ### Free Tier Account
 
@@ -504,7 +504,7 @@ resource account 'Microsoft.DocumentDB/databaseAccounts@2023-11-15' = {
   }
 }
 ```
-<!-- Source: mslearn-docs/content/manage-your-account/manage-azure-cosmos-db-resources/manage-with-bicep.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-bicep.md -->
 
 ### RBAC Role Definition and Assignment
 
@@ -547,7 +547,7 @@ resource sqlRoleAssignment 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignm
   }
 }
 ```
-<!-- Source: mslearn-docs/content/manage-your-account/manage-azure-cosmos-db-resources/manage-with-bicep.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-bicep.md -->
 
 ---
 
@@ -571,7 +571,7 @@ provider "azurerm" {
   features {}
 }
 ```
-<!-- Source: mslearn-docs/content/manage-your-account/manage-azure-cosmos-db-resources/manage-with-terraform.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-terraform.md -->
 
 ### Account with Multi-Region and Consistency Policy
 
@@ -604,7 +604,7 @@ resource "azurerm_cosmosdb_account" "orders" {
   }
 }
 ```
-<!-- Source: mslearn-docs/content/manage-your-account/manage-azure-cosmos-db-resources/manage-with-terraform.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-terraform.md -->
 
 ### Database and Container with Autoscale
 
@@ -664,7 +664,7 @@ resource "azurerm_cosmosdb_sql_container" "orders" {
   }
 }
 ```
-<!-- Source: mslearn-docs/content/manage-your-account/manage-azure-cosmos-db-resources/manage-with-terraform.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-terraform.md -->
 
 ### Database and Container with Manual Throughput
 
@@ -700,7 +700,7 @@ resource "azurerm_cosmosdb_sql_container" "orders" {
   }
 }
 ```
-<!-- Source: mslearn-docs/content/manage-your-account/manage-azure-cosmos-db-resources/manage-with-terraform.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-terraform.md -->
 
 ### Stored Procedure, Trigger, and UDF
 
@@ -729,7 +729,7 @@ resource "azurerm_cosmosdb_sql_function" "calculate_tax" {
   body         = "function tax(income){if(income==undefined)throw'no input';if(income<1000)return income*0.1;else if(income<10000)return income*0.2;else return income*0.4;}"
 }
 ```
-<!-- Source: mslearn-docs/content/manage-your-account/manage-azure-cosmos-db-resources/manage-with-terraform.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-terraform.md -->
 
 ### Free Tier Account
 
@@ -753,7 +753,7 @@ resource "azurerm_cosmosdb_account" "free" {
   }
 }
 ```
-<!-- Source: mslearn-docs/content/manage-your-account/manage-azure-cosmos-db-resources/manage-with-terraform.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-terraform.md -->
 
 ### RBAC Role Definition and Assignment
 
@@ -783,7 +783,7 @@ resource "azurerm_cosmosdb_sql_role_assignment" "app" {
   scope               = azurerm_cosmosdb_account.orders.id
 }
 ```
-<!-- Source: mslearn-docs/content/manage-your-account/manage-azure-cosmos-db-resources/manage-with-terraform.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-terraform.md -->
 
 ---
 

@@ -2,9 +2,9 @@
 
 Every architecture hits a ceiling eventually. This appendix puts all the important ceilings in one place so you can find them before your application does. Bookmark this page — you'll come back to it.
 
-> **A note on currency.** Azure Cosmos DB limits evolve. The numbers here were verified against the official documentation at time of writing, but always confirm against [the current limits page](https://learn.microsoft.com/en-us/azure/cosmos-db/concepts-limits) before making a design decision you can't easily reverse.
+> **Note:** Azure Cosmos DB limits evolve. The numbers here were verified against the official documentation at time of writing, but always confirm against [the current limits page](https://learn.microsoft.com/en-us/azure/cosmos-db/concepts-limits) before making a design decision you can't easily reverse.
 
-<!-- Primary source: mslearn-docs/content/manage-your-account/enterprise-readiness/concepts-limits.md -->
+<!-- Primary source: manage-your-account/enterprise-readiness/concepts-limits.md -->
 
 ## Per-Item Limits
 
@@ -21,7 +21,7 @@ These are the constraints on individual documents (items) stored in a container.
 | Maximum numeric precision | IEEE 754 double-precision (64-bit) | Numbers beyond this precision will lose fidelity during round-trips. |
 | Allowed `id` characters | All Unicode except `/` and `\` | The service technically accepts most characters, but the SDKs and connectors (ADF, Spark, Kafka) have known issues with non-ASCII characters. Stick to alphanumeric ASCII or Base64-encode if you must use special characters. |
 
-<!-- Source: concepts-limits.md, "Per-item limits" section -->
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md, "Per-item limits" section -->
 
 ## Per-Container Limits
 
@@ -41,7 +41,7 @@ Containers are where your data lives. These limits shape how much throughput you
 | Maximum paths per unique key constraint | 16 | Can be increased via support ticket. |
 | Maximum TTL value | 2,147,483,647 seconds | ~68 years. Effectively unlimited for practical purposes. |
 
-<!-- Source: concepts-limits.md, "Per-container limits" and "Provisioned throughput" sections -->
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md, "Per-container limits" and "Provisioned throughput" sections -->
 
 ## Per-Database Limits (Shared Throughput)
 
@@ -63,6 +63,8 @@ These formulas determine the floor for a container with its own provisioned thro
 | Manual throughput | 400 RU/s | `MAX(400, storage_GB × 1, highest_ever_RUs / 100)` |
 | Autoscale | 1,000 RU/s (max RU/s) | `MAX(1000, storage_GB × 10, highest_ever_RUs / 10)` |
 
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md, "Minimum throughput limits" section -->
+
 The "highest RU/s ever provisioned" component is the one that surprises people. If you once cranked a container to 50,000 RU/s during a migration, your minimum manual throughput is permanently 500 RU/s for that container — even after you delete all the data. The only escape is to create a new container.
 
 ## Autoscale Limits
@@ -76,7 +78,7 @@ Autoscale adds its own layer of constraints on top of the base provisioned throu
 | Minimum `Tmax` for a container | 1,000 RU/s | Increases based on storage and highest-ever provisioned RU/s. |
 | Minimum `Tmax` for a shared database | 1,000 RU/s | Plus 1,000 RU/s for each container beyond 25. |
 
-<!-- Source: concepts-limits.md, "Limits for autoscale provisioned throughput" section -->
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md, "Limits for autoscale provisioned throughput" section -->
 
 ## Serverless Limits
 
@@ -92,7 +94,7 @@ Serverless is a different account type — you pick it at account creation and c
 | Shared throughput databases | Not supported | Creating one returns an error. |
 | Availability SLA | Aligned with single-region writes | SLA with availability zones applies in supported regions. |
 
-<!-- Source: concepts-limits.md "Serverless" section; serverless.md; serverless-performance.md -->
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md "Serverless" section; throughput-request-units/serverless/serverless.md; throughput-request-units/serverless/serverless-performance.md -->
 
 ## Per-Request Limits
 
@@ -104,6 +106,8 @@ These limits apply to individual operations — reads, writes, queries, stored p
 | Maximum request size | 2 MB | For CRUD operations and stored procedure input. |
 | Maximum response size (paginated query) | 4 MB per page | The SDK handles continuation tokens automatically — a query can return unlimited total data across pages. |
 | Maximum operations in a transactional batch | 100 | All operations must target the same logical partition key. |
+
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md, "Per-request limits" section -->
 
 There's no hard limit on total query duration across pages. When a single page hits the 5-second timeout or the 4 MB response cap, Cosmos DB returns what it has plus a continuation token. Your SDK picks up where it left off.
 
@@ -129,7 +133,7 @@ Your indexing policy determines which paths are indexed and how. Chapter 9 is th
 | Maximum properties in a composite index | 8 | Each composite index can reference up to 8 property paths. |
 | Maximum composite indexes per container | 100 | — |
 
-<!-- Source: concepts-limits.md, "SQL query limits" section -->
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md, "SQL query limits" section -->
 
 ## Control Plane Limits
 
@@ -156,9 +160,9 @@ The control plane manages account metadata — creating databases, updating thro
 
 The throughput-update limit of 25 per 5 minutes is the one that bites automated scaling scripts. If you're programmatically adjusting throughput, batch your changes and add backoff logic.
 
-> **Best practice:** Use a singleton SDK client, and cache database and container references for the lifetime of that client instance. Every time you enumerate databases or containers, you're spending control plane budget.
+> **Tip:** Use a singleton SDK client, and cache database and container references for the lifetime of that client instance. Every time you enumerate databases or containers, you're spending control plane budget.
 
-<!-- Source: concepts-limits.md, "Control plane" section -->
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md, "Control plane" section -->
 
 ## Per-Account Role-Based Access Control
 
@@ -176,6 +180,8 @@ The throughput-update limit of 25 per 5 minutes is the one that bites automated 
 | Maximum resource token expiry time | 24 hours | Can be increased via support ticket. |
 | Maximum clock skew for token authorization | 15 minutes | Keep your clocks synced. |
 
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md, "Role-based access control" and "Per-request limits" sections -->
+
 ## Free Tier Limits
 
 The free tier is a lifetime discount on a single provisioned-throughput account — not a separate SKU. Chapter 11 covers how it fits into the pricing picture.
@@ -190,9 +196,11 @@ The free tier is a lifetime discount on a single provisioned-throughput account 
 | Serverless support | Not available | Free tier only applies to provisioned throughput accounts. |
 | Regions | Single or multi-region | Free tier works with all provisioned throughput features, including global distribution. |
 
-<!-- Source: concepts-limits.md "Azure Cosmos DB free tier account limits"; free-tier.md -->
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md "Azure Cosmos DB free tier account limits"; throughput-request-units/free-tier.md -->
 
-> **Combine with Azure Free Account.** If you create a free-tier Cosmos DB account inside an Azure free account subscription, you get 1,400 RU/s and 50 GB free for the first 12 months (the Azure free account adds 400 RU/s and 25 GB on top of the Cosmos DB free tier). After 12 months, the Cosmos DB free tier discount continues indefinitely.
+> **Tip:** If you create a free-tier Cosmos DB account inside an Azure free account subscription, you get 1,400 RU/s and 50 GB free for the first 12 months (the Azure free account adds 400 RU/s and 25 GB on top of the Cosmos DB free tier). After 12 months, the Cosmos DB free tier discount continues indefinitely.
+
+<!-- Source: throughput-request-units/free-tier.md -->
 
 ## Limits That Can Be Increased
 

@@ -10,7 +10,7 @@ Chapter 8 taught you the query language. This chapter teaches you how to make th
 
 Every time you write an item to a container, Cosmos DB converts it into a tree representation. Each property becomes a node, and scalar values (strings, numbers, booleans) sit at the leaf nodes. Arrays get intermediate nodes for each positional index. The engine then extracts **property paths** from this tree — paths like `/headquarters/country` or `/locations/0/city` — and feeds them into an **inverted index**.
 
-<!-- Source: mslearn-docs/content/manage-your-account/containers-and-items/index-overview.md -->
+<!-- Source: manage-your-account/containers-and-items/index-overview.md -->
 
 The inverted index maps each path-value pair to the set of item IDs that contain it. Think of it like the index in the back of a textbook: instead of scanning every page to find where "partition key" appears, you look it up in the index and jump straight to the relevant pages.
 
@@ -52,7 +52,7 @@ When you create a new container, Cosmos DB applies this indexing policy automati
 }
 ```
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-policy.md -->
+<!-- Source: develop-modern-applications/performance/indexing/index-policy.md -->
 
 Let's decode what this gives you:
 
@@ -70,7 +70,7 @@ A few things the default policy does *not* include:
 
 Two system properties get special treatment regardless of what your policy says: **`id`** and **`_ts`** are always indexed when the indexing mode is `consistent`. You can't disable this, and they don't appear in the policy's path list — they're indexed by the engine itself.
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-policy.md -->
+<!-- Source: develop-modern-applications/performance/indexing/index-policy.md -->
 
 > **Gotcha:** The partition key path is *not* automatically included in the index (unless it happens to be `/id`). If you use an exclude-root strategy (`"excludedPaths": ["/*"]`), you need to explicitly include your partition key path. Without it, queries that filter on the partition key hierarchy will force full scans, costing far more RUs than necessary.
 
@@ -114,7 +114,7 @@ The core mechanism for customizing an indexing policy is controlling which prope
 }
 ```
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/how-to-manage-indexing-policy.md -->
+<!-- Source: develop-modern-applications/performance/indexing/how-to-manage-indexing-policy.md -->
 
 #### Path Syntax
 
@@ -140,7 +140,7 @@ When included and excluded paths conflict, **the more precise path wins**:
 - `/?` is more precise than `/*` — so `/a/?` beats `/a/*`.
 - The root path `/*` must appear in either the included or excluded list.
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-policy.md -->
+<!-- Source: develop-modern-applications/performance/indexing/index-policy.md -->
 
 This precedence system lets you express "index everything under this subtree *except* this one branch" or "exclude this whole subtree *except* these specific leaves" cleanly in a single policy.
 
@@ -156,17 +156,17 @@ This precedence system lets you express "index everything under this subtree *ex
 - **Single-property `ORDER BY`:** `ORDER BY c.createdAt`
 - **Array containment:** `ARRAY_CONTAINS(c.tags, 'urgent')`
 
-<!-- Source: mslearn-docs/content/manage-your-account/containers-and-items/index-overview.md -->
+<!-- Source: manage-your-account/containers-and-items/index-overview.md -->
 
 You don't configure range indexes explicitly — they're the default type created for any included path. If a path is in your included list, it gets a range index. The only decision is whether to include or exclude the path.
 
-> **Key rule:** An `ORDER BY` clause on a single property *always* requires a range index on that property. If the path isn't indexed, the query fails — it doesn't just get slow, it returns an error.
+> **Important:** An `ORDER BY` clause on a single property *always* requires a range index on that property. If the path isn't indexed, the query fails — it doesn't just get slow, it returns an error.
 
 ### Spatial Indexes for Geospatial Data
 
 Cosmos DB doesn't create spatial indexes by default. If your documents contain GeoJSON data and you want to use `ST_DISTANCE`, `ST_WITHIN`, or `ST_INTERSECTS` in your queries, you need to explicitly add a spatial index.
 
-<!-- Source: mslearn-docs/content/manage-your-account/containers-and-items/index-overview.md -->
+<!-- Source: manage-your-account/containers-and-items/index-overview.md -->
 
 A spatial index definition specifies the path and the geometry types to index:
 
@@ -189,7 +189,7 @@ A spatial index definition specifies the path and the geometry types to index:
 }
 ```
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/how-to-geospatial-index-query.md -->
+<!-- Source: develop-modern-applications/how-to-geospatial-index-query.md -->
 
 The supported geometry types are **Point**, **Polygon**, **MultiPolygon**, and **LineString**. Your data must be stored as valid [GeoJSON](https://geojson.org/) — Cosmos DB won't index invalid geometry. Chapter 8 covered the spatial query functions; here, just make sure the indexing policy matches the geometry types you're actually querying.
 
@@ -199,7 +199,7 @@ Only include the geometry types you need. Indexing all four types on a path cost
 
 This is where indexing policy customization delivers the biggest bang for the buck. **Composite indexes** are purpose-built for queries that touch multiple properties — multi-property `ORDER BY`, filter-plus-sort combinations, and multi-filter queries where at least one filter is an equality.
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-policy.md -->
+<!-- Source: develop-modern-applications/performance/indexing/index-policy.md -->
 
 The default policy doesn't create any composite indexes. You must define them explicitly, and you need to understand the ordering rules to get them right.
 
@@ -230,7 +230,7 @@ Here's a composite index definition:
 
 Each composite index is an array of path-order pairs. You can define multiple composite indexes per policy. The limits are generous: up to **8 properties per composite index** and up to **100 composite index paths** per container.
 
-<!-- Source: mslearn-docs/content/manage-your-account/enterprise-readiness/concepts-limits.md -->
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md -->
 
 > **Note:** Composite paths have an implicit `/?` at the end — you shouldn't specify `/?` or `/*` in composite paths. They only index scalar values, and the paths are case-sensitive.
 
@@ -251,7 +251,7 @@ For composite index `(name ASC, age ASC)`:
 | `c.age ASC, c.name ASC` | ❌ Wrong property order |
 | `c.name ASC, c.age DESC` | ❌ Mixed sort direction |
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-policy.md -->
+<!-- Source: develop-modern-applications/performance/indexing/index-policy.md -->
 
 A composite index on three paths does *not* serve a query that `ORDER BY`s on only two of them. You need an exact match.
 
@@ -271,7 +271,7 @@ For queries that filter on multiple properties (at least one equality), the rule
 
 Sort direction omitted — irrelevant for filter-only queries. Row 2 fails because the equality filter (`name =`) must precede the range filter in the index. Row 3 fails because `!=` is a range operator, making both filters range-based.
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-policy.md -->
+<!-- Source: develop-modern-applications/performance/indexing/index-policy.md -->
 
 When a query has two range filters, you need *two separate composite indexes* — one for each range property. A single composite index on `(name ASC, age ASC, _ts ASC)` can't optimize both `age > 18` and `_ts > 1612212188` in the same query. Instead, define `(name ASC, age ASC)` and `(name ASC, _ts ASC)` as separate composite indexes.
 
@@ -297,7 +297,7 @@ The rule: filter properties appear first in the composite index, followed by `OR
 
 In these examples, `ts` = `timestamp`. The filter property must appear in the `ORDER BY` clause for the composite index to apply.
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-policy.md -->
+<!-- Source: develop-modern-applications/performance/indexing/index-policy.md -->
 
 #### Composite Indexes with Range Filters
 
@@ -318,7 +318,7 @@ SELECT AVG(c.timestamp) FROM c WHERE c.name = 'John' AND c.age = 25
 
 This query benefits from a composite index on `(name ASC, age ASC, timestamp ASC)` — equality filters first, the aggregated property last. The sort order (`ASC`/`DESC`) doesn't matter for aggregates.
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-policy.md -->
+<!-- Source: develop-modern-applications/performance/indexing/index-policy.md -->
 
 | Index (ASC) | Query Pattern | OK? |
 |---|---|---|
@@ -332,7 +332,7 @@ Here `ts` = `timestamp`. Row 2 fails because the filter property (`name`) must c
 
 **Tuple indexes** solve a specific and common problem: efficiently filtering on *multiple fields within the same array element*. Without a tuple index, a query that checks two properties of an array element can match items where those values appear in *different* elements of the array, leading to false positives or forcing the engine to do extra work.
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-policy.md -->
+<!-- Source: develop-modern-applications/performance/indexing/index-policy.md -->
 
 Consider a document with an `events` array:
 
@@ -372,7 +372,7 @@ WHERE EXISTS (
 )
 ```
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/how-to-manage-indexing-policy.md -->
+<!-- Source: develop-modern-applications/performance/indexing/how-to-manage-indexing-policy.md -->
 
 A few syntax rules for tuple paths:
 
@@ -402,7 +402,7 @@ You have two options:
 
 After the bulk import completes, switch back to `consistent` mode. The engine triggers an index transformation that builds the full index in the background. You can track progress via the SDK.
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-policy.md -->
+<!-- Source: develop-modern-applications/performance/indexing/index-policy.md -->
 
 > **Gotcha:** You can't enable TTL (time-to-live) on a container with `indexingMode: "none"`. If your container uses TTL, use Option 2 instead.
 
@@ -426,7 +426,7 @@ For more on RU cost implications of indexing during bulk operations, see Chapter
 
 Full-text search in Cosmos DB requires two things: a **full-text policy** on the container and a **full-text index** in the indexing policy. The full-text policy defines *which paths contain searchable text and what language they use*. The full-text index tells the engine to *build a specialized text index on those paths*.
 
-<!-- Source: mslearn-docs/content/build-ai-applications/full-text-indexing-and-search/gen-ai-full-text-search.md -->
+<!-- Source: build-ai-applications/full-text-indexing-and-search/gen-ai-full-text-search.md -->
 
 > **Prerequisite:** You must enable the "Full Text & Hybrid Search for NoSQL API" feature on your Cosmos DB account before configuring full-text indexes.
 
@@ -452,7 +452,7 @@ This is a container-level setting, separate from the indexing policy. It declare
 
 Supported languages include English (`en-US`), German (`de-DE`), Spanish (`es-ES`), French (`fr-FR`), Italian (`it-IT`), Portuguese (`pt-PT`), and Brazilian Portuguese (`pt-BR`). Multi-language support beyond English is in preview.
 
-<!-- Source: mslearn-docs/content/build-ai-applications/full-text-indexing-and-search/gen-ai-full-text-search.md -->
+<!-- Source: build-ai-applications/full-text-indexing-and-search/gen-ai-full-text-search.md -->
 
 > **Note:** Wildcards (`*`, `[]`) are not supported in full-text policies or full-text indexes. Each path must be explicit.
 
@@ -477,7 +477,7 @@ With the container policy in place, add a `fullTextIndexes` section to your inde
 }
 ```
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-policy.md -->
+<!-- Source: develop-modern-applications/performance/indexing/index-policy.md -->
 
 The paths in `fullTextIndexes` must match paths declared in the container's full-text policy. Once configured, functions like `FullTextContains`, `FullTextContainsAll`, `FullTextContainsAny`, and `FullTextScore` (for BM25 relevance ranking) use this index. Without it, these functions still work but consume significantly more RUs.
 
@@ -489,7 +489,7 @@ Chapter 25 covers the full-text search query functions and hybrid search pattern
 
 Vector search is one of the most significant additions to Cosmos DB, and its indexing story is different from everything else we've covered. Vector indexes aren't part of the standard inverted index — they're specialized data structures optimized for high-dimensional similarity search.
 
-<!-- Source: mslearn-docs/content/build-ai-applications/use-vector-search/vector-search.md -->
+<!-- Source: build-ai-applications/use-vector-search/vector-search.md -->
 
 > **Prerequisite:** Enable the "Vector Search for NoSQL API" feature on your account before configuring vector indexes.
 
@@ -510,7 +510,7 @@ Before you define a vector index, you need a **container vector policy** that te
 }
 ```
 
-<!-- Source: mslearn-docs/content/build-ai-applications/use-vector-search/vector-search.md -->
+<!-- Source: build-ai-applications/use-vector-search/vector-search.md -->
 
 The key settings:
 
@@ -523,7 +523,7 @@ The key settings:
 Using `float16` instead of `float32` cuts vector storage by 50% with a minor accuracy trade-off — worth considering for large-scale deployments.
 
 > **Important:** You can't modify vector embedding or vector indexing policy settings in place. However, you *don't* need to create a new container — you can drop the existing vector policy and index, then re-add them with the new configuration. Be aware that this triggers a full reindex of your vector data, which consumes RUs and leaves vector search unavailable on that path until the new index builds. Plan your initial settings carefully, but know that the escape hatch exists.
-<!-- Source: mslearn-docs/content/build-ai-applications/use-vector-search/vector-search.md line 203 -->
+<!-- Source: build-ai-applications/use-vector-search/vector-search.md line 203 -->
 
 ### Vector Index Types
 
@@ -539,7 +539,7 @@ You specify the vector index in the indexing policy's `vectorIndexes` section. T
 - **`quantizedFlat`** — Near-100% accuracy. Best for ≤50K vectors per physical partition and filtered searches.
 - **`diskANN`** — High but approximate accuracy. Best for >50K vectors per physical partition at production scale.
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-policy.md -->
+<!-- Source: develop-modern-applications/performance/indexing/index-policy.md -->
 
 **`flat`** stores vectors directly in the standard index. It gives you perfect recall — every search result is guaranteed to be the actual nearest neighbor. The trade-off is a hard limit of 505 dimensions, which rules out most modern embedding models (OpenAI's `text-embedding-ada-002` produces 1536 dimensions).
 
@@ -580,7 +580,7 @@ Both `diskANN` and `quantizedFlat` accept optional parameters to tune the accura
 - **`quantizationByteSize`** — Size in bytes for product quantization (min: 1, max: 512, default: system-determined). Larger values improve search accuracy but increase RU cost and latency. Applies to both `quantizedFlat` and `diskANN`.
 - **`indexingSearchListSize`** — Number of vectors to search during index construction (min: 10, max: 500, default: 100). Larger values build a higher-quality graph but increase ingest latency. Applies to `diskANN` only.
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-policy.md -->
+<!-- Source: develop-modern-applications/performance/indexing/index-policy.md -->
 
 For most workloads, the defaults are a solid starting point. Tune these only after you've benchmarked with representative data and queries.
 
@@ -588,7 +588,7 @@ For most workloads, the defaults are a solid starting point. Tune these only aft
 
 Standard DiskANN builds one index per physical partition. For multi-tenant applications or category-specific searches, you can **shard the DiskANN index** by a property value, creating a separate smaller index for each distinct value.
 
-<!-- Source: mslearn-docs/content/build-ai-applications/use-vector-search/gen-ai-sharded-diskann.md -->
+<!-- Source: build-ai-applications/use-vector-search/gen-ai-sharded-diskann.md -->
 
 Add a `vectorIndexShardKey` to the vector index definition:
 
@@ -625,7 +625,7 @@ Cosmos DB supports two indexing modes, and one deprecated one:
 | **`none`** | No indexing | Bulk imports, KV stores |
 | **`lazy`** *(deprecated)* | Async, lower priority | Never — see below |
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-policy.md -->
+<!-- Source: develop-modern-applications/performance/indexing/index-policy.md -->
 
 **Lazy mode** updates the index at a lower priority when the engine isn't busy with other work. This sounds appealing — lower write latency! — but it means your queries can return **inconsistent or incomplete results**. You might write an item and immediately query for it, only to get zero results because the index hasn't caught up yet.
 
@@ -639,9 +639,9 @@ Every indexing technique we've covered so far works within the bounds of a parti
 
 **Global secondary indexes (GSIs)** address this by letting you create a read-only copy of your data with a *different partition key*. What would be a cross-partition query on the source container becomes a single-partition query on the GSI.
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/global-secondary-indexes-(preview)/global-secondary-indexes.md -->
+<!-- Source: develop-modern-applications/global-secondary-indexes-(preview)/global-secondary-indexes.md -->
 
-> **Preview warning:** GSIs are currently in preview. Don't use them for production workloads until they reach GA.
+> **Warning:** GSIs are currently in preview. Don't use them for production workloads until they reach GA.
 
 ### How GSIs Work
 
@@ -667,7 +667,7 @@ SELECT * FROM c WHERE c.emailAddress = 'priya@example.com'
 
 GSIs add storage cost (you're storing a copy of the data) and RU cost (change feed reads from the source, writes to the GSI). They're eventually consistent, so there's a lag between a write to the source and its appearance in the GSI. You can monitor this lag with the **Global Secondary Index Propagation Latency in Seconds** metric in the Azure portal.
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/global-secondary-indexes-(preview)/global-secondary-indexes.md -->
+<!-- Source: develop-modern-applications/global-secondary-indexes-(preview)/global-secondary-indexes.md -->
 
 The definition query and partition key are **immutable after creation** — choose carefully. Projected properties are flattened to the top level in the GSI, so nested properties like `name.first` become top-level `first`.
 
@@ -684,7 +684,7 @@ Total consumed storage = **data size + index size**. You can view both in the Az
 - When data is deleted, indexes are compacted on a near-continuous basis. Small deletions won't show an immediate decrease in index size.
 - Index size can temporarily grow during physical partition splits, then settle back down.
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-policy.md -->
+<!-- Source: develop-modern-applications/performance/indexing/index-policy.md -->
 
 ### Using Index Metrics to Find What's Missing
 
@@ -705,7 +705,7 @@ FeedResponse<Order> response = await iterator.ReadNextAsync();
 Console.WriteLine(response.IndexMetrics);
 ```
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-metrics.md -->
+<!-- Source: develop-modern-applications/performance/indexing/index-metrics.md -->
 
 The output shows two categories:
 
@@ -741,7 +741,7 @@ When you update an indexing policy, the engine performs an **index transformatio
 - **Adding a new index:** Queries don't use it until the transformation completes. Old query performance is unchanged during the build.
 - **Removing an index:** Takes effect immediately. The engine stops using the dropped index and falls back to a full scan for queries that depended on it.
 
-<!-- Source: mslearn-docs/content/develop-modern-applications/performance/indexing/index-policy.md -->
+<!-- Source: develop-modern-applications/performance/indexing/index-policy.md -->
 
 Because add and remove have asymmetric timing, be careful when *replacing* one index with another (say, swapping a single-path index for a composite index). Add the new index first, wait for the transformation to complete, *then* remove the old one. If you remove first, queries depending on the old index will fall back to full scans until the new one finishes building.
 
@@ -752,7 +752,7 @@ You can track transformation progress via the SDK by checking the `x-ms-document
 ### The Write Cost Trade-off
 
 Every indexed path adds to the RU cost of writes. A point write on a 1 KB document with the default "index everything" policy typically costs around 5–7 RUs. Excluding paths you don't query reduces that cost. For write-heavy workloads, the savings compound fast.
-<!-- Source: key-value-store-cost.md (5 RU baseline for a 1 KB write without indexing); with the default index-all policy, actual cost is higher and varies with document structure and number of indexed paths -->
+<!-- Source: develop-modern-applications/performance/key-value-store-cost.md (5 RU baseline for a 1 KB write without indexing); with the default index-all policy, actual cost is higher and varies with document structure and number of indexed paths -->
 
 The flip side: excluding a path means queries on that path fall back to full scans, which costs more RUs per query. The optimization is straightforward — if you query a path rarely but write to the container constantly, exclude it. If you query it on every request, include it.
 
@@ -770,6 +770,6 @@ Chapter 10 dives into the exact RU mechanics of reads and writes. Chapter 27 cov
 | `quantizedFlat`/`diskANN` max dims | 4,096 |
 | Min vectors for quantization | 1,000 |
 
-<!-- Source: mslearn-docs/content/manage-your-account/enterprise-readiness/concepts-limits.md, mslearn-docs/content/build-ai-applications/use-vector-search/vector-search.md -->
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md, build-ai-applications/use-vector-search/vector-search.md -->
 
 Your indexing policy is one of the most powerful — and most frequently under-tuned — knobs in Cosmos DB. The default gets you started. Composite indexes, path exclusions, and specialized index types get you to production-grade performance. Next up, Chapter 10 takes a deep look at how request units work and how every operation — including the indexing work behind every write — maps to a concrete cost.

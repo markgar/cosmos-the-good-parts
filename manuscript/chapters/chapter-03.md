@@ -6,7 +6,7 @@ You've got the mental model — accounts, databases, containers, items, RUs, par
 
 Every Cosmos DB journey starts with an account. The account is the top-level resource — it gives you a unique DNS endpoint, holds your region configuration, and anchors all your databases and containers. Here's how to create one.
 
-<!-- Source: quickstart-portal.md, how-to-create-account.md -->
+<!-- Source: get-started/deploy/quickstart-portal.md, how-to-create-account.md --> <!-- TODO: how-to-create-account.md not found in mslearn-docs mirror -->
 
 1. Sign in to the [Azure portal](https://portal.azure.com).
 2. Type **Azure Cosmos DB** in the global search bar and select the service.
@@ -24,7 +24,7 @@ Every Cosmos DB journey starts with an account. The account is the top-level res
 
 *Account name allows lowercase letters, numbers, and hyphens. It becomes your endpoint: `https://<account-name>.documents.azure.com`.
 
-<!-- Source: how-to-create-account.md, quickstart-portal.md -->
+<!-- Source: how-to-create-account.md, get-started/deploy/quickstart-portal.md --> <!-- TODO: how-to-create-account.md not found in mslearn-docs mirror -->
 
 5. Click **Review + create**, wait for validation, then click **Create**.
 6. Deployment takes a couple of minutes. When it finishes, click **Go to resource**.
@@ -35,7 +35,7 @@ A few notes on those settings:
 
 - **Account name** can't be changed after creation — it's baked into your endpoint URL. Pick something meaningful.
 - **Location** determines your primary region; you can add more regions later.
-- **Capacity mode** is nearly permanent. You can convert a serverless account to provisioned throughput, but the change is irreversible — you can't switch back. Provisioned accounts can't be converted to serverless. Choose deliberately. <!-- Source: how-to-change-capacity-mode.md -->
+- **Capacity mode** is nearly permanent. You can convert a serverless account to provisioned throughput, but the change is irreversible — you can't switch back. Provisioned accounts can't be converted to serverless. Choose deliberately. <!-- Source: manage-your-account/how-to-change-capacity-mode.md -->
 
 If you're just learning, **free tier** (covered below) is the best starting point — you get 1,000 RU/s free for the lifetime of the account. If you'd rather skip the free tier commitment and just pay per request while experimenting, serverless is the alternative.
 
@@ -51,7 +51,7 @@ az cosmosdb create \
     --default-consistency-level Session
 ```
 
-<!-- Source: how-to-create-account.md -->
+<!-- Source: how-to-create-account.md --> <!-- TODO: how-to-create-account.md not found in mslearn-docs mirror -->
 
 And the PowerShell equivalent:
 
@@ -64,7 +64,7 @@ New-AzCosmosDBAccount `
     -DefaultConsistencyLevel "Session"
 ```
 
-<!-- Source: how-to-create-account.md -->
+<!-- Source: how-to-create-account.md --> <!-- TODO: how-to-create-account.md not found in mslearn-docs mirror -->
 
 Bicep and Terraform templates work too — any approach that lets you check your infrastructure into source control. We'll cover infrastructure-as-code patterns for Cosmos DB in Chapter 20.
 
@@ -76,22 +76,22 @@ Once your account exists, a handful of account-level settings shape how everythi
 
 **Geo-replication.** You can add or remove Azure regions at any time from the **Replicate data globally** blade. Adding a region replicates all your data there and gives your users lower-latency reads from the nearest region. We'll cover multi-region configuration in Chapter 12.
 
-**Multi-region writes.** Disabled by default. When enabled, every region can accept writes — not just reads. This unlocks the 99.999% read-and-write availability SLA but introduces conflict resolution complexity. Again, Chapter 12.
+**Multi-region writes.** Disabled by default. When enabled, every region can accept writes — not just reads. This unlocks the 99.999% read-and-write availability SLA but introduces conflict resolution complexity. Again, Chapter 12. <!-- Source: high-availability/global-distribution/distribute-data-globally.md -->
 
 **Networking.** By default, your account is accessible from all networks. You can restrict access to specific virtual networks, private endpoints, or IP ranges. Chapter 17 covers this in detail.
 
 ### Free Tier
 
-If you're learning, prototyping, or running a small workload, **free tier** is your best friend. It gives you **1,000 RU/s of throughput and 25 GB of storage, free for the lifetime of the account**. Not a trial. Not 30 days. The lifetime of the account. <!-- Source: free-tier.md -->
+If you're learning, prototyping, or running a small workload, **free tier** is your best friend. It gives you **1,000 RU/s of throughput and 25 GB of storage, free for the lifetime of the account**. Not a trial. Not 30 days. The lifetime of the account. <!-- Source: throughput-request-units/free-tier.md -->
 
 The rules are simple:
 
-- One free tier account per Azure subscription. <!-- Source: free-tier.md -->
-- You must opt in at account creation — you can't enable it after the fact. <!-- Source: free-tier.md -->
-- Free tier is available for all API types and works with provisioned throughput, autoscale, and single or multi-region configurations. Free tier is *not* available for serverless accounts — if you chose serverless above, you can't combine it with free tier. <!-- Source: free-tier.md -->
-- The free tier discount is applied as a credit. Anything beyond 1,000 RU/s or 25 GB is billed at regular rates. <!-- Source: free-tier.md -->
+- One free tier account per Azure subscription. <!-- Source: throughput-request-units/free-tier.md -->
+- You must opt in at account creation — you can't enable it after the fact. <!-- Source: throughput-request-units/free-tier.md -->
+- Free tier is available for all API types and works with provisioned throughput, autoscale, and single or multi-region configurations. Free tier is *not* available for serverless accounts — if you chose serverless above, you can't combine it with free tier. <!-- Source: throughput-request-units/free-tier.md -->
+- The free tier discount is applied as a credit. Anything beyond 1,000 RU/s or 25 GB is billed at regular rates. <!-- Source: throughput-request-units/free-tier.md -->
 
-If you combine free tier with an Azure free account (which gives an additional 400 RU/s and 25 GB for the first 12 months), you get a combined 1,400 RU/s and 50 GB to start. After the Azure free account period expires, you keep the Cosmos DB free tier indefinitely. <!-- Source: free-tier.md -->
+If you combine free tier with an Azure free account (which gives an additional 400 RU/s and 25 GB for the first 12 months), you get a combined 1,400 RU/s and 50 GB to start. After the Azure free account period expires, you keep the Cosmos DB free tier indefinitely. <!-- Source: throughput-request-units/free-tier.md -->
 
 For the full pricing picture — provisioned vs. serverless costs, autoscale economics, reserved capacity discounts — see Chapter 11.
 
@@ -118,7 +118,7 @@ With your account ready, you need a database and at least one container before y
 
 †Choose carefully — partition keys can't be changed after creation. Autoscale scales between 10% and 100% of the max RU/s value.
 
-<!-- Source: quickstart-portal.md, resource-model.md -->
+<!-- Source: get-started/deploy/quickstart-portal.md, manage-your-account/resource-model.md -->
 
 4. Click **OK**.
 
@@ -129,9 +129,9 @@ You'll see the new database and container appear in the Data Explorer tree. Expa
 When you create a container, you need to decide whether it gets its own throughput or shares it with other containers at the database level. Here's the quick version:
 
 - **Dedicated throughput**: This container gets its own reserved RU/s. Use this for containers with predictable, high-traffic workloads.
-- **Shared throughput**: RU/s are provisioned at the database level and shared across up to 25 containers. Good for multiple small containers with similar workload patterns. <!-- Source: resource-model.md -->
+- **Shared throughput**: RU/s are provisioned at the database level and shared across up to 25 containers. Good for multiple small containers with similar workload patterns. <!-- Source: manage-your-account/resource-model.md -->
 
-You can't switch a container between shared and dedicated throughput after creation. You'd have to create a new container and copy the data. Plan this up front. <!-- Source: resource-model.md -->
+You can't switch a container between shared and dedicated throughput after creation. You'd have to create a new container and copy the data. Plan this up front. <!-- Source: manage-your-account/resource-model.md -->
 
 ### Seeding Sample Data
 
@@ -210,8 +210,8 @@ For getting started and local development, keys are convenient. For anything bey
 
 The **Data Explorer** is the built-in web UI for interacting with your Cosmos DB data. You can access it two ways:
 
-- **In the Azure portal**: Navigate to your Cosmos DB account and select **Data Explorer** from the left menu. <!-- Source: data-explorer.md -->
-- **Standalone at cosmos.azure.com**: The dedicated Data Explorer at `https://cosmos.azure.com` gives you a full-screen experience with the same capabilities, plus the ability to share query results with people who don't have portal access. <!-- Source: data-explorer.md -->
+- **In the Azure portal**: Navigate to your Cosmos DB account and select **Data Explorer** from the left menu. <!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/azure-cosmos-db-data-explorer/data-explorer.md -->
+- **Standalone at cosmos.azure.com**: The dedicated Data Explorer at `https://cosmos.azure.com` gives you a full-screen experience with the same capabilities, plus the ability to share query results with people who don't have portal access. <!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/azure-cosmos-db-data-explorer/data-explorer.md -->
 
 What can you do in Data Explorer?
 
@@ -219,7 +219,7 @@ What can you do in Data Explorer?
 - **Create and edit items.** Click **New Item** to write JSON directly, or select an existing item to modify it.
 - **Run queries.** Select **New SQL Query** to open a query editor. Write SQL-like queries, execute them, and see results — including query stats like RU charge and index utilization.
 - **Manage resources.** Create and delete databases, containers, and even stored procedures from the UI.
-- **Customize columns.** The Custom Column Selector lets you pick which properties appear as columns in the item list — handy when your documents have many fields and you want to focus on the ones that matter. <!-- Source: data-explorer.md -->
+- **Customize columns.** The Custom Column Selector lets you pick which properties appear as columns in the item list — handy when your documents have many fields and you want to focus on the ones that matter. <!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/azure-cosmos-db-data-explorer/data-explorer.md -->
 
 Data Explorer is invaluable for ad-hoc exploration, quick debugging, and learning the query language. It's not a production tool — you won't build your application on it — but you'll keep it open in a browser tab constantly during development.
 
@@ -258,7 +258,7 @@ That's the full loop: create an item, query it, observe the cost. Everything els
 
 ## The VS Code Extension for Cosmos DB
 
-If you live in Visual Studio Code (and most developers do), the **DocumentDB for Visual Studio Code** extension brings Cosmos DB management into your editor. <!-- Source: visual-studio-code-extension.md -->
+If you live in Visual Studio Code (and most developers do), the **DocumentDB for Visual Studio Code** extension brings Cosmos DB management into your editor. <!-- Source: develop-modern-applications/visual-studio-code-extension.md -->
 
 ### Installation
 
@@ -267,7 +267,7 @@ If you live in Visual Studio Code (and most developers do), the **DocumentDB for
 3. Search for **DocumentDB for Visual Studio Code** and install it.
 4. Reload VS Code if prompted.
 
-<!-- Source: visual-studio-code-extension.md -->
+<!-- Source: develop-modern-applications/visual-studio-code-extension.md -->
 
 ### Connecting to Your Account
 
@@ -275,13 +275,13 @@ If you live in Visual Studio Code (and most developers do), the **DocumentDB for
 2. Sign in via Microsoft Entra ID.
 3. Expand your subscription to find your Cosmos DB account.
 
-<!-- Source: visual-studio-code-extension.md -->
+<!-- Source: develop-modern-applications/visual-studio-code-extension.md -->
 
 ### What You Can Do
 
-- **Query editor.** Right-click a container to open the Query Editor (preview). Run queries and view results in table, JSON, or tree format. The Stats tab shows query metrics and index usage — the same diagnostic data you'd see in the portal. <!-- Source: visual-studio-code-extension.md -->
-- **Document editing.** Add, view, edit, and delete items directly. You can also import data from JSON files. <!-- Source: visual-studio-code-extension.md -->
-- **Export results.** Download query results as CSV or JSON. <!-- Source: visual-studio-code-extension.md -->
+- **Query editor.** Right-click a container to open the Query Editor (preview). Run queries and view results in table, JSON, or tree format. The Stats tab shows query metrics and index usage — the same diagnostic data you'd see in the portal. <!-- Source: develop-modern-applications/visual-studio-code-extension.md -->
+- **Document editing.** Add, view, edit, and delete items directly. You can also import data from JSON files. <!-- Source: develop-modern-applications/visual-studio-code-extension.md -->
+- **Export results.** Download query results as CSV or JSON. <!-- Source: develop-modern-applications/visual-studio-code-extension.md -->
 
 The VS Code extension is especially useful when you're writing code and need to inspect data without leaving your editor. It doesn't replace the portal for complex tasks, but for the daily workflow of "run a query, check an item, tweak some data," it's faster.
 
@@ -289,7 +289,7 @@ The VS Code extension is especially useful when you're writing code and need to 
 
 This is the section where we go deep. If you need to run Cosmos DB locally — for development, testing, or CI/CD — this is the reference.
 
-The Azure Cosmos DB emulator provides a local environment that emulates the cloud Cosmos DB service. You can develop and test without an Azure subscription, without internet access, and without incurring any service costs. When your application works against the emulator, switching to the cloud service is a connection string change. <!-- Source: emulator.md -->
+The Azure Cosmos DB emulator provides a local environment that emulates the cloud Cosmos DB service. You can develop and test without an Azure subscription, without internet access, and without incurring any service costs. When your application works against the emulator, switching to the cloud service is a connection string change. <!-- Source: develop-modern-applications/emulator/emulator.md -->
 
 There are two flavors of the emulator, and they're quite different.
 
@@ -303,13 +303,13 @@ This is the original emulator. It's a Windows application that installs locally 
 2. Run the installer with administrative privileges.
 3. The emulator installs developer certificates and configures firewall rules automatically.
 
-<!-- Source: how-to-develop-emulator.md -->
+<!-- Source: develop-modern-applications/how-to-develop-emulator.md -->
 
 **Starting the emulator:**
 
 After installation, the emulator starts automatically and opens a browser to the local Data Explorer at `https://localhost:8081/_explorer/index.html`. You can also start it from the Start menu or via PowerShell.
 
-**Requirements:** <!-- Source: how-to-develop-emulator.md -->
+**Requirements:** <!-- Source: develop-modern-applications/how-to-develop-emulator.md -->
 
 - 64-bit Windows Server 2016/2019 or Windows 10/11
 - Minimum 2 GB RAM, 10 GB disk space
@@ -322,9 +322,9 @@ Every emulator instance uses the same well-known credentials by default:
 - **Key:** `C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==`
 - **Connection string:** `AccountEndpoint=https://localhost:8081/;AccountKey=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==;`
 
-<!-- Source: emulator.md -->
+<!-- Source: develop-modern-applications/emulator/emulator.md -->
 
-Yes, that key is the same for every developer on every machine. It's well-known and published in the docs. This is intentional — the emulator is for local development only and should never be used for production workloads. If you need a custom key, you can specify one at startup with the `/Key` parameter. <!-- Source: emulator.md, emulator-windows-arguments.md -->
+Yes, that key is the same for every developer on every machine. It's well-known and published in the docs. This is intentional — the emulator is for local development only and should never be used for production workloads. If you need a custom key, you can specify one at startup with the `/Key` parameter. <!-- Source: develop-modern-applications/emulator/emulator.md, develop-modern-applications/emulator/emulator-windows-arguments.md -->
 
 **Command-line control:**
 
@@ -346,7 +346,7 @@ The Windows emulator executable (`Microsoft.Azure.Cosmos.Emulator.exe`) accepts 
 
 †Default data path: `%LocalAppData%\CosmosDBEmulator`.
 
-<!-- Source: emulator-windows-arguments.md -->
+<!-- Source: develop-modern-applications/emulator/emulator-windows-arguments.md -->
 
 **PowerShell module:**
 
@@ -365,13 +365,13 @@ Get-CosmosDbEmulatorStatus
 Stop-CosmosDbEmulator
 ```
 
-<!-- Source: emulator-windows-arguments.md -->
+<!-- Source: develop-modern-applications/emulator/emulator-windows-arguments.md -->
 
 The PowerShell cmdlets accept the same configuration options as the command-line arguments — consistency level, port numbers, partition count, and so on — as named parameters on `Start-CosmosDbEmulator`.
 
 ### The Linux-Based vNext Emulator (Docker)
 
-The newer emulator is entirely Linux-based and ships as a Docker container. It's the recommended path if you're on macOS, Linux, or if you want a container-native workflow for CI/CD pipelines. At the time of writing, it's in **preview**. <!-- Source: emulator-linux.md -->
+The newer emulator is entirely Linux-based and ships as a Docker container. It's the recommended path if you're on macOS, Linux, or if you want a container-native workflow for CI/CD pipelines. At the time of writing, it's in **preview**. <!-- Source: develop-modern-applications/emulator/emulator-linux.md -->
 
 **Prerequisites:** [Docker Desktop](https://www.docker.com/) (or any Docker-compatible runtime).
 
@@ -381,7 +381,7 @@ The newer emulator is entirely Linux-based and ships as a Docker container. It's
 docker pull mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview
 ```
 
-<!-- Source: emulator-linux.md -->
+<!-- Source: develop-modern-applications/emulator/emulator-linux.md -->
 
 The image is published on the Microsoft Artifact Registry (MCR) under `mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview`.
 
@@ -395,20 +395,20 @@ docker run \
     mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview
 ```
 
-<!-- Source: emulator-linux.md -->
+<!-- Source: develop-modern-applications/emulator/emulator-linux.md -->
 
 Two ports are exposed:
 
 - **Port 8081** — the Cosmos DB gateway endpoint (same as the Windows emulator)
 - **Port 1234** — the Data Explorer web UI
 
-<!-- Source: emulator-linux.md -->
+<!-- Source: develop-modern-applications/emulator/emulator-linux.md -->
 
-Once the container is running, the gateway endpoint is available at `http://localhost:8081` and the Data Explorer at `http://localhost:1234`. The gateway is typically available immediately; the Data Explorer may take a few seconds. <!-- Source: emulator-linux.md -->
+Once the container is running, the gateway endpoint is available at `http://localhost:8081` and the Data Explorer at `http://localhost:1234`. The gateway is typically available immediately; the Data Explorer may take a few seconds. <!-- Source: develop-modern-applications/emulator/emulator-linux.md -->
 
 **HTTPS mode:**
 
-By default, the vNext emulator starts in **HTTP** mode. The .NET and Java SDKs don't support HTTP mode, so if you're using either of those, you need to start the emulator with HTTPS explicitly: <!-- Source: emulator-linux.md -->
+By default, the vNext emulator starts in **HTTP** mode. The .NET and Java SDKs don't support HTTP mode, so if you're using either of those, you need to start the emulator with HTTPS explicitly: <!-- Source: develop-modern-applications/emulator/emulator-linux.md -->
 
 ```bash
 docker run \
@@ -419,7 +419,7 @@ docker run \
     --protocol https
 ```
 
-<!-- Source: emulator-linux.md -->
+<!-- Source: develop-modern-applications/emulator/emulator-linux.md -->
 
 For the Java SDK specifically, you'll also need to export the emulator's TLS certificate and import it into your local Java trust store:
 
@@ -432,7 +432,7 @@ openssl s_client -connect localhost:8081 </dev/null \
 keytool -cacerts -importcert -alias cosmos_emulator -file cosmos_emulator.cert
 ```
 
-<!-- Source: emulator-linux.md -->
+<!-- Source: develop-modern-applications/emulator/emulator-linux.md -->
 
 **Configuration options:**
 
@@ -451,7 +451,7 @@ The vNext emulator accepts configuration through command-line arguments or envir
 
 Each argument has a corresponding environment variable: `PORT`, `PROTOCOL`, `ENABLE_EXPLORER`, `EXPLORER_PORT`, `DATA_PATH`, `KEY_FILE`, `LOG_LEVEL`, `ENABLE_OTLP_EXPORTER`.
 
-<!-- Source: emulator-linux.md -->
+<!-- Source: develop-modern-applications/emulator/emulator-linux.md -->
 
 **Persisting data across container restarts:**
 
@@ -480,7 +480,7 @@ services:
       PROTOCOL: https
 ```
 
-<!-- Source: emulator-linux.md -->
+<!-- Source: develop-modern-applications/emulator/emulator-linux.md -->
 
 GitHub Actions manages the container lifecycle — it starts before your job and tears down after. Your tests connect to `localhost:8081` using the well-known key. No Azure account needed, no cleanup, no costs.
 
@@ -510,7 +510,7 @@ The cloud service supports all listed features fully — this table shows only w
 
 *The Windows emulator flags the consistency level for testing but doesn't implement actual distributed consistency. †Default: 25 fixed-size containers at 400 RU/s or 5 unlimited; 10 fixed-size recommended for stability. Max 250 fixed-size or 50 unlimited via `/PartitionCount`. ‡.NET bulk operations not supported in vNext.
 
-<!-- Source: emulator.md, emulator-linux.md -->
+<!-- Source: develop-modern-applications/emulator/emulator.md, develop-modern-applications/emulator/emulator-linux.md -->
 
 A few things to highlight:
 
@@ -518,9 +518,9 @@ A few things to highlight:
 
 **The emulator doesn't truly implement consistency levels.** It accepts the consistency setting and passes it through, but since there's only one node with no replication, there's nothing to actually enforce. Don't use the emulator to test consistency behavior — that requires the cloud service with multiple regions.
 
-**The emulator's Data Explorer** works for NoSQL and MongoDB on the Windows version. The vNext emulator has its own Data Explorer on port 1234, but it's NoSQL-only. <!-- Source: emulator.md, emulator-linux.md -->
+**The emulator's Data Explorer** works for NoSQL and MongoDB on the Windows version. The vNext emulator has its own Data Explorer on port 1234, but it's NoSQL-only. <!-- Source: develop-modern-applications/emulator/emulator.md, develop-modern-applications/emulator/emulator-linux.md -->
 
-**The well-known key can't be regenerated at runtime.** If you need a different key, you must start the emulator with a custom key specified upfront (via `/Key` on Windows or `--key-file` on vNext). <!-- Source: emulator.md -->
+**The well-known key can't be regenerated at runtime.** If you need a different key, you must start the emulator with a custom key specified upfront (via `/Key` on Windows or `--key-file` on vNext). <!-- Source: develop-modern-applications/emulator/emulator.md -->
 
 ### Which Emulator Should You Use?
 
@@ -554,7 +554,7 @@ For both languages, you'll need:
 dotnet add package Microsoft.Azure.Cosmos
 ```
 
-<!-- Source: quickstart-dotnet.md -->
+<!-- Source: get-started/develop/quickstart-dotnet.md -->
 
 **Connect and write your first item:**
 
@@ -592,7 +592,7 @@ Console.WriteLine($"Status: {response.StatusCode}");
 Console.WriteLine($"RU charge: {response.RequestCharge}");
 ```
 
-<!-- Source: quickstart-dotnet.md (adapted for clarity) -->
+<!-- Source: get-started/develop/quickstart-dotnet.md (adapted for clarity) -->
 
 A few things to note:
 
@@ -612,7 +612,7 @@ Console.WriteLine($"Name: {readResponse.Resource.name}");
 Console.WriteLine($"RU charge: {readResponse.RequestCharge}");
 ```
 
-This is a **point read** — the cheapest, fastest operation in Cosmos DB. You provide the `id` and partition key, and the engine goes directly to the right partition and retrieves the item. Expect ~1 RU for a 1 KB document. <!-- Source: request-units.md -->
+This is a **point read** — the cheapest, fastest operation in Cosmos DB. You provide the `id` and partition key, and the engine goes directly to the right partition and retrieves the item. Expect ~1 RU for a 1 KB document. <!-- Source: throughput-request-units/request-units.md -->
 
 **Query items:**
 
@@ -636,7 +636,7 @@ while (feed.HasMoreResults)
 }
 ```
 
-<!-- Source: quickstart-dotnet.md (adapted) -->
+<!-- Source: get-started/develop/quickstart-dotnet.md (adapted) -->
 
 Queries return paginated results. The `FeedIterator` pattern handles this — you loop through pages until `HasMoreResults` is false. Each page reports its own RU charge.
 
@@ -648,7 +648,7 @@ Queries return paginated results. The `FeedIterator` pattern handles this — yo
 pip install azure-cosmos
 ```
 
-<!-- Source: quickstart-python.md -->
+<!-- Source: get-started/develop/quickstart-python.md -->
 
 **Connect and write your first item:**
 
@@ -679,7 +679,7 @@ result = container.upsert_item(product)
 print(f"Item created: {result['id']}")
 ```
 
-<!-- Source: quickstart-python.md (adapted) -->
+<!-- Source: get-started/develop/quickstart-python.md (adapted) -->
 
 **Read the item back:**
 
@@ -707,7 +707,7 @@ for item in items:
     print(f"  {item['name']} - ${item['price']}")
 ```
 
-<!-- Source: quickstart-python.md (adapted) -->
+<!-- Source: get-started/develop/quickstart-python.md (adapted) -->
 
 You may see `enable_cross_partition_query=True` in older examples — the early Python SDK required you to opt in to cross-partition queries explicitly. Current SDK versions handle this automatically, so you can omit it. The important lesson here is that filtering on the partition key (`category`) routes the query to a single partition, keeping RU costs low. Cross-partition queries are covered in Chapter 8.
 

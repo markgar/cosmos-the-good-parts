@@ -3,7 +3,7 @@
 Every write to a Cosmos DB container — every insert, every update — gets recorded in an ordered, persistent log. That log is the **change feed**, and it's the foundation for every reactive pattern in this book. It turns Cosmos DB from a database you query into a database that *tells you* when something happens.
 
 You don't enable the change feed. It's on by default for every container, with zero configuration and no additional cost beyond the RUs you spend reading it. There's no toggle, no opt-in, no separate storage tier. Every container has a change feed from the moment it's created, whether you use it or not.
-<!-- Source: change-feed.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed.md -->
 
 The implications are significant. The change feed enables you to:
 
@@ -18,23 +18,23 @@ If you read Chapter 4's discussion of denormalization and Chapter 6's event sour
 ## What the Change Feed Captures
 
 The change feed is a persistent, ordered log of changes to items in a container. Each change appears exactly once, and within a given logical partition, changes are guaranteed to arrive in modification order. Across partition key values, there's no ordering guarantee — we'll come back to why that matters. Here's how to consume it and what patterns it enables.
-<!-- Source: change-feed.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed.md -->
 
 Items written within a transactional batch, stored procedure, or bulk operation share the same modification timestamp. Changes within that scope may arrive in any order, but they'll all be present.
-<!-- Source: change-feed.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed.md -->
 
 ### Sort Order
 
 Changes are sorted by modification time *within* each logical partition. If customer `cust-337` places three orders in sequence, you'll see those three inserts in order. But if `cust-337` and `cust-500` both write at the same instant, there's no guarantee which appears first. If your application needs a total ordering across all partitions, you'll need to implement that yourself — the change feed gives you per-partition ordering only.
-<!-- Source: change-feed.md, change-feed-design-patterns.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed.md, develop-modern-applications/change-feed/change-feed-design-patterns.md -->
 
 For multi-region write accounts, sorting is based on the conflict-resolved timestamp (`crts`) — the time at which a conflict was resolved (or the absence of a conflict confirmed) in the hub region. This is a detail that matters if you're running multi-region writes and processing the change feed: the order reflects when conflicts are settled, not necessarily when the write originally occurred in the local region.
-<!-- Source: change-feed.md, multi-region-writes.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed.md, high-availability/multi-region-writes/multi-region-writes.md -->
 
 ## Change Feed Modes
 
 Cosmos DB offers two change feed modes. You can consume the same container's change feed in both modes simultaneously from different applications — they're independent.
-<!-- Source: change-feed-modes.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-modes.md -->
 
 ### Latest Version Mode (Default)
 
@@ -46,7 +46,7 @@ Cosmos DB offers two change feed modes. You can consume the same container's cha
 That's it. Deletes are *not* captured. If you delete an item, it vanishes from the change feed as if it never existed. The all versions and deletes mode (covered next) addresses this, but understanding this limitation is critical — it affects how you design systems that depend on the feed.
 
 There's another subtlety: the change feed delivers the *current* state of each item, not a diff. When you read a change, you get the full JSON document as it exists after the modification. If an item was updated three times between your reads, you see only the final version — the intermediate states are gone. This is a log of "what changed," not a log of "every mutation that happened."
-<!-- Source: change-feed-modes.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-modes.md -->
 
 Key characteristics:
 
@@ -54,15 +54,15 @@ Key characteristics:
 - **No intermediate versions.** Only the latest version of a changed item is in the feed. If an item was updated five times between reads, you see the fifth version only.
 - **Unlimited retention.** Changes are available for as long as the item exists in the container. You can read from the beginning of the container's lifetime — there's no expiration window.
 - **Flexible starting point.** You can start reading from the beginning of the container, from a specific point in time (with approximately five-second precision), from "now," or from a saved checkpoint.
-<!-- Source: change-feed-modes.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-modes.md -->
 
 Latest version mode is compatible with all consumption methods: change feed processor, Azure Functions trigger, pull model, and Spark connector. It works with all Cosmos DB account types that support the NoSQL API.
 
 ### All Versions and Deletes Mode (Preview)
-<!-- Source: change-feed-modes.md — still in preview as of June 2025. Verify status before press. -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-modes.md — still in preview as of June 2025. Verify status before press. -->
 
 **All versions and deletes mode** is in preview and addresses the biggest limitation of latest version mode: it captures deletes, intermediate changes, and TTL expirations. Every create, update, and delete is recorded as a separate entry, with metadata indicating the operation type.
-<!-- Source: change-feed-modes.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-modes.md -->
 
 There are prerequisites and constraints:
 
@@ -70,7 +70,7 @@ There are prerequisites and constraints:
 - **NoSQL API only.** Other APIs aren't supported.
 - **Retention is limited** to the continuous backup retention period. With a 7-day retention window, you can't read changes from 8 days ago. This is fundamentally different from latest version mode's unlimited retention.
 - **No reading from the beginning** or from a specific point in time. You can start from "now" or resume from a saved continuation token or lease within the retention window.
-- **Accounts with merged partitions are not supported.** <!-- Source: change-feed-modes.md -->
+- **Accounts with merged partitions are not supported.** <!-- Source: develop-modern-applications/change-feed/change-feed-modes.md -->
 
 The response payloadis richer than latest version mode. Each entry includes a `metadata` object with the `operationType` (`create`, `replace`, or `delete`) and a `crts` (conflict-resolved timestamp). Delete operations include the item's `id` and partition key, plus a `timeToLiveExpired` flag when the delete resulted from TTL expiration. A `current` object holds the item's state for creates and replaces; it's absent for deletes.
 
@@ -91,7 +91,7 @@ Here's what a delete record looks like:
   }
 }
 ```
-<!-- Source: change-feed-modes.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-modes.md -->
 
 > **Gotcha:** The previous version of the item is *not* available in either mode. For deletes, you get the `id` and partition key but not the full document that was deleted. If your downstream system needs the pre-delete state, you must capture it before the delete happens.
 
@@ -106,7 +106,7 @@ Here's what a delete record looks like:
 | **Prerequisites** | None | Continuous backups |
 | **Functions trigger** | Supported | Not supported |
 | **Status** | GA | Preview |
-<!-- Source: change-feed-modes.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-modes.md -->
 
 For most production workloads today, latest version mode is the right choice. It's GA, has no prerequisites, supports all consumption methods, and its unlimited retention makes it resilient to downstream outages — you can always catch up. Reach for all versions and deletes mode when you specifically need delete capture without soft-delete workarounds, when you need audit trails of every mutation, or when intermediate state changes matter to your business logic.
 
@@ -117,12 +117,12 @@ There are four ways to read the change feed, each suited to different scenarios 
 ### Azure Functions Trigger
 
 The Azure Functions trigger for Cosmos DB is the simplest way to consume the change feed. It's built on top of the change feed processor internally, so you get the same reliable event detection and automatic parallelization — but you don't manage any infrastructure.
-<!-- Source: change-feed-functions.md, read-change-feed.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-functions.md, develop-modern-applications/change-feed/read-change-feed.md -->
 
 You create a function, point it at a container, and write your business logic. Azure Functions handles scaling, checkpointing, and lease management behind the scenes. When changes arrive, your function is invoked with a batch of modified documents.
 
 The trigger requires two containers: the **monitored container** (the one generating changes) and a **lease container** (which tracks processing state). The lease container can be auto-created if you set `CreateLeaseContainerIfNotExists` in your trigger configuration. Partitioned lease containers must use `/id` as the partition key.
-<!-- Source: change-feed-functions.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-functions.md -->
 
 Here's a minimal C# Azure Function that processes change feed events:
 
@@ -162,14 +162,14 @@ public class OrderChangeFeedFunction
 ```
 
 There are two important caveats. First, the Azure Functions trigger currently only supports **latest version mode** — you can't use it with all versions and deletes mode. Second, error handling follows the same rules as the underlying change feed processor: if your function throws an unhandled exception, the trigger *does not* advance past the failed batch. The processing thread stops, a new thread picks up from the last checkpoint, and the same batch of changes is delivered to your function again. This continues until the batch succeeds, which means a poison message can stall processing. Build dead-letter logic (a `try`/`catch` that routes failures to a secondary store) so one bad item doesn't block the entire feed.
-<!-- Source: change-feed-processor.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-processor.md -->
 
 We'll explore deeper Azure Functions integration patterns — scaling configuration, batching behavior, and combining triggers with output bindings — in Chapter 22.
 
 ### Change Feed Processor
 
 The **change feed processor** is the most common way to consume the change feed in application code. It's built into the .NET V3 and Java V4 SDKs, and it handles the hard parts: partition distribution, lease management, checkpointing, and fault-tolerant delivery with an **at-least-once guarantee**.
-<!-- Source: change-feed-processor.md, read-change-feed.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-processor.md, develop-modern-applications/change-feed/read-change-feed.md -->
 
 The change feed processor has four components:
 
@@ -181,7 +181,7 @@ The change feed processor has four components:
 | **Delegate** | Your change-handling code |
 
 The lease container holds one document per physical partition range. The compute instance can be a VM, pod, App Service, or any host running your application.
-<!-- Source: change-feed-processor.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-processor.md -->
 
 Here's a production-realistic C# example:
 
@@ -217,13 +217,13 @@ static async Task HandleChangesAsync(
 ```
 
 The processor distributes work automatically. Each physical partition range in the monitored container gets a lease document. If you deploy three instances of your application (each with a unique `WithInstanceName`), the processor divides the leases equally among them. Add a fourth instance? The leases rebalance. One instance crashes? Its leases are picked up by the survivors after the lease expiration period (60 seconds by default).
-<!-- Source: change-feed-processor.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-processor.md -->
 
 **Error handling** deserves attention. If your delegate throws an unhandled exception, the processor restarts processing from the last successful checkpoint and re-delivers the same batch. This continues until your delegate succeeds — which means a poison message can stall processing for that partition range. The fix: wrap your delegate in a try/catch and write failed items to a dead-letter container or queue, then move on.
-<!-- Source: change-feed-processor.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-processor.md -->
 
 > **Gotcha:** Always use a **global endpoint** (e.g., `contoso.documents.azure.com`) when creating the `CosmosClient` for your change feed processor, not a regional endpoint. The processor creates lease documents scoped to the configured endpoint — if you switch from a regional to a global endpoint later, it creates new independent leases and you'll reprocess everything. Use `ApplicationPreferredRegions` to control which region serves the traffic.
-<!-- Source: change-feed-processor.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-processor.md -->
 
 Three lease timing parameters let you tune the processor's behavior:
 
@@ -232,7 +232,7 @@ Three lease timing parameters let you tune the processor's behavior:
 | **Lease Acquire** | 17 sec | Check interval for unowned leases |
 | **Lease Expiration** | 60 sec | Dead-host lease reassignment |
 | **Lease Renewal** | 13 sec | Active host renewal interval |
-<!-- Source: change-feed-processor.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-processor.md -->
 
 Lowering these values speeds up recovery from failures but increases RU consumption on the lease container. The defaults are reasonable for most workloads.
 
@@ -265,19 +265,19 @@ static async Task HandleAllChangesAsync(
     }
 }
 ```
-<!-- Source: change-feed-processor.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-processor.md -->
 
 ### SDK Pull Model
 
 The **pull model** gives you the most control. Instead of the change feed pushing batches to your delegate, you pull changes at your own pace using a `FeedIterator`. There's no automatic lease management, no parallelization, no retry logic. You handle all of that yourself.
-<!-- Source: change-feed-pull-model.md, read-change-feed.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-pull-model.md, develop-modern-applications/change-feed/read-change-feed.md -->
 
 Use the pull model when you need to:
 
 - Read changes for a **specific partition key** (the change feed processor can't do this)
 - **Control the pace** at which you consume changes
 - Perform a **one-time read** of existing data, like a migration
-<!-- Source: change-feed-pull-model.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-pull-model.md -->
 
 Here's the pull model in C#:
 
@@ -324,10 +324,10 @@ response = container.query_items_change_feed(continuation=continuation_token)
 for item in response:
     print(f"New change: {item['id']}")
 ```
-<!-- Source: change-feed-pull-model.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-pull-model.md -->
 
 The `HasMoreResults` property is always `true` — the change feed is conceptually infinite. When there are no new changes, you receive an HTTP 304 `NotModified` status. Your code must handle this case explicitly by pausing and polling again later.
-<!-- Source: change-feed-pull-model.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-pull-model.md -->
 
 For parallelization, you can fetch `FeedRange` values from the container (one per physical partition) and create separate iterators for each range:
 
@@ -344,7 +344,7 @@ foreach (FeedRange range in ranges)
     // Process this range on a separate thread or machine
 }
 ```
-<!-- Source: change-feed-pull-model.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-pull-model.md -->
 
 | Feature | Processor | Pull Model |
 |---|---|---|
@@ -353,15 +353,15 @@ foreach (FeedRange range in ranges)
 | **Error handling** | Auto retry | You handle it |
 | **PK filtering** | Not supported | Supported |
 | **Polling** | Auto (configurable) | Manual |
-<!-- Source: change-feed-pull-model.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-pull-model.md -->
 
 **Continuation tokens in latest version mode never expire** as long as the container exists. In all versions and deletes mode, tokens are valid only within the continuous backup retention window.
-<!-- Source: change-feed-pull-model.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-pull-model.md -->
 
 ### Apache Spark Connector
 
 The Spark connector reads the change feed at scale through Spark Structured Streaming. Built on the Java SDK's pull model, it distributes processing transparently across Spark executors and provides built-in checkpointing — something you'd have to build yourself with the raw pull model.
-<!-- Source: change-feed-spark.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-spark.md -->
 
 This is the right choice when your change feed processing involves complex transformations, aggregations, or joins with other datasets — workloads where Spark's distributed compute model shines. For simpler per-document processing, the change feed processor or pull model are better fits.
 
@@ -390,10 +390,10 @@ query = (change_feed_df
     .options(**output_config)
     .start())
 ```
-<!-- Source: change-feed-spark.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-spark.md -->
 
 One important behavior: the `spark.cosmos.changeFeed.startFrom` configuration is **ignored** if existing checkpoints are found at the checkpoint location. The connector always resumes from the last processed position. This is by design — it prevents duplicate processing after restarts — but it surprises people who change the start position and expect it to take effect.
-<!-- Source: change-feed-spark.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-spark.md -->
 
 The Spark connector supports both latest version and all versions and deletes mode. If you don't set `itemCountPerTriggerHint`, all available data is processed in the first micro-batch, which can be a very expensive operation on a large container.
 
@@ -415,7 +415,7 @@ The change feed is a building block. The real power is in the patterns it enable
 In a microservices architecture, services need to react to data changes in other services without tight coupling. The change feed is a natural fit: Service A writes to its Cosmos DB container, and Service B consumes the change feed to react. No polling, no message bus between them (though you might add one for durability — see the streaming pipeline pattern below).
 
 Consider an e-commerce system. The order service writes new orders to a `orders` container. The fulfillment service consumes the change feed and kicks off warehouse workflows. The notification service reads the same change feed independently and sends confirmation emails. Each service has its own change feed processor deployment unit with its own `processorName`, processing the same feed for its own purposes.
-<!-- Source: change-feed-design-patterns.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-design-patterns.md -->
 
 This works because multiple applications can subscribe to the same container's change feed simultaneously — each maintains its own leases and processes changes independently.
 
@@ -424,7 +424,7 @@ This works because multiple applications can subscribe to the same container's c
 Chapter 4 introduced the concept of denormalization — storing data redundantly to optimize reads. The challenge is keeping those copies in sync. The change feed solves this elegantly.
 
 Say you have a `products` container partitioned by `productId` and a `productsByCategory` container partitioned by `categoryId`. When a product's price changes in the source container, a change feed processor picks up the change and updates the corresponding document in the view container. The view is eventually consistent — there's a small window where the materialized view lags behind the source — but for most applications, that delay is measured in milliseconds to low seconds.
-<!-- Source: change-feed-design-patterns.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-design-patterns.md -->
 
 ```csharp
 static async Task HandleChangesAsync(
@@ -459,7 +459,7 @@ This is the same materialized view pattern described in Chapter 6, but now with 
 Sometimes you need to bridge Cosmos DB changes into a broader streaming ecosystem — Azure Event Hubs, Apache Kafka, or Azure Stream Analytics. The pattern is straightforward: a change feed processor reads changes and publishes them to the streaming platform.
 
 This is useful when downstream consumers aren't Cosmos DB-aware, when you need durable message semantics that the change feed alone doesn't provide, or when you're feeding data into real-time analytics pipelines. Cosmos DB's change feed has advantages over a pure message queue — there's no maximum retention period in latest version mode, and you get Cosmos DB's availability SLA. But Event Hubs or Kafka provide consumer groups, replay semantics, and ecosystem connectors that the change feed doesn't.
-<!-- Source: change-feed-design-patterns.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-design-patterns.md -->
 
 We'll cover the integration details — Event Hubs bindings, Kafka Connect connectors, and the architectural tradeoffs — in Chapter 22.
 
@@ -491,10 +491,10 @@ This gives you the best of both worlds: fast reads from the cache, and near-real
 Every change feed consumer needs to answer one question: if I restart, where do I pick up? This is **checkpointing** — persisting a bookmark of the last successfully processed position so you can resume without reprocessing everything or missing changes.
 
 The change feed processor handles checkpointing automatically through the lease container. After your delegate successfully processes a batch of changes, the processor updates the corresponding lease document with the current position. If the host crashes and restarts, it reads the lease and resumes from the last checkpoint. This is what gives the processor its at-least-once guarantee.
-<!-- Source: change-feed-processor.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-processor.md -->
 
 > **Gotcha:** The processor checkpoints *after* your delegate returns. If your delegate kicks off asynchronous work that hasn't completed when the method returns, the processor may checkpoint before that work finishes. If the host crashes, the in-flight work is lost. Either process synchronously within your delegate, or use explicit completion tracking.
-<!-- Source: change-feed-processor.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-processor.md -->
 
 With the **pull model**, checkpointing is your responsibility. The `FeedIterator` exposes a `ContinuationToken` on each response. Persist that string (to a database, a file, a blob — wherever makes sense), and when you need to resume, pass it to `ChangeFeedStartFrom.ContinuationToken()`:
 
@@ -517,23 +517,23 @@ continuation_token = container.client_connection.last_response_headers['etag']
 # Persist this value, then later:
 response = container.query_items_change_feed(continuation=continuation_token)
 ```
-<!-- Source: change-feed-pull-model.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-pull-model.md -->
 
 For the **Spark connector**, checkpointing is built in. Specify a `checkpointLocation` path, and the connector persists its position across micro-batches automatically. This is a significant advantage over the raw pull model for production Spark workloads.
-<!-- Source: change-feed-spark.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-spark.md -->
 
 The **starting point options** vary by mode. In latest version mode, you can start from the beginning of the container, a specific point in time, "now," or a saved checkpoint. In all versions and deletes mode, you can only start from "now" or a saved checkpoint within the continuous backup retention window. Once the lease container is initialized, the starting point configuration is ignored on subsequent runs — the processor always resumes from its checkpoint.
-<!-- Source: change-feed-processor.md, change-feed-modes.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-processor.md, develop-modern-applications/change-feed/change-feed-modes.md -->
 
 ## Change Feed and Global Distribution
 
 In a multi-region Cosmos DB account, the change feed is available in every region. Write to your container in West US, and a change feed consumer running in East US sees the change — eventually. The feed works across failover events; if a write region fails over, the change feed in the new region is contiguous.
-<!-- Source: change-feed.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed.md -->
 
 For accounts with **single write region**, this is straightforward. All writes land in one region, propagate to read replicas, and the change feed is consistent everywhere with a small replication delay.
 
 For accounts with **multiple write regions**, things get more nuanced. Writes can arrive in any region, and conflicts are resolved asynchronously. In latest version mode, if the same document is modified in two regions before the conflict is resolved, the "losing" version may be dropped from the change feed — you see only the winner. In all versions and deletes mode, all changes are captured regardless.
-<!-- Source: change-feed.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed.md -->
 
 There's no guarantee of *when* changes will be available in other regions for multi-write accounts. If your change feed consumer runs in East US and a write happened in West Europe, it arrives after replication and conflict resolution complete.
 
@@ -542,7 +542,7 @@ The practical implication: for change feed consumers, **deploy them in the same 
 ## Monitoring Change Feed Lag with the Change Feed Estimator
 
 How do you know if your change feed processor is keeping up? If changes arrive faster than your processor can handle them, a backlog builds up — and that backlog means downstream systems are seeing stale data. The **change feed estimator** tells you exactly how far behind you are.
-<!-- Source: how-to-use-change-feed-estimator.md -->
+<!-- Source: develop-modern-applications/change-feed/how-to-use-change-feed-estimator.md -->
 
 The estimator is part of the .NET and Java SDKs. It measures the difference between the latest change in the container and the last change your processor consumed (as recorded in the lease container), then reports the gap as a count of pending changes.
 
@@ -570,7 +570,7 @@ static async Task HandleEstimationAsync(long estimation, CancellationToken cance
     }
 }
 ```
-<!-- Source: how-to-use-change-feed-estimator.md -->
+<!-- Source: develop-modern-applications/change-feed/how-to-use-change-feed-estimator.md -->
 
 **On-demand (detailed per-lease breakdown):** For deeper diagnostics, you can query the estimator for per-lease lag and see which compute instance owns each lease:
 
@@ -595,10 +595,10 @@ while (stateIterator.HasMoreResults)
     }
 }
 ```
-<!-- Source: how-to-use-change-feed-estimator.md -->
+<!-- Source: develop-modern-applications/change-feed/how-to-use-change-feed-estimator.md -->
 
 The estimator works with both latest version and all versions and deletes modes. The estimate isn't guaranteed to be an exact count — it's an approximation — but it's reliable enough to drive scaling decisions and alerting.
-<!-- Source: how-to-use-change-feed-estimator.md -->
+<!-- Source: develop-modern-applications/change-feed/how-to-use-change-feed-estimator.md -->
 
 A few operational tips:
 

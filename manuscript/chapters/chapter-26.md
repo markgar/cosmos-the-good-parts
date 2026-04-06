@@ -24,8 +24,8 @@ Multi-tenancy in Cosmos DB lives on a spectrum. At one end, every tenant gets th
 
 The 500 limit counts databases and containers combined per account. Account-per-tenant carries the highest management overhead — one account per customer. The ~250 account-per-subscription limit can be raised to 1,000 via support request.
 
-<!-- Source: concepts-limits.md (250 accounts/subscription, 500 databases+containers/account) -->
-<!-- Source: nosql-multi-tenancy-vector-search.md -->
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md (250 accounts/subscription, 500 databases+containers/account) -->
+<!-- TODO: source needed for general multi-tenancy patterns — "nosql-multi-tenancy-vector-search.md" not found in mslearn-docs mirror -->
 
 Let's walk through each one.
 
@@ -33,7 +33,7 @@ Let's walk through each one.
 
 Every tenant gets a dedicated Cosmos DB account with its own endpoint, keys, network policies, and throughput. This is the maximum isolation model. Tenant data is physically separated — there's no way for a bug in your query layer to accidentally return another tenant's documents. Each tenant can have their own geo-replication configuration, backup policy, consistency level, and customer-managed encryption keys.
 
-The downsides are real. You're managing hundreds of accounts, each with its own monitoring, key rotation, and throughput provisioning. The default limit is 250 accounts per Azure subscription, raisable to 1,000 via a support ticket. And each idle account still costs money — a container with 400 RU/s manual throughput is your floor. <!-- Source: concepts-limits.md -->
+The downsides are real. You're managing hundreds of accounts, each with its own monitoring, key rotation, and throughput provisioning. The default limit is 250 accounts per Azure subscription, raisable to 1,000 via a support ticket. And each idle account still costs money — a container with 400 RU/s manual throughput is your floor. <!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md -->
 
 **Choose this when:** your tenants are large enterprises with contractual isolation requirements, need per-tenant geo-replication or CMK encryption, or when regulatory compliance demands physical data separation.
 
@@ -41,7 +41,7 @@ The downsides are real. You're managing hundreds of accounts, each with its own 
 
 Each tenant gets their own database within a shared Cosmos DB account. You can provision throughput at the database level and let the tenant's containers share it, or give specific containers dedicated throughput. This gives you separate namespaces, separate throughput controls, and the ability to scope RBAC role assignments to a specific database (more on that shortly).
 
-The limit to watch is 500 total databases and containers per account. If each tenant has one database with two containers, you're capped at around 166 tenants per account. That's fine for a B2B product with dozens of large customers, but it won't scale to thousands. <!-- Source: concepts-limits.md -->
+The limit to watch is 500 total databases and containers per account. If each tenant has one database with two containers, you're capped at around 166 tenants per account. That's fine for a B2B product with dozens of large customers, but it won't scale to thousands. <!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md -->
 
 **Choose this when:** you need per-tenant throughput isolation and RBAC scoping, but don't need the full physical separation of dedicated accounts.
 
@@ -83,7 +83,7 @@ Every read, query, and write operation targets a specific `tenantId`. Point read
 
 ### The 20 GB Problem
 
-Here's where shared-container multi-tenancy gets tricky. A single logical partition in Cosmos DB can hold a maximum of 20 GB of data and consume at most 10,000 RU/s. <!-- Source: concepts-limits.md --> For most tenants, that's plenty. But if you have even one tenant that blows past 20 GB — and in a SaaS product, you almost always will — you've got a problem. You can't add more data to that partition key, and you'll start getting errors.
+Here's where shared-container multi-tenancy gets tricky. A single logical partition in Cosmos DB can hold a maximum of 20 GB of data and consume at most 10,000 RU/s. <!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md --> For most tenants, that's plenty. But if you have even one tenant that blows past 20 GB — and in a SaaS product, you almost always will — you've got a problem. You can't add more data to that partition key, and you'll start getting errors.
 
 This is exactly the problem hierarchical partition keys solve.
 
@@ -103,7 +103,7 @@ Or for a multi-entity container:
 /tenantId → /entityType → /entityId
 ```
 
-The first-level key (`tenantId`) ensures that queries scoped to a single tenant are routed only to the physical partitions holding that tenant's data — no full fan-out. The second and third levels provide the cardinality that lets a single tenant's data spread across multiple physical partitions when it exceeds 20 GB. <!-- Source: hierarchical-partition-keys.md -->
+The first-level key (`tenantId`) ensures that queries scoped to a single tenant are routed only to the physical partitions holding that tenant's data — no full fan-out. The second and third levels provide the cardinality that lets a single tenant's data spread across multiple physical partitions when it exceeds 20 GB. <!-- Source: model-data-for-partitioning/partitioning-and-horizontal-scaling/hierarchical-partition-keys/hierarchical-partition-keys.md -->
 
 ### Creating an HPK Container
 
@@ -125,7 +125,7 @@ Container container = await database.CreateContainerIfNotExistsAsync(
     containerProperties, throughput: 400);
 ```
 
-<!-- Source: hierarchical-partition-keys.md -->
+<!-- Source: model-data-for-partitioning/partitioning-and-horizontal-scaling/hierarchical-partition-keys/hierarchical-partition-keys.md -->
 
 And in Python:
 
@@ -139,7 +139,7 @@ container = database.create_container(
 )
 ```
 
-<!-- Source: hierarchical-partition-keys.md -->
+<!-- Source: model-data-for-partitioning/partitioning-and-horizontal-scaling/hierarchical-partition-keys/hierarchical-partition-keys.md -->
 
 In an ARM/Bicep template, the partition key definition looks like:
 
@@ -155,11 +155,11 @@ partitionKey: {
 }
 ```
 
-<!-- Source: hierarchical-partition-keys.md -->
+<!-- Source: model-data-for-partitioning/partitioning-and-horizontal-scaling/hierarchical-partition-keys/hierarchical-partition-keys.md -->
 
 ### Why the Lowest Level Should Have High Cardinality
 
-The lowest level of your hierarchical partition key should have high cardinality. <!-- Source: nosql-multi-tenancy-vector-search.md --> If it has only a handful of unique values, you'll recreate the same 20 GB ceiling at a deeper level — you just moved the bottleneck down instead of removing it.
+The lowest level of your hierarchical partition key should have high cardinality. <!-- Source: model-data-for-partitioning/partitioning-and-horizontal-scaling/hierarchical-partition-keys/hierarchical-partition-keys.md --> If it has only a handful of unique values, you'll recreate the same 20 GB ceiling at a deeper level — you just moved the bottleneck down instead of removing it.
 
 In practice, pick a domain property that naturally fans out: `sessionId`, `orderId`, `documentId` — whatever makes sense for your data model. In the code samples above, `/tenantId → /userId → /sessionId` means that each tenant-user-session combination becomes its own logical partition. Sessions have high enough cardinality to keep any single tenant-user pair well under 20 GB, and — critically — items that share a `tenantId` and `userId` but differ by `sessionId` still land on the same physical partition until the data grows large enough to split. That co-location means a query for "all sessions for user Y in tenant X" stays targeted instead of fanning out.
 
@@ -167,13 +167,13 @@ If your workload is extreme enough that even a meaningful domain key at the thir
 
 ### The Low-Cardinality First-Level Trap {#low-cardinality-trap}
 
-If your first-level key (`tenantId`) has very few unique values — say, five tenants — HPK can actually hurt you. Cosmos DB optimizes HPK by co-locating all documents with the same first-level key on the same physical partition (until it grows enough to split). With only five tenants, your entire dataset starts on five physical partitions, which limits your write throughput to roughly 5 × 10,000 = 50,000 RU/s until the system splits those partitions. Splits happen automatically at 50 GB but take 4–6 hours to complete. <!-- Source: hierarchical-partition-keys.md -->
+If your first-level key (`tenantId`) has very few unique values — say, five tenants — HPK can actually hurt you. Cosmos DB optimizes HPK by co-locating all documents with the same first-level key on the same physical partition (until it grows enough to split). With only five tenants, your entire dataset starts on five physical partitions, which limits your write throughput to roughly 5 × 10,000 = 50,000 RU/s until the system splits those partitions. Splits happen automatically at 50 GB but take 4–6 hours to complete. <!-- Source: model-data-for-partitioning/partitioning-and-horizontal-scaling/hierarchical-partition-keys/hierarchical-partition-keys.md -->
 
 For write-heavy workloads with few tenants, this is a real bottleneck. If that's your situation, you may be better off with a flat partition key that has higher cardinality, or the container-per-tenant model.
 
 ### Query Routing with HPK
 
-Queries that include the first-level key (the tenant ID) are efficiently routed to only the physical partitions holding that tenant's data. If a tenant's data spans five physical partitions, the query hits five — not all 1,000 in the container. Specifying additional levels in the filter narrows the routing further. <!-- Source: hierarchical-partition-keys.md -->
+Queries that include the first-level key (the tenant ID) are efficiently routed to only the physical partitions holding that tenant's data. If a tenant's data spans five physical partitions, the query hits five — not all 1,000 in the container. Specifying additional levels in the filter narrows the routing further. <!-- Source: model-data-for-partitioning/partitioning-and-horizontal-scaling/hierarchical-partition-keys/hierarchical-partition-keys.md -->
 
 This is the core value proposition for multi-tenant HPK: you get the density of a shared container with the query efficiency of tenant-scoped routing.
 
@@ -183,7 +183,7 @@ Partition key isolation is only as strong as your application code. If a bug in 
 
 ### Data-Plane RBAC Scoping
 
-Cosmos DB's native data-plane RBAC lets you scope role assignments at three levels of granularity: account, database, or container. <!-- Source: how-to-connect-role-based-access-control.md, reference-data-plane-security.md -->
+Cosmos DB's native data-plane RBAC lets you scope role assignments at three levels of granularity: account, database, or container. <!-- Source: create-secure-solutions/how-to-connect-role-based-access-control.md, create-secure-solutions/reference/reference-data-plane-security.md -->
 
 The scope format follows the resource hierarchy:
 
@@ -198,7 +198,7 @@ The scope format follows the resource hierarchy:
 /subscriptions/{sub}/resourcegroups/{rg}/providers/Microsoft.DocumentDB/databaseAccounts/{account}/dbs/{database}/colls/{container}
 ```
 
-<!-- Source: how-to-connect-role-based-access-control.md -->
+<!-- Source: create-secure-solutions/how-to-connect-role-based-access-control.md -->
 
 For **database-per-tenant** or **container-per-tenant** models, this is powerful. You can assign each tenant's service principal (or managed identity) a role scoped to their specific database or container. The tenant's identity literally cannot read from or write to another tenant's resources — the service enforces it, regardless of what your application code does.
 
@@ -206,11 +206,11 @@ For **shared-container** models, RBAC scoping stops at the container level. You 
 
 ### Resource Tokens (Legacy)
 
-Resource tokens are the older mechanism for granting scoped, time-limited access to Cosmos DB resources. You create a user and permission resource in the database, and the resulting token grants access to a specific container (or even a specific partition key range). <!-- Source: security-considerations.md -->
+Resource tokens are the older mechanism for granting scoped, time-limited access to Cosmos DB resources. You create a user and permission resource in the database, and the resulting token grants access to a specific container (or even a specific partition key range). <!-- Source: create-secure-solutions/security-considerations.md -->
 
 Resource tokens can be scoped more narrowly than RBAC — down to a partition key value — which makes them useful for shared-container multi-tenancy where you want the service itself to enforce tenant boundaries. However, they come with significant operational overhead: you need a token-brokering service to generate and manage short-lived tokens, and the mechanism predates Microsoft Entra ID integration.
 
-> **⚠️ HPK limitation:** Hierarchical partition keys aren't currently supported with the users and permissions feature. You can't assign a permission to a partial prefix of the hierarchical partition key path — only to the full key path. For example, if you've partitioned by `TenantId` → `UserId`, you can't create a permission scoped to just a `TenantId` value. You'd need to specify both `TenantId` *and* `UserId`. This makes resource tokens impractical for tenant-level isolation in HPK containers. <!-- Source: hierarchical-partition-keys.md -->
+> **Important:** Hierarchical partition keys aren't currently supported with the users and permissions feature. You can't assign a permission to a partial prefix of the hierarchical partition key path — only to the full key path. For example, if you've partitioned by `TenantId` → `UserId`, you can't create a permission scoped to just a `TenantId` value. You'd need to specify both `TenantId` *and* `UserId`. This makes resource tokens impractical for tenant-level isolation in HPK containers. <!-- Source: model-data-for-partitioning/partitioning-and-horizontal-scaling/hierarchical-partition-keys/hierarchical-partition-keys.md -->
 
 **The recommendation for new applications is to use data-plane RBAC with Microsoft Entra ID** and rely on your application's data access layer for partition-level isolation. Resource tokens are still supported but are effectively a legacy pattern. If you're building greenfield, skip them.
 
@@ -228,15 +228,15 @@ How you provision throughput directly affects tenant experience. A "noisy neighb
 
 ### Container-Level Dedicated Throughput
 
-When each tenant has their own container (or you provision dedicated throughput for tenant-specific containers within a shared database), each tenant gets guaranteed RU/s. The upside: no noisy neighbors. The downside: you're paying for the provisioned throughput whether the tenant uses it or not. The minimum is 400 RU/s for manual throughput, or autoscale between 100–1,000 RU/s. <!-- Source: set-throughput.md, concepts-limits.md -->
+When each tenant has their own container (or you provision dedicated throughput for tenant-specific containers within a shared database), each tenant gets guaranteed RU/s. The upside: no noisy neighbors. The downside: you're paying for the provisioned throughput whether the tenant uses it or not. The minimum is 400 RU/s for manual throughput, or autoscale between 100–1,000 RU/s. <!-- Source: throughput-request-units/set-throughput.md, manage-your-account/enterprise-readiness/concepts-limits.md -->
 
 This works well when your tenants have predictable workloads or when you pass the throughput cost through to each customer.
 
 ### Database-Level Shared Throughput
 
-With shared throughput at the database level, you provision RU/s once and let up to 25 containers share it. This is useful for multi-tenant scenarios where each tenant has their own container but workloads vary. The database acts as a throughput pool — busy tenants consume more, quiet tenants consume less. <!-- Source: set-throughput.md -->
+With shared throughput at the database level, you provision RU/s once and let up to 25 containers share it. This is useful for multi-tenant scenarios where each tenant has their own container but workloads vary. The database acts as a throughput pool — busy tenants consume more, quiet tenants consume less. <!-- Source: throughput-request-units/set-throughput.md -->
 
-The key limitation: there are no per-container throughput guarantees. If one tenant's container monopolizes the shared throughput, others get throttled. You can mitigate this by combining shared and dedicated throughput — giving your largest tenants dedicated containers while keeping smaller ones on shared throughput. <!-- Source: set-throughput.md -->
+The key limitation: there are no per-container throughput guarantees. If one tenant's container monopolizes the shared throughput, others get throttled. You can mitigate this by combining shared and dedicated throughput — giving your largest tenants dedicated containers while keeping smaller ones on shared throughput. <!-- Source: throughput-request-units/set-throughput.md -->
 
 | Model | Guarantee | Cost |
 |---|---|---|
@@ -246,11 +246,11 @@ The key limitation: there are no per-container throughput guarantees. If one ten
 
 With shared throughput, up to 25 containers share the pool; additional dedicated containers can coexist alongside. Autoscale follows the same container limits.
 
-<!-- Source: set-throughput.md -->
+<!-- Source: throughput-request-units/set-throughput.md -->
 
 ### The Hybrid Approach
 
-The most practical multi-tenant throughput strategy is a hybrid: use database-level shared throughput for the long tail of small tenants, and provision dedicated throughput for containers that serve your largest customers. Cosmos DB explicitly supports this — you can have shared and dedicated containers coexisting within the same database. <!-- Source: set-throughput.md -->
+The most practical multi-tenant throughput strategy is a hybrid: use database-level shared throughput for the long tail of small tenants, and provision dedicated throughput for containers that serve your largest customers. Cosmos DB explicitly supports this — you can have shared and dedicated containers coexisting within the same database. <!-- Source: throughput-request-units/set-throughput.md -->
 
 For shared-container designs (single container, partition key per tenant), throughput management is simpler but less controllable. You provision throughput on the container, and all tenants share it. The risk of noisy neighbors is real. Autoscale helps by absorbing spikes, and burst capacity (Chapter 11) can smooth out short bursts. But if a single tenant consistently dominates throughput, you have three options:
 
@@ -264,11 +264,11 @@ If you're building an AI-powered SaaS application — a knowledge base, a suppor
 
 ### The Problem with Unsegmented Vector Indexes
 
-By default, Cosmos DB builds one DiskANN vector index per physical partition. When you run a vector similarity search without filtering, it searches across all vectors in the container. <!-- Source: gen-ai-sharded-diskann.md --> In a multi-tenant container, that means Tenant A's similarity search returns results influenced by Tenant B's embeddings — or at minimum, searches through Tenant B's vectors and wastes RU/s doing it.
+By default, Cosmos DB builds one DiskANN vector index per physical partition. When you run a vector similarity search without filtering, it searches across all vectors in the container. <!-- Source: build-ai-applications/use-vector-search/sharded-diskann.md --> In a multi-tenant container, that means Tenant A's similarity search returns results influenced by Tenant B's embeddings — or at minimum, searches through Tenant B's vectors and wastes RU/s doing it.
 
 ### Sharded DiskANN: Tenant-Isolated Vector Indexes
 
-**Sharded DiskANN** solves this by letting you split the vector index into per-tenant shards. You define a `vectorIndexShardKey` in your indexing policy, and Cosmos DB creates a separate DiskANN index for each unique value of that key. <!-- Source: gen-ai-sharded-diskann.md -->
+**Sharded DiskANN** solves this by letting you split the vector index into per-tenant shards. You define a `vectorIndexShardKey` in your indexing policy, and Cosmos DB creates a separate DiskANN index for each unique value of that key. <!-- Source: build-ai-applications/use-vector-search/sharded-diskann.md -->
 
 Here's the indexing policy configuration:
 
@@ -284,7 +284,7 @@ Here's the indexing policy configuration:
 }
 ```
 
-<!-- Source: gen-ai-sharded-diskann.md -->
+<!-- Source: build-ai-applications/use-vector-search/sharded-diskann.md -->
 
 With this in place, each tenant's vectors live in their own isolated DiskANN shard. Similarity searches scoped to a tenant only search that tenant's index — smaller, faster, cheaper, and with higher recall because the search space is more focused.
 
@@ -299,7 +299,7 @@ WHERE c.tenantId = "acme-corp"
 ORDER BY VectorDistance(c.embedding, [0.12, -0.34, 0.56, ...])
 ```
 
-<!-- Source: gen-ai-sharded-diskann.md -->
+<!-- Source: build-ai-applications/use-vector-search/sharded-diskann.md -->
 
 The `WHERE c.tenantId = "acme-corp"` clause restricts the search to the `acme-corp` shard. Without it, the query would search all shards — which defeats the purpose.
 
@@ -315,9 +315,9 @@ The shard key doesn't have to be a tenant ID — it can be any property that def
 
 ## Cosmos DB Fleets: Orchestrating Multi-Account Deployments at Scale
 
-For organizations that choose the account-per-tenant model, managing hundreds of Cosmos DB accounts across multiple subscriptions becomes a serious operational challenge. **Azure Cosmos DB Fleets** is a purpose-built solution for this problem. <!-- Source: fleet.md -->
+For organizations that choose the account-per-tenant model, managing hundreds of Cosmos DB accounts across multiple subscriptions becomes a serious operational challenge. **Azure Cosmos DB Fleets** is a purpose-built solution for this problem. <!-- Source: orchestrate-multitenant-solutions/fleets/fleet.md -->
 
-A fleet is a top-level resource that organizes and manages multiple Cosmos DB accounts — one per tenant — under a unified management plane. Within a fleet, accounts are grouped into **fleetspaces**, which act as logical groupings that can optionally share throughput. <!-- Source: fleet.md -->
+A fleet is a top-level resource that organizes and manages multiple Cosmos DB accounts — one per tenant — under a unified management plane. Within a fleet, accounts are grouped into **fleetspaces**, which act as logical groupings that can optionally share throughput. <!-- Source: orchestrate-multitenant-solutions/fleets/fleet.md -->
 
 ### The Hierarchy
 
@@ -332,11 +332,11 @@ Key rules:
 - Accounts from different subscriptions and resource groups can join the same fleet.
 - One fleet maps to one multi-tenant application.
 
-<!-- Source: fleet.md -->
+<!-- Source: orchestrate-multitenant-solutions/fleets/fleet.md -->
 
 ### Fleet Pools: Shared Throughput Across Accounts
 
-The most important capability fleets introduce is **pools** — shared throughput that spans multiple accounts within a fleetspace. Without pools, every account must be provisioned for its peak throughput. With pools, you provision each tenant's containers with modest dedicated RU/s (the minimum entry point is 100–1,000 autoscale RU/s) and create a shared pool at the fleetspace level that any tenant can draw from when they spike. <!-- Source: fleet-pools.md -->
+The most important capability fleets introduce is **pools** — shared throughput that spans multiple accounts within a fleetspace. Without pools, every account must be provisioned for its peak throughput. With pools, you provision each tenant's containers with modest dedicated RU/s (the minimum entry point is 100–1,000 autoscale RU/s) and create a shared pool at the fleetspace level that any tenant can draw from when they spike. <!-- Source: orchestrate-multitenant-solutions/fleets/fleet-pools.md -->
 
 Here's how it works:
 
@@ -344,7 +344,7 @@ Here's how it works:
 2. The fleetspace has a **pool** of additional RU/s (configured with an autoscale min and max — the max can be up to 10× the min).
 3. When a tenant's container exceeds its dedicated RU/s, it draws from the pool instead of getting throttled.
 
-<!-- Source: fleet-pools.md -->
+<!-- Source: orchestrate-multitenant-solutions/fleets/fleet-pools.md -->
 
 The default limits for pools:
 
@@ -357,19 +357,19 @@ The default limits for pools:
 
 The total RU/s per partition limit (10,000) combines both dedicated and pool throughput on a single physical partition.
 
-<!-- Source: fleet.md, fleet-pools.md -->
+<!-- Source: orchestrate-multitenant-solutions/fleets/fleet.md, orchestrate-multitenant-solutions/fleets/fleet-pools.md -->
 
 All limits are raisable via support tickets.
 
-There's an important configuration constraint: all accounts in a fleetspace that uses pooling must have the **same regional configuration** and the **same service tier** (single-region write / General Purpose, or multi-region write / Business Critical). You can't mix accounts with different region setups in the same pool. <!-- Source: fleet-pools.md -->
+There's an important configuration constraint: all accounts in a fleetspace that uses pooling must have the **same regional configuration** and the **same service tier** (single-region write / General Purpose, or multi-region write / Business Critical). You can't mix accounts with different region setups in the same pool. <!-- Source: orchestrate-multitenant-solutions/fleets/fleet-pools.md -->
 
-Billing is straightforward. Each hour, you're billed for the highest RU/s the pool scaled to in that hour, per region. If the pool is idle, you're billed for the minimum. <!-- Source: fleet-pools.md -->
+Billing is straightforward. Each hour, you're billed for the highest RU/s the pool scaled to in that hour, per region. If the pool is idle, you're billed for the minimum. <!-- Source: orchestrate-multitenant-solutions/fleets/fleet-pools.md -->
 
 ### Fleet Analytics: Observability Across Your Tenant Fleet
 
-When you have hundreds of accounts, you need fleet-wide visibility — not just per-account metrics. **Fleet Analytics** exports usage, cost, and configuration data for all accounts in a fleet to either **Microsoft Fabric OneLake** or **Azure Data Lake Storage Gen2**, aggregated at one-hour granularity. <!-- Source: fleet-analytics.md -->
+When you have hundreds of accounts, you need fleet-wide visibility — not just per-account metrics. **Fleet Analytics** exports usage, cost, and configuration data for all accounts in a fleet to either **Microsoft Fabric OneLake** or **Azure Data Lake Storage Gen2**, aggregated at one-hour granularity. <!-- Source: orchestrate-multitenant-solutions/fleets/fleet-analytics.md -->
 
-The exported data follows a star schema with fact tables (`FactRequestHourly`, `FactResourceUsageHourly`, `FactMeterUsageHourly`, `FactAccountHourly`) and dimension tables (`DimResource`, `DimFleet`, `DimRegion`, `DimTime`, etc.). You can query it with Fabric SQL endpoints, KQL, or Spark, and build Power BI dashboards for fleet-wide cost and usage analysis. <!-- Source: fleet-analytics-schema-reference.md -->
+The exported data follows a star schema with fact tables (`FactRequestHourly`, `FactResourceUsageHourly`, `FactMeterUsageHourly`, `FactAccountHourly`) and dimension tables (`DimResource`, `DimFleet`, `DimRegion`, `DimTime`, etc.). You can query it with Fabric SQL endpoints, KQL, or Spark, and build Power BI dashboards for fleet-wide cost and usage analysis. <!-- Source: orchestrate-multitenant-solutions/fleets/fleet-analytics-schema-reference.md -->
 
 For example, to find your top 10 tenants by RU consumption over the last 24 hours:
 
@@ -391,9 +391,9 @@ Practical questions fleet analytics answers:
 - When were account keys last rotated? (Yes, this is tracked in `FactAccountHourly`.)
 - Which accounts have burst capacity enabled? Are any using serverless?
 
-<!-- Source: fleet-analytics-schema-reference.md -->
+<!-- Source: orchestrate-multitenant-solutions/fleets/fleet-analytics-schema-reference.md -->
 
-Fleet analytics is currently in preview and doesn't carry a production SLA. <!-- Source: fleet-analytics.md -->
+Fleet analytics is currently in preview and doesn't carry a production SLA. <!-- Source: orchestrate-multitenant-solutions/fleets/fleet-analytics.md -->
 
 ### Creating a Fleet
 
@@ -410,7 +410,7 @@ az resource create \
     --properties "{}"
 ```
 
-<!-- Source: how-to-create-fleet.md -->
+<!-- Source: orchestrate-multitenant-solutions/fleets/how-to-create-fleet.md -->
 
 And in Bicep:
 
@@ -439,9 +439,9 @@ resource fleetspace 'Microsoft.DocumentDB/fleets/fleetspaces@2025-10-15' = {
 }
 ```
 
-<!-- Source: how-to-create-fleet.md -->
+<!-- Source: orchestrate-multitenant-solutions/fleets/how-to-create-fleet.md -->
 
-The fleet's region doesn't determine the regions of the accounts within it — it's just the location of the management resource. <!-- Source: how-to-create-fleet.md -->
+The fleet's region doesn't determine the regions of the accounts within it — it's just the location of the management resource. <!-- Source: orchestrate-multitenant-solutions/fleets/how-to-create-fleet.md -->
 
 ## Tenant Offboarding: Deleting Tenant Data
 
@@ -449,7 +449,7 @@ Multi-tenancy isn't just about onboarding. When a tenant leaves (or requests dat
 
 For **account-per-tenant** or **container-per-tenant** models, this is simple: delete the account or container.
 
-For **shared-container** models, Cosmos DB offers the **delete by partition key** operation, which asynchronously deletes all items with a given logical partition key value. It runs as a background operation, consuming at most 10% of the container's available RU/s on a best-effort basis. The effect is immediate for queries — deleted items stop appearing in results right away, even though the physical deletion continues in the background. <!-- Source: how-to-delete-by-partition-key.md -->
+For **shared-container** models, Cosmos DB offers the **delete by partition key** operation, which asynchronously deletes all items with a given logical partition key value. It runs as a background operation, consuming at most 10% of the container's available RU/s on a best-effort basis. The effect is immediate for queries — deleted items stop appearing in results right away, even though the physical deletion continues in the background. <!-- Source: develop-modern-applications/operations-on-containers-and-items/how-to-delete-by-partition-key.md -->
 
 ```csharp
 var container = cosmosClient.GetContainer("SaaSDb", "MultiTenantData");
@@ -458,9 +458,9 @@ ResponseMessage deleteResponse = await container
     .DeleteAllItemsByPartitionKeyStreamAsync(new PartitionKey("departing-tenant"));
 ```
 
-<!-- Source: how-to-delete-by-partition-key.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/how-to-delete-by-partition-key.md -->
 
-This feature is in public preview. Enable it on your account by adding the `DeleteAllItemsByPartitionKey` capability via the CLI before using it. <!-- Source: how-to-delete-by-partition-key.md -->
+This feature is in public preview. Enable it on your account by adding the `DeleteAllItemsByPartitionKey` capability via the CLI before using it. <!-- Source: develop-modern-applications/operations-on-containers-and-items/how-to-delete-by-partition-key.md -->
 
 ## Anti-Patterns and Pitfalls
 

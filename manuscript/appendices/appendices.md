@@ -456,7 +456,7 @@ output "primary_key" {
 | `TICKSTODATETIME` | `TICKSTODATETIME(ticks)` |
 | `TIMESTAMPTODATETIME` | `TIMESTAMPTODATETIME(timestamp)` |
 
-> **Date/time parts:** `"yyyy"` (year), `"mm"` (month), `"dd"` (day), `"hh"` (hour), `"mi"` (minute), `"ss"` (second), `"ms"` (millisecond), `"mcs"` (microsecond), `"ns"` (nanosecond)
+> **Note:** Date/time parts: `"yyyy"` (year), `"mm"` (month), `"dd"` (day), `"hh"` (hour), `"mi"` (minute), `"ss"` (second), `"ms"` (millisecond), `"mcs"` (microsecond), `"ns"` (nanosecond)
 
 ### Spatial Functions
 
@@ -485,7 +485,7 @@ output "primary_key" {
 |---|---|
 | `VECTORDISTANCE` | `VECTORDISTANCE(vec1, vec2 [, brute_force_bool] [, {distanceFunction, dataType, ...}])` |
 
-> **Distance functions:** `cosine` (default), `euclidean`, `dotproduct`
+> **Note:** Distance functions: `cosine` (default), `euclidean`, `dotproduct`
 
 ### Type-Checking Functions
 
@@ -570,6 +570,8 @@ WHERE EXISTS (
 | **Multi-region writes** | ❌ | ⚠️ Supported but not recommended | ✅ | ✅ | ✅ |
 | **Typical use case** | Financial transactions | Near-strong with relaxed latency | General-purpose web/mobile (default) | Dashboards, feeds | High-throughput reads (counts, likes, IoT) |
 
+<!-- Source: high-availability/consistency/consistency-levels.md, throughput-request-units/request-units.md -->
+
 ### Decision Guidance
 
 ```
@@ -590,17 +592,27 @@ Eventual:     ✓ Max throughput, lowest latency        ✓ 1× RUs, multi-regio
 |---|---|---|
 | Point read (1 KB, by ID + PK) | **1 RU** | Cheapest; always prefer over queries |
 | Point read (strong/bounded) | **2 RU** | 2× for strong or bounded staleness |
+<!-- Source: throughput-request-units/request-units.md, develop-modern-applications/performance/key-value-store-cost.md -->
 | Point write (1 KB, upsert/create) | **~5–6 RU** | Scales with size and indexed properties |
+<!-- Source: develop-modern-applications/performance/key-value-store-cost.md -->
 | Point write (replace, 1 KB) | **~10 RU** | Slightly higher (old-index cleanup) |
+<!-- TODO: source needed for "Point write (replace, 1 KB) ~10 RU" -->
 | Delete (1 KB) | **~5–6 RU** | Comparable to a write |
+<!-- TODO: source needed for "Delete (1 KB) ~5–6 RU" -->
 | Simple query (single partition, indexed) | **~3–5 RU** | Equality filter on indexed property |
+<!-- TODO: source needed for "Simple query (single partition, indexed) ~3–5 RU" -->
 | Cross-partition query | **~5–50+ RU** | Multiplied by physical partitions hit |
+<!-- TODO: source needed for "Cross-partition query ~5–50+ RU" -->
 | Full scan (no index) | **Hundreds+ RU** | Avoid in production |
+<!-- TODO: source needed for "Full scan (no index) Hundreds+ RU" -->
 | Stored procedure | **~5+ RU** | Varies with complexity |
+<!-- TODO: source needed for "Stored procedure ~5+ RU" -->
 | Transactional batch | **Sum of ops** | Atomically executed |
 | Change feed read (per page) | **~1–2 RU** | Very efficient |
+<!-- TODO: source needed for "Change feed read (per page) ~1–2 RU" -->
 
 > RU cost scales roughly linearly with item size. A 10 KB write ≈ 50–60 RU.
+<!-- Source: develop-modern-applications/performance/key-value-store-cost.md -->
 
 ## Provisioned vs. Autoscale vs. Serverless
 
@@ -614,6 +626,8 @@ Eventual:     ✓ Max throughput, lowest latency        ✓ 1× RUs, multi-regio
 | Multi-region | ✅ (RU × regions) | ✅ (RU × regions) | ❌ Single region |
 | Best for | Predictable, steady | Variable, production | Dev/test, sporadic |
 
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md, throughput-request-units/how-to-choose-offer.md, throughput-request-units/serverless/serverless.md -->
+
 > ¹ Increasable via Azure support request.
 
 ## Free Tier
@@ -626,12 +640,15 @@ Eventual:     ✓ Max throughput, lowest latency        ✓ 1× RUs, multi-regio
 | Free storage | 25 GB |
 | Max shared-throughput containers | 25 |
 
+<!-- Source: throughput-request-units/free-tier.md, manage-your-account/enterprise-readiness/concepts-limits.md -->
+
 ## Reserved Capacity
 
 | Term | Discount | Payment |
 |---|---|---|
 | 1 year | ~20% | Upfront or monthly |
 | 3 year | ~30% | Upfront or monthly |
+<!-- TODO: source needed for "Reserved Capacity ~20% (1 year) and ~30% (3 year) discounts" — no reserved-capacity.md found in mslearn-docs mirror -->
 
 Applies to provisioned throughput only. Storage billed separately.
 
@@ -651,6 +668,8 @@ Applies to provisioned throughput only. Storage billed separately.
 | Maximum TTL value | **2,147,483,647** seconds (~68 years) |
 | Numeric precision | IEEE 754 double-precision 64-bit |
 
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md -->
+
 ## Per-Container Limits
 
 | Resource | Limit |
@@ -662,6 +681,8 @@ Applies to provisioned throughput only. Storage billed separately.
 | Max paths per unique key | **16** ¹ |
 
 > ¹ Increasable via Azure support request.
+
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md -->
 
 ## Throughput Limits
 
@@ -677,6 +698,8 @@ Applies to provisioned throughput only. Storage billed separately.
 > ¹ Increasable via Azure support request.
 > ² Use hierarchical partition keys to exceed.
 
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md -->
+
 ## Per-Account Limits
 
 | Resource | Limit |
@@ -689,6 +712,8 @@ Applies to provisioned throughput only. Storage billed separately.
 
 > ¹ Increasable to 1,000 via support request.
 
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md -->
+
 ## Serverless-Specific Limits
 
 | Resource | Limit |
@@ -697,6 +722,8 @@ Applies to provisioned throughput only. Storage billed separately.
 | Max storage per logical partition | **20 GB** |
 | Max databases + containers | **500** |
 | Max regions | **1** (single region) |
+
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md -->
 
 ## SQL Query Limits
 
@@ -713,6 +740,8 @@ Applies to provisioned throughput only. Storage billed separately.
 
 > ¹ Increasable via Azure support request.
 
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md -->
+
 ## Per-Request Limits
 
 | Resource | Limit |
@@ -723,6 +752,8 @@ Applies to provisioned throughput only. Storage billed separately.
 | Max transactional batch operations | **100** |
 
 > Queries exceeding limits return a continuation token — no limit on total duration across pages.
+
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md -->
 
 ## Control Plane Rate Limits (per 5-minute window, per account)
 
@@ -735,6 +766,8 @@ Applies to provisioned throughput only. Storage billed separately.
 | Regional failover | **10 per hour** |
 | All other operations | **500** |
 
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md -->
+
 ## Authorization Token Limits
 
 | Resource | Limit |
@@ -743,3 +776,5 @@ Applies to provisioned throughput only. Storage billed separately.
 | Min resource token expiry | **10 minutes** |
 | Max resource token expiry | **24 hours** (default) |
 | Max clock skew for token auth | **15 minutes** |
+
+<!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md -->

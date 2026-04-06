@@ -10,7 +10,7 @@ The IaC-first mindset is simple: every resource that exists in Azure should trac
 
 Why does this matter more for Cosmos DB than, say, a storage account? Because Cosmos DB has *irreversible decisions*:
 
-<!-- Source: how-to-change-capacity-mode.md -->
+<!-- Source: manage-your-account/how-to-change-capacity-mode.md -->
 
 - You can't change a container's partition key after creation (Chapter 5).
 - Unique key constraints are immutable (Chapter 2).
@@ -20,7 +20,7 @@ When mistakes are permanent, you need code review, pull requests, and deployment
 
 The two dominant tools for Cosmos DB IaC are **Bicep** (Azure-native) and **Terraform** (multi-cloud). Both define the same three-level resource hierarchy: account → database → container. Both support idempotent deployments — you describe the desired state, and the engine figures out what to change. The choice between them usually comes down to your team's existing toolchain, not Cosmos DB-specific capabilities.
 
-<!-- Source: quickstart-template-bicep.md, quickstart-terraform.md -->
+<!-- Source: get-started/deploy/quickstart-template-bicep.md, get-started/deploy/quickstart-terraform.md -->
 
 ## Bicep: Defining the Full Stack
 
@@ -130,21 +130,21 @@ resource container 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/container
 }
 ```
 
-<!-- Source: manage-with-bicep.md, quickstart-template-bicep.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-bicep.md, get-started/deploy/quickstart-template-bicep.md -->
 
 A few things to notice:
 
 **The resource provider is `Microsoft.DocumentDB/databaseAccounts`.** Yes, "DocumentDB." The ARM resource provider name has stayed the same since the DocumentDB days. Every Bicep and ARM template you'll ever write for Cosmos DB uses this provider name — it has nothing to do with the newer Azure DocumentDB (vCore) product.
 
-<!-- Source: quickstart-template-bicep.md -->
+<!-- Source: get-started/deploy/quickstart-template-bicep.md -->
 
 **Account names are limited to 44 characters, all lowercase.** This becomes your endpoint URL (`https://<name>.documents.azure.com`), so keep it short and meaningful. The Bicep `toLower()` function is a safety net, but don't rely on it — name your accounts deliberately.
 
-<!-- Source: manage-with-bicep.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-bicep.md -->
 
 **`disableKeyBasedMetadataWriteAccess: true`** is a production best practice. It prevents anyone with an account key from creating or modifying databases, containers, or throughput settings through the SDK or Data Explorer. All structural changes must flow through ARM (i.e., your IaC pipeline). This is exactly the governance model you want.
 
-<!-- Source: resource-locks.md, audit-control-plane-logs.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/resource-locks.md, manage-your-account/monitor/use-azure-monitor-logs/audit-control-plane-logs.md -->
 
 **The indexing policy uses opt-in paths.** Instead of the default "index everything" policy, this template explicitly lists only the paths the application queries against, then excludes everything else with `/*`. This reduces write RU cost and storage. Chapter 9 covers indexing policy design in depth — the point here is that the policy is *code-reviewed and versioned*, not hand-edited in the portal.
 
@@ -237,7 +237,7 @@ resource "azurerm_cosmosdb_sql_container" "orders" {
 }
 ```
 
-<!-- Source: manage-with-terraform.md, quickstart-terraform.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-terraform.md, get-started/deploy/quickstart-terraform.md -->
 
 ### Bicep vs. Terraform: Which One?
 
@@ -256,20 +256,20 @@ Neither is wrong. Pick the one your team already knows. If you're starting fresh
 
 A few Cosmos DB-specific constraints affect how you write templates, regardless of which tool you use:
 
-<!-- Source: manage-with-bicep.md, manage-with-terraform.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/manage-with-bicep.md, manage-your-account/manage-azure-cosmos-db-resources/manage-with-terraform.md -->
 
 - **Throughput changes require redeployment.** To change RU/s values, update the template and redeploy. Both Bicep and Terraform handle this as an in-place update — no downtime, no recreation.
 - **You can't modify regions and other properties simultaneously.** Adding or removing a region is its own deployment. Don't try to change consistency level and add a region in the same template update.
 - **Throughput is set in increments of 100 RU/s** for provisioned throughput. For autoscale, the max throughput starts at 1,000 RU/s and scales in increments of 1,000 RU/s.
 - **Partition keys and unique key constraints are immutable.** Get them right in the template before the first deployment. Changing them means creating a new container and migrating data.
 
-<!-- Source: request-units.md, provision-throughput-autoscale.md -->
+<!-- Source: throughput-request-units/request-units.md, throughput-request-units/autoscale-throughput/provision-throughput-autoscale.md -->
 
 ## Deploying Indexing Policy and Throughput Changes Without Downtime
 
 One of Cosmos DB's underappreciated features: you can update a container's indexing policy *at any time* without affecting read or write availability. The service performs an **online, in-place index transformation** — it builds the new index in the background using your provisioned RUs at a lower priority than your application traffic. No downtime, no maintenance window, no read/write interruption.
 
-<!-- Source: index-policy.md -->
+<!-- Source: develop-modern-applications/performance/indexing/index-policy.md -->
 
 This is a big deal for IaC workflows. It means you can safely push indexing policy changes through your CI/CD pipeline without coordinating with an application deployment. Add a composite index your new query needs, deploy the template, and the transformation runs in the background.
 
@@ -279,13 +279,13 @@ There are a few rules to follow:
 
 **Removing indexed paths takes effect immediately.** The query engine stops using the dropped index right away and falls back to a full scan. If you're replacing one index with another — say, swapping a single-property index for a composite index — add the new index first, wait for the transformation to complete, *then* remove the old one. Doing both in one update can break queries that depend on the index you're removing.
 
-<!-- Source: index-policy.md, how-to-manage-indexing-policy.md -->
+<!-- Source: develop-modern-applications/performance/indexing/index-policy.md, develop-modern-applications/performance/indexing/how-to-manage-indexing-policy.md -->
 
 **Group removals into a single update.** If you need to drop multiple indexes, do it in one indexing policy change. Multiple sequential removals can produce inconsistent query results during the intermediate transformations.
 
 **Track transformation progress** using the `x-ms-documentdb-collection-index-transformation-progress` response header, which returns a percentage from 0 to 100. In C#:
 
-<!-- Source: how-to-manage-indexing-policy.md -->
+<!-- Source: develop-modern-applications/performance/indexing/how-to-manage-indexing-policy.md -->
 
 ```csharp
 ContainerResponse response = await container.ReadContainerAsync(
@@ -353,7 +353,7 @@ For pull request builds and local development, the **Cosmos DB emulator** is the
 
 The Linux-based emulator (vNext) runs as a Docker container, which makes it perfect for CI pipelines:
 
-<!-- Source: emulator-linux.md -->
+<!-- Source: develop-modern-applications/emulator/emulator-linux.md -->
 
 ```bash
 docker pull mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview
@@ -367,7 +367,7 @@ docker run --detach \
 
 The emulator runs on port `8081` with a well-known key, so your integration tests can connect without any secrets management:
 
-<!-- Source: emulator.md -->
+<!-- Source: develop-modern-applications/emulator/emulator.md -->
 
 | Setting | Value |
 |---|---|
@@ -378,7 +378,7 @@ Chapter 3 covers emulator setup in detail — including the Windows installer an
 
 **Emulator limitations to know in CI.** The emulator is not a complete replica of the cloud service. A few differences matter for testing:
 
-<!-- Source: emulator.md, emulator-linux.md -->
+<!-- Source: develop-modern-applications/emulator/emulator.md, develop-modern-applications/emulator/emulator-linux.md -->
 
 - The vNext (Linux) emulator only supports the NoSQL API in **gateway mode**.
 - You can't create a container with a custom indexing policy in the vNext emulator, but the default index-everything policy handles most query patterns — ORDER BY, range filters, joins, and aggregates all work.
@@ -432,7 +432,7 @@ The `services` block handles the Docker lifecycle — the container starts befor
 
 For Azure DevOps, the approach depends on your agent. The Windows-hosted agent `windows-2019` comes with the emulator preinstalled. Start it with a PowerShell task:
 
-<!-- Source: tutorial-setup-ci-cd.md -->
+<!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/tutorial-setup-ci-cd.md -->
 
 ```yaml
 trigger:
@@ -486,8 +486,10 @@ az cosmosdb sql database delete \
 ```
 
 This avoids the slow (2–3 minute) account creation step on every PR while still giving each test run isolated data.
+<!-- Source: develop-modern-applications/developer-guide/how-to-create-account.md -->
 
 **Strategy 2: Ephemeral accounts with serverless.** If you need account-level configuration differences between test runs, create a serverless account per pipeline run. Serverless accounts have no minimum throughput cost — you only pay for the RUs your tests actually consume. Tear down the account after the run completes.
+<!-- Source: throughput-request-units/serverless/serverless.md -->
 
 ```bash
 az cosmosdb create \
@@ -605,7 +607,7 @@ resource accountLock 'Microsoft.Authorization/locks@2020-05-01' = {
 }
 ```
 
-<!-- Source: resource-locks.md -->
+<!-- Source: manage-your-account/manage-azure-cosmos-db-resources/resource-locks.md -->
 
 Resource locks work at the management plane level. They don't prevent data operations (reads, writes, queries) — just resource-level changes like deletion or modification. Combined with `disableKeyBasedMetadataWriteAccess: true`, this means structural changes to your production account can *only* happen through ARM deployments (your pipeline) and *cannot* be accidentally deleted.
 

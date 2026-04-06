@@ -10,25 +10,25 @@ Chapter 12 covered the mechanics of multi-region distribution, failover, and the
 
 Every new Cosmos DB account starts in **periodic backup mode** unless you explicitly choose otherwise. It's the zero-configuration option — backups happen automatically in the background, and you never interact with them directly until you need a restore.
 
-<!-- Source: periodic-backup-restore-introduction.md -->
+<!-- Source: manage-your-account/back-up-and-restore/periodic-backup/periodic-backup-restore-introduction.md -->
 
 ### How Periodic Backups Work
 
 Cosmos DB takes a full snapshot of your data every **4 hours** by default, retaining the **latest two backups**. These snapshots are stored in Azure Blob Storage, completely separate from your database's live storage. The process runs in the background without consuming any of your provisioned throughput (RUs) and without affecting the performance or availability of your database operations.
 
-<!-- Source: periodic-backup-restore-introduction.md -->
+<!-- Source: manage-your-account/back-up-and-restore/periodic-backup/periodic-backup-restore-introduction.md -->
 
 The backup is taken in the **write region** of your account. The snapshot is stored in Blob Storage in that same region, then replicated to the paired region via geo-redundant storage (GRS) by default. You can't access the backup blobs directly — they're fully managed by the platform.
 
 Here's the important detail: if a container or database is deleted, Cosmos DB retains the existing snapshots for **30 days**, even though your normal retention might be shorter. This gives you a window to discover the problem and request a restore.
 
-<!-- Source: periodic-backup-restore-introduction.md -->
+<!-- Source: manage-your-account/back-up-and-restore/periodic-backup/periodic-backup-restore-introduction.md -->
 
 ### Configuring Backup Interval and Retention
 
 The defaults (4-hour interval, two copies retained) are fine for many workloads, but you can tune both:
 
-<!-- Source: periodic-backup-modify-interval-retention.md -->
+<!-- Source: manage-your-account/back-up-and-restore/periodic-backup/periodic-backup-modify-interval-retention.md -->
 
 | Setting | Range | Default |
 |---------|-------|---------|
@@ -49,7 +49,7 @@ az cosmosdb update \
     --backup-retention 24
 ```
 
-<!-- Source: periodic-backup-modify-interval-retention.md -->
+<!-- Source: manage-your-account/back-up-and-restore/periodic-backup/periodic-backup-modify-interval-retention.md -->
 
 Two backups are included at no extra charge. If you increase retention beyond two copies, you pay for the additional backup storage. The pricing depends on data size and region — check the Cosmos DB pricing page for current rates.
 
@@ -57,7 +57,7 @@ Two backups are included at no extra charge. If you increase retention beyond tw
 
 By default, periodic backups use **geo-redundant storage (GRS)**, which replicates your backup data to the Azure paired region. This protects against a regional disaster taking out both your live data and its backups simultaneously.
 
-<!-- Source: periodic-backup-storage-redundancy.md -->
+<!-- Source: manage-your-account/back-up-and-restore/periodic-backup/periodic-backup-storage-redundancy.md -->
 
 You have three options:
 
@@ -71,7 +71,7 @@ Choose based on your compliance and residency requirements. If regulations prohi
 
 This is the part that catches people off guard: **you can't self-service a periodic backup restore.** You have to file a support ticket with Microsoft.
 
-<!-- Source: periodic-backup-request-data-restore.md -->
+<!-- Source: manage-your-account/back-up-and-restore/periodic-backup/periodic-backup-request-data-restore.md -->
 
 Here's the process:
 
@@ -80,11 +80,11 @@ Here's the process:
 3. **Provide precise details:** subscription ID, account name, database names, container names, and the point-in-time (in UTC) you want to restore to. The more precise the timestamp, the better the outcome.
 4. **Wait for the restore.** The Cosmos DB team restores your data into a **new account**. You can't restore into the existing account with periodic mode.
 
-<!-- Source: periodic-backup-request-data-restore.md -->
+<!-- Source: manage-your-account/back-up-and-restore/periodic-backup/periodic-backup-request-data-restore.md -->
 
 The restored account gets a name like `<original-name>-restored1`. It has the same provisioned throughput, indexing policies, and consistency settings as the original — but it's a single-region account in the write region, regardless of how many regions the source had. Several settings are **not** restored — see the business continuity checklist at the end of this chapter for the full list of what you'll need to reconfigure manually.
 
-<!-- Source: periodic-backup-restore-introduction.md, periodic-backup-request-data-restore.md -->
+<!-- Source: manage-your-account/back-up-and-restore/periodic-backup/periodic-backup-restore-introduction.md, manage-your-account/back-up-and-restore/periodic-backup/periodic-backup-request-data-restore.md -->
 
 After verifying the restored data, migrate it back to your original account using Azure Data Factory, the change feed, or custom code. Then delete the restored account to stop paying for its throughput and storage.
 
@@ -104,7 +104,7 @@ For most production applications, continuous backup is the better choice. Let's 
 
 **Continuous backup mode** replaces the periodic snapshot approach with a continuous log-based backup that lets you restore to *any second* within a retention window — 7 or 30 days, depending on your tier. No support tickets. No waiting for a human. Self-service restore via the portal, CLI, or PowerShell.
 
-<!-- Source: continuous-backup-restore-introduction.md -->
+<!-- Source: manage-your-account/back-up-and-restore/continuous-backup/continuous-backup-restore-introduction.md -->
 
 This is the backup mode you should default to for any application where data loss matters.
 
@@ -112,7 +112,7 @@ This is the backup mode you should default to for any application where data los
 
 You choose continuous backup mode when creating the account. In the Azure portal, it's on the **Backup Policy** tab during account creation — select **Continuous** and pick your tier.
 
-<!-- Source: provision-account-continuous-backup.md -->
+<!-- Source: manage-your-account/back-up-and-restore/continuous-backup/provision-account-continuous-backup.md -->
 
 Via the CLI:
 
@@ -128,11 +128,11 @@ az cosmosdb create \
 
 If you don't specify a tier, it defaults to **Continuous30Days**.
 
-<!-- Source: provision-account-continuous-backup.md -->
+<!-- Source: manage-your-account/back-up-and-restore/continuous-backup/provision-account-continuous-backup.md -->
 
 Already have an account on periodic mode? You can migrate to continuous — but it's a **one-way operation**. Once you switch, you can't go back to periodic.
 
-<!-- Source: migrate-continuous-backup.md -->
+<!-- Source: manage-your-account/back-up-and-restore/continuous-backup/migrate-continuous-backup.md -->
 
 ```bash
 az cosmosdb update \
@@ -144,13 +144,13 @@ az cosmosdb update \
 
 Migration time depends on the data size. You can track progress via `az cosmosdb show` — look for the `migrationState` property in the `backupPolicy` object. When it shows `null` and the type shows `Continuous`, the migration is complete.
 
-<!-- Source: migrate-continuous-backup.md -->
+<!-- Source: manage-your-account/back-up-and-restore/continuous-backup/migrate-continuous-backup.md -->
 
 ### 7-Day vs. 30-Day Retention Tiers
 
 Continuous backup comes in two tiers with meaningfully different cost profiles:
 
-<!-- Source: continuous-backup-restore-introduction.md -->
+<!-- Source: manage-your-account/back-up-and-restore/continuous-backup/continuous-backup-restore-introduction.md -->
 
 | | **7-Day** | **30-Day** |
 |---|---|---|
@@ -168,17 +168,17 @@ You can switch between tiers at any time. But be careful:
 - **Switching from 30-day to 7-day:** You immediately lose the ability to restore to any point older than 7 days.
 - **Switching from 7-day to 30-day:** You can only restore data from the last 7 days until new backups accumulate past that window.
 
-<!-- Source: migrate-continuous-backup.md -->
+<!-- Source: manage-your-account/back-up-and-restore/continuous-backup/migrate-continuous-backup.md -->
 
 ### How Continuous Backups Are Stored
 
 Unlike periodic mode (which takes full snapshots at intervals), continuous mode takes backups in **every region** where your account exists. Each region's backup is stored in Azure Blob Storage in that same region — locally redundant by default, or zone-redundant if the region has availability zones enabled.
 
-<!-- Source: continuous-backup-restore-introduction.md -->
+<!-- Source: manage-your-account/back-up-and-restore/continuous-backup/continuous-backup-restore-introduction.md -->
 
 Mutations are backed up asynchronously within **100 seconds**. If the backup storage is temporarily unavailable, mutations are persisted locally until the storage comes back, then flushed — so no data is lost in the backup stream.
 
-<!-- Source: continuous-backup-restore-introduction.md -->
+<!-- Source: manage-your-account/back-up-and-restore/continuous-backup/continuous-backup-restore-introduction.md -->
 
 > **Gotcha:** You can't change the backup storage redundancy for continuous mode accounts. It's automatically determined by the region's availability zone configuration. This is different from periodic mode, where you can choose GRS, ZRS, or LRS.
 
@@ -190,7 +190,7 @@ The core value of continuous backup is the ability to pick any second within you
 
 The default restore path creates a **new Cosmos DB account** containing your data as it existed at the specified timestamp:
 
-<!-- Source: restore-account-continuous-backup.md -->
+<!-- Source: manage-your-account/back-up-and-restore/continuous-backup/restore/restore-account-continuous-backup.md -->
 
 **Via the portal:**
 
@@ -214,29 +214,29 @@ az cosmosdb restore \
 
 The restore cost is a one-time charge of approximately **$0.15/GB** based on the data size. Restoring 1 TB costs about $150.
 
-<!-- Source: continuous-backup-restore-introduction.md -->
+<!-- Source: manage-your-account/back-up-and-restore/continuous-backup/continuous-backup-restore-introduction.md -->
 
 The same limitations from periodic restore apply here — several account-level settings are not carried over, and the new account starts as single-region. See the business continuity checklist at the end of this chapter for the full list of what needs reconfiguring.
 
-<!-- Source: continuous-backup-restore-introduction.md -->
+<!-- Source: manage-your-account/back-up-and-restore/continuous-backup/continuous-backup-restore-introduction.md -->
 
-**Pro tip:** Use the event feed in the portal to discover *when* a deletion or modification happened. The event feed lists create, replace, and delete operations on databases and containers in chronological order — helpful when you know something went wrong but aren't sure exactly when.
+> **Tip:** Use the event feed in the portal to discover *when* a deletion or modification happened. The event feed lists create, replace, and delete operations on databases and containers in chronological order — helpful when you know something went wrong but aren't sure exactly when.
 
 #### Restoring a Deleted Container or Database
 
 One of the most common restore scenarios is recovering an accidentally deleted container or database. With continuous backup, you can restore deleted containers and databases within the configured retention window — 7 days on the 7-day tier, 30 days on the 30-day tier.
 
-<!-- Source: continuous-backup-restore-introduction.md -->
+<!-- Source: manage-your-account/back-up-and-restore/continuous-backup/continuous-backup-restore-introduction.md -->
 
 Deleted *accounts* are different: you can restore a deleted account within **30 days of deletion regardless of which tier you were on**. Navigate to the Azure Cosmos DB service page in the portal (not a specific account), click **Restore**, and you'll see a list of deleted accounts that are still within their 30-day restorable window.
 
-<!-- Source: restore-account-continuous-backup.md -->
+<!-- Source: manage-your-account/back-up-and-restore/continuous-backup/restore/restore-account-continuous-backup.md -->
 
 ### In-Account Restore: Same Account, No Migration
 
 The newer and often more convenient restore path is **in-account restore**, which restores a deleted database or container directly back into the same account. No new account to create, no data migration, no re-configuring network rules.
 
-<!-- Source: restore-in-account-continuous-backup-introduction.md -->
+<!-- Source: manage-your-account/back-up-and-restore/continuous-backup/restore/restore-in-the-same-account/restore-in-account-continuous-backup-introduction.md -->
 
 This is the preferred approach for the most common accident: "someone deleted a container they shouldn't have." Instead of standing up a whole new account, you restore the deleted resource in place.
 
@@ -249,7 +249,7 @@ This is the preferred approach for the most common accident: "someone deleted a 
 
 The restored resource gets the same name and resource ID as the original. Cosmos DB distinguishes between the original and restored versions using a `CollectionInstanceId` field internally — useful for debugging restore operations or distinguishing the original from the restored resource in diagnostic logs.
 
-<!-- Source: restore-in-account-continuous-backup-introduction.md -->
+<!-- Source: manage-your-account/back-up-and-restore/continuous-backup/restore/restore-in-the-same-account/restore-in-account-continuous-backup-introduction.md -->
 
 **Via the CLI** (restoring a deleted container):
 
@@ -270,7 +270,7 @@ az cosmosdb sql container create \
 
 **Key constraints for in-account restore:**
 
-<!-- Source: restore-in-account-continuous-backup-introduction.md, restore-in-account-continuous-backup-frequently-asked-questions.md -->
+<!-- Source: manage-your-account/back-up-and-restore/continuous-backup/restore/restore-in-the-same-account/restore-in-account-continuous-backup-introduction.md, manage-your-account/back-up-and-restore/continuous-backup/restore/how-to-restore-in-account-continuous-backup.md -->
 
 - You can only restore **deleted** resources. You can't overwrite a live container with an earlier version of itself — for that, use the new-account restore path.
 - Shared-throughput containers can't be restored individually. The entire shared-throughput database must be restored.
@@ -284,7 +284,7 @@ az cosmosdb sql container create \
 
 Multi-region write accounts add a nuance to continuous backup that's worth understanding. In a multi-write account, all writes go through a **hub region** for conflict resolution. Satellite regions send their writes to the hub for confirmation, and the satellite only backs up documents after the hub confirms them.
 
-<!-- Source: continuous-backup-restore-introduction.md -->
+<!-- Source: manage-your-account/back-up-and-restore/continuous-backup/continuous-backup-restore-introduction.md -->
 
 This means: if you restore a multi-write account to a timestamp *T*, you only get documents that the hub region had confirmed by *T*. Writes that were in flight from a satellite region — submitted but not yet confirmed by the hub — won't appear in the restore. For most practical purposes, this is a non-issue (confirmation happens in under 100 seconds), but it's worth knowing for tight restore windows.
 
@@ -298,7 +298,7 @@ A few things to keep in mind:
 - **The restored account may not preserve your original throughput settings** as of the restore point.
 - **TTL-expired documents are not restored.** If your container has a TTL policy, documents that expired before the restore point are gone. Additionally, the restore process restores the TTL configuration itself — so if you restore without disabling TTL, documents may start expiring again immediately. Use the `--disable-ttl` flag during restore to prevent this.
 
-<!-- Source: continuous-backup-restore-introduction.md -->
+<!-- Source: manage-your-account/back-up-and-restore/continuous-backup/continuous-backup-restore-introduction.md -->
 
 ## Periodic vs. Continuous: Which Should You Choose?
 
@@ -325,7 +325,7 @@ Chapter 12 covered the mechanics of multi-region replication, failover types, an
 
 A single-region Cosmos DB account has **no automatic failover capability**. If the region goes down, your account is unavailable for reads and writes until the region recovers. With availability zones enabled, you can survive a single-zone outage, but a full regional outage means you wait.
 
-<!-- Source: disaster-recovery-guidance.md -->
+<!-- Source: high-availability/disaster-recovery-guidance.md -->
 
 Your options during a single-region outage:
 
@@ -334,19 +334,19 @@ Your options during a single-region outage:
 
 The RPO for a single-region account is **< 240 minutes** — that's up to 4 hours of potential data loss, regardless of consistency level. The RTO is entirely dependent on how long Azure takes to restore the region.
 
-<!-- Source: consistency-levels.md -->
+<!-- Source: high-availability/consistency/consistency-levels.md -->
 
-**Bottom line:** Single-region is acceptable for dev/test and non-critical workloads. For anything where downtime costs money, add at least one more region.
+> **Important:** Single-region is acceptable for dev/test and non-critical workloads. For anything where downtime costs money, add at least one more region.
 
 ### Multi-Region with Single Write: Automatic Failover
 
 Adding read regions gives you two things: lower read latency for geographically distributed users, and **automatic failover** when the write region goes down.
 
-<!-- Source: disaster-recovery-guidance.md -->
+<!-- Source: high-availability/disaster-recovery-guidance.md -->
 
 With **service-managed failover** enabled, Cosmos DB automatically promotes a read region to become the new write region when it detects a write region outage. The failover follows the priority order you've configured. However — and this is important — the timing depends on the outage's nature and progression. **Failover can take up to one hour or more.**
 
-<!-- Source: disaster-recovery-guidance.md -->
+<!-- Source: high-availability/disaster-recovery-guidance.md -->
 
 If you can't wait, you can manually trigger a **region offline operation**, which immediately removes the failed region and promotes the next in the priority list. This is faster but carries risk: writes committed in the old write region but not yet replicated may be lost.
 
@@ -362,7 +362,7 @@ The RTO for service-managed failover is on the order of **minutes to ~1 hour**, 
 
 Multi-region write accounts are the highest availability configuration Cosmos DB offers. Every region accepts both reads and writes, and the SDKs automatically route traffic away from unhealthy regions. No manual failover needed. No promotion dance. No waiting.
 
-<!-- Source: disaster-recovery-guidance.md -->
+<!-- Source: high-availability/disaster-recovery-guidance.md -->
 
 The tradeoff: multi-write accounts can't use strong consistency, so RPO = 0 is not achievable. With Session, Consistent Prefix, or Eventual consistency, the RPO is less than 15 minutes. In practice, replication lag is typically seconds, so actual data loss during a regional outage is minimal — but it's not zero.
 
@@ -398,7 +398,7 @@ The RTO is effectively **near-zero** for applications with properly configured S
 
 ¹ *K* = the configured maximum version lag; *T* = the configured maximum time lag. For multi-region accounts the minimum is 100,000 operations or 300 seconds.
 
-<!-- Source: consistency-levels.md -->
+<!-- Source: high-availability/consistency/consistency-levels.md -->
 
 ## Business Continuity Planning Checklist
 
@@ -440,7 +440,7 @@ A backup you can't restore in an emergency is not a backup. Document the exact s
 - What configurations need to be reapplied after restore (firewall rules, VNET settings, RBAC assignments, stored procedures)?
 - Who's responsible for verifying the restored data and migrating it back to the original account?
 
-<!-- Source: continuous-backup-restore-permissions.md -->
+<!-- Source: manage-your-account/back-up-and-restore/continuous-backup/continuous-backup-restore-permissions.md -->
 
 ### 7. Monitor and Alert on Availability
 
@@ -458,7 +458,7 @@ Regardless of backup mode, these items are **never** included in a restore:
 - Analytical store data (Synapse Link)
 - Materialized views
 
-<!-- Source: periodic-backup-restore-introduction.md, periodic-backup-request-data-restore.md, continuous-backup-restore-introduction.md -->
+<!-- Source: manage-your-account/back-up-and-restore/periodic-backup/periodic-backup-restore-introduction.md, manage-your-account/back-up-and-restore/periodic-backup/periodic-backup-request-data-restore.md, manage-your-account/back-up-and-restore/continuous-backup/continuous-backup-restore-introduction.md -->
 
 Treat these as infrastructure-as-code artifacts. Define them in Bicep, Terraform, or ARM templates so you can reapply them to a restored account in minutes, not hours. Chapter 20 covers IaC patterns for Cosmos DB in detail.
 

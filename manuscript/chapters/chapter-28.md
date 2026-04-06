@@ -58,7 +58,7 @@ This is the most consequential decision in the entire application (Chapter 5). T
 
 For small-to-medium tenants, `/tenantId` works well. But what happens when one tenant has 50,000 active tasks and growing? A single logical partition can hold up to 20 GB, which is plenty for task documents. But if you anticipate tenants outgrowing that ceiling — or if you need to isolate RU consumption more finely — you'd reach for **hierarchical partition keys** (Chapter 5). For TaskHub, we'll use a hierarchical key of `/tenantId` → `/type`:
 
-<!-- Source: hierarchical-partition-keys.md -->
+<!-- Source: model-data-for-partitioning/partitioning-and-horizontal-scaling/hierarchical-partition-keys/hierarchical-partition-keys.md -->
 
 ```csharp
 var containerProperties = new ContainerProperties
@@ -100,13 +100,13 @@ builder.Services.AddSingleton<CosmosClient>(sp =>
 });
 ```
 
-<!-- Source: sdk-observability.md, how-to-connect-role-based-access-control.md -->
+<!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/sdk-observability.md, create-secure-solutions/how-to-connect-role-based-access-control.md -->
 
 Notice we're using `DefaultAzureCredential` instead of an account key. We'll wire up the RBAC role assignment shortly. And we set `ConnectionMode.Direct` — the lowest-latency option for production workloads (Chapter 7, Chapter 27).
 
 ### Point Reads and Upserts
 
-The cheapest operation in Cosmos DB is the point read: fetch an item by `id` + partition key. For TaskHub's "get task by ID" endpoint, that's exactly one RU for a 1 KB item (Chapter 10).
+The cheapest operation in Cosmos DB is the point read: fetch an item by `id` + partition key. For TaskHub's "get task by ID" endpoint, that's exactly one RU for a 1 KB item (Chapter 10). <!-- Source: throughput-request-units/request-units.md -->
 
 ```csharp
 public async Task<TaskItem?> GetTaskAsync(string tenantId, string taskId)
@@ -204,7 +204,7 @@ A few things to note:
 - **Partition key in the request.** Because we specify both levels of the hierarchical partition key, this is a single-partition query — no fan-out, minimal RU cost (Chapter 5, Chapter 8).
 - **`ORDER BY` requires a composite index** if you're ordering by a field that's also filtered. We'll handle that in the Bicep template. If you need a refresher on composite index ordering rules, see Chapter 9.
 
-> **Python/JS note:** The Python SDK uses `query_items()` on the container, returning an async iterable. The JavaScript SDK uses `container.items.query()`. The pattern is the same — parameterized queries, single-partition targeting, paginated iteration.
+> **Note:** The Python SDK uses `query_items()` on the container, returning an async iterable. The JavaScript SDK uses `container.items.query()`. The pattern is the same — parameterized queries, single-partition targeting, paginated iteration.
 
 ## Adding Change Feed Processing
 
@@ -214,7 +214,7 @@ Every time a task is created or updated, we want an audit entry written to a sep
 
 The change feed processor needs four things: the monitored container, a lease container, an instance name, and a delegate that handles each batch of changes.
 
-<!-- Source: change-feed-processor.md -->
+<!-- Source: develop-modern-applications/change-feed/change-feed-processor.md -->
 
 ```csharp
 public class AuditFeedProcessor : IHostedService
@@ -303,7 +303,7 @@ Account keys are a liability. They grant full access to everything in the accoun
 
 Cosmos DB has two built-in data-plane roles:
 
-<!-- Source: reference-data-plane-security.md -->
+<!-- Source: create-secure-solutions/reference/reference-data-plane-security.md -->
 
 | Role | ID |
 |---|---|
@@ -330,7 +330,7 @@ Scoping to `/dbs/taskhub-db` limits the identity to that single database — it 
 
 Once RBAC is wired up and verified, disable key-based authentication entirely:
 
-<!-- Source: how-to-connect-role-based-access-control.md -->
+<!-- Source: create-secure-solutions/how-to-connect-role-based-access-control.md -->
 
 ```bash
 az resource update \
@@ -350,7 +350,7 @@ A production app you can't observe is a production app you can't fix. TaskHub wi
 
 We already enabled `DisableDistributedTracing = false` in the `CosmosClientOptions` when we registered the singleton client. That's the SDK side. Now we need an exporter to actually send traces somewhere.
 
-<!-- Source: sdk-observability.md -->
+<!-- Source: develop-modern-applications/tools-software-development-kits-sdks-and-providers/sdk-observability.md -->
 
 ```csharp
 builder.Services.AddOpenTelemetry()
@@ -391,7 +391,7 @@ Set up alerts for the two failure modes that matter most: throttling and elevate
 
 Enable diagnostic settings to ship `DataPlaneRequests` and `QueryRuntimeStatistics` to a Log Analytics workspace. This gives you the ability to find your most expensive queries after the fact:
 
-<!-- Source: diagnostic-queries.md -->
+<!-- Source: manage-your-account/monitor/use-azure-monitor-logs/diagnostic-queries.md -->
 
 ```kusto
 let topRequestsByRUcharge = CDBDataPlaneRequests
@@ -430,7 +430,7 @@ Now your API controller tests never hit a database. They verify HTTP status code
 
 For tests that verify actual Cosmos DB behavior — query correctness, indexing policy effects, partition key routing — run the Linux-based vNext emulator as a Docker container:
 
-<!-- Source: emulator-linux.md -->
+<!-- Source: develop-modern-applications/emulator/emulator-linux.md -->
 
 ```bash
 docker run --detach \
@@ -499,7 +499,7 @@ TaskHub's infrastructure is defined in Bicep — the Cosmos DB account, database
 
 Here's the core of the template, focused on the Cosmos DB resources:
 
-<!-- Source: quickstart-template-bicep.md, manage-with-bicep.md -->
+<!-- Source: get-started/deploy/quickstart-template-bicep.md, manage-your-account/manage-azure-cosmos-db-resources/manage-with-bicep.md -->
 
 ```bicep
 @description('Cosmos DB account name')
@@ -609,7 +609,7 @@ resource leaseContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/cont
 A few decisions embedded in this template:
 
 - **`disableLocalAuth: true`** — no key-based auth from day one. The account is Entra-only.
-- **Autoscale at 1,000 max RU/s** for the tasks and audit containers. That means a baseline of 100 RU/s when idle, scaling up to 1,000 under load (Chapter 11). Generous for a new app; easy to bump later by redeploying with a higher value.
+- **Autoscale at 1,000 max RU/s** for the tasks and audit containers. That means a baseline of 100 RU/s when idle, scaling up to 1,000 under load (Chapter 11). Generous for a new app; easy to bump later by redeploying with a higher value. <!-- Source: throughput-request-units/autoscale-throughput/provision-throughput-autoscale.md -->
 - **TTL on the audit container.** Audit entries expire after 90 days. TTL cleanup is automatic and consumes only leftover RUs that haven't been used by user requests — effectively free under most provisioned workloads, but not truly zero-cost. On serverless accounts, expired-item deletions are charged at the normal delete rate (Chapter 6). <!-- Source: manage-your-account/containers-and-items/time-to-live.md -->
 - **The lease container uses manual throughput at 400 RU/s.** Lease containers are low-traffic by nature; autoscale would be wasteful.
 - **Composite index on `[/tenantId ASC, /updatedAt DESC]`.** This supports the `ORDER BY c.updatedAt DESC` query we wrote earlier without an expensive full-index scan (Chapter 9).
@@ -631,13 +631,13 @@ Every architecture is a set of trade-offs. Here's what we chose for TaskHub, wha
 
 **Shared container with item type pattern vs. separate containers per entity.** We put tasks and comments in the same container, using hierarchical partition keys and a `type` discriminator. This minimizes the number of containers to manage and keeps related data co-located. The trade-off: your indexing policy applies to all item types in the container. If tasks and comments had radically different query patterns, separate containers with tailored indexing policies might be more efficient. For TaskHub's workload, the unified approach wins on simplicity.
 
-**Hierarchical partition keys vs. simple `/tenantId`.** We added `/type` as a second-level key to future-proof for large tenants. If your tenants are uniformly small (under a few GB each), a flat `/tenantId` key is simpler and equally effective. The hierarchical key adds a small amount of SDK complexity — you build `PartitionKeyBuilder` instances instead of plain `PartitionKey` values — but eliminates a painful migration if a tenant outgrows the 20 GB logical partition limit later.
+**Hierarchical partition keys vs. simple `/tenantId`.** We added `/type` as a second-level key to future-proof for large tenants. If your tenants are uniformly small (under a few GB each), a flat `/tenantId` key is simpler and equally effective. The hierarchical key adds a small amount of SDK complexity — you build `PartitionKeyBuilder` instances instead of plain `PartitionKey` values — but eliminates a painful migration if a tenant outgrows the 20 GB logical partition limit later. <!-- Source: model-data-for-partitioning/partitioning-and-horizontal-scaling/partitioning.md -->
 
 **Change feed processor vs. Azure Functions trigger.** We embedded the change feed processor as a hosted service inside the API process. This is the right call for a single long-running service that's already deployed. If TaskHub evolved into a microservices architecture, or if we needed the processor to scale independently of the API, the Azure Functions trigger (Chapter 22) would be the better choice — it handles scaling, checkpointing, and lifecycle management for you.
 
 **Entra ID RBAC vs. account keys.** No trade-off here — RBAC is strictly better for production workloads. The only scenario where keys make sense is quick prototyping or environments where Entra ID isn't available (like certain air-gapped setups). Chapter 17 covers the edge cases.
 
-**Autoscale vs. manual throughput.** Autoscale costs 50% more per RU at peak compared to manual provisioned throughput. If TaskHub's traffic were perfectly predictable, manual provisioning would save money. It rarely is.
+**Autoscale vs. manual throughput.** Autoscale costs 50% more per RU at peak compared to manual provisioned throughput. If TaskHub's traffic were perfectly predictable, manual provisioning would save money. It rarely is. <!-- Source: throughput-request-units/how-to-choose-offer.md -->
 
 Autoscale trades a modest cost premium for the insurance that you won't throttle users during unexpected spikes. For a new application without traffic history, it's the right default. Once you have months of usage data, you can switch specific containers to manual provisioning if the savings justify the risk (Chapter 11).
 

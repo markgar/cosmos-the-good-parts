@@ -4,7 +4,7 @@ This appendix is a tear-out reference for capacity planning and cost estimation.
 
 ## RU Cost per Operation Type
 
-<!-- Source: mslearn-docs/content/throughput-(request-units)/request-units.md, mslearn-docs/content/develop-modern-applications/performance/key-value-store-cost.md -->
+<!-- Source: throughput-request-units/request-units.md, develop-modern-applications/performance/key-value-store-cost.md -->
 
 | Operation | ≈ RU Cost (1 KB item) | Notes |
 |---|---|---|
@@ -23,7 +23,7 @@ This appendix is a tear-out reference for capacity planning and cost estimation.
 
 ## Capacity Model Comparison
 
-<!-- Sources: mslearn-docs/content/throughput-(request-units)/set-throughput.md, mslearn-docs/content/throughput-(request-units)/serverless/serverless.md, mslearn-docs/content/throughput-(request-units)/autoscale-throughput/provision-throughput-autoscale.md, mslearn-docs/content/manage-your-account/enterprise-readiness/concepts-limits.md -->
+<!-- Sources: throughput-request-units/set-throughput.md, throughput-request-units/serverless/serverless.md, throughput-request-units/autoscale-throughput/provision-throughput-autoscale.md, manage-your-account/enterprise-readiness/concepts-limits.md -->
 
 | | **Provisioned (Manual)** | **Autoscale** | **Serverless** |
 |---|---|---|---|
@@ -38,7 +38,7 @@ This appendix is a tear-out reference for capacity planning and cost estimation.
 
 ## Free Tier
 
-<!-- Source: mslearn-docs/content/throughput-(request-units)/free-tier.md -->
+<!-- Source: throughput-request-units/free-tier.md -->
 
 | Detail | Value |
 |---|---|
@@ -50,11 +50,11 @@ This appendix is a tear-out reference for capacity planning and cost estimation.
 | **Not compatible with** | Serverless accounts |
 | **Opt-in** | Must be selected at account creation — cannot be enabled later |
 
-**Tip:** If you also have an Azure free account, the discounts stack for the first 12 months: 1,400 RU/s and 50 GB combined.
+> **Tip:** If you also have an Azure free account, the discounts stack for the first 12 months: 1,400 RU/s and 50 GB combined.
 
 ## Reserved Capacity
 
-<!-- Source: mslearn-docs/content/throughput-(request-units)/free-tier.md (references reserved-capacity), mslearn-docs/content/overview/overview.md -->
+<!-- Source: throughput-request-units/free-tier.md, overview/overview.md -->
 
 | Detail | Value |
 |---|---|
@@ -67,6 +67,8 @@ This appendix is a tear-out reference for capacity planning and cost estimation.
 Reserved capacity makes sense when you have a stable baseline of provisioned throughput you're confident you'll sustain for a year or more. Chapter 11 covers when to commit and when to stay on-demand.
 
 ## Key Billing Facts
+
+<!-- Sources: throughput-request-units/how-to-choose-offer.md, throughput-request-units/request-units.md, throughput-request-units/autoscale-throughput/provision-throughput-autoscale.md -->
 
 **Provisioned (manual):**
 - Billed at the **highest RU/s provisioned in each clock hour**. If you scale up from 1,000 to 10,000 and back down within one hour, you pay for 10,000 for that hour.
@@ -89,4 +91,4 @@ Reserved capacity makes sense when you have a stable baseline of provisioned thr
 **Storage (all modes):**
 - Billed per GB-month for data + index storage. The rate is the same across provisioned, autoscale, and serverless.
 
-> **Prices change.** Everything above describes *how* billing works, not *what* it costs. For current rates, use the [Azure pricing calculator](https://azure.microsoft.com/pricing/calculator/) or the [Cosmos DB Capacity Calculator](https://cosmos.azure.com/capacitycalculator/).
+> **Important:** Prices change. Everything above describes *how* billing works, not *what* it costs. For current rates, use the [Azure pricing calculator](https://azure.microsoft.com/pricing/calculator/) or the [Cosmos DB Capacity Calculator](https://cosmos.azure.com/capacitycalculator/).

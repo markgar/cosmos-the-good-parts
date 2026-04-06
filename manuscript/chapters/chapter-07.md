@@ -8,7 +8,7 @@ If you followed the quickstart in Chapter 3, you've already written your first i
 
 Azure Cosmos DB for NoSQL has official SDKs for six languages:
 
-<!-- Source: quickstart-dotnet.md, quickstart-python.md, quickstart-nodejs.md, quickstart-go.md, quickstart-rust.md -->
+<!-- Source: get-started/develop/quickstart-dotnet.md, get-started/develop/quickstart-python.md, get-started/develop/quickstart-nodejs.md, get-started/develop/quickstart-go.md, get-started/develop/quickstart-rust.md -->
 
 | Language | Package |
 |----------|---------|
@@ -28,7 +28,7 @@ Install commands:
 - **Go:** `go install github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos`
 - **Rust:** `cargo add azure_data_cosmos`
 
-> **Gotcha:** The Rust SDK is in **public preview** — no SLA, not recommended for production workloads. Everything else is GA. <!-- Source: quickstart-rust.md -->
+> **Gotcha:** The Rust SDK is in **public preview** — no SLA, not recommended for production workloads. Everything else is GA. <!-- Source: get-started/develop/quickstart-rust.md -->
 
 All six SDKs follow the same conceptual model: you create a client, navigate to a database and container, and perform operations on items. The API surface names differ slightly by language, but the structure is identical. Once you understand the pattern in one SDK, you can translate it to any other.
 
@@ -46,7 +46,7 @@ Every SDK mirrors the Cosmos DB resource hierarchy you learned in Chapter 2: **a
 | Database reference | `Database` | `DatabaseProxy` |
 | Container (items) | `Container` | `ContainerProxy` |
 
-<!-- Source: how-to-dotnet-get-started.md, how-to-python-get-started.md, how-to-javascript-get-started.md -->
+<!-- Source: develop-modern-applications/developer-guide/net/how-to-dotnet-get-started.md, develop-modern-applications/developer-guide/python/how-to-python-get-started.md, develop-modern-applications/developer-guide/javascript/how-to-javascript-get-started.md -->
 
 The `CosmosClient` is the top of the chain. You create one, then navigate down to a database and container. The database and container objects are lightweight references — creating them doesn't make a network call. They're validated server-side only when you actually perform an operation.
 
@@ -93,7 +93,7 @@ const database = client.database("cosmicworks");
 const container = database.container("products");
 ```
 
-<!-- Source: quickstart-dotnet.md, quickstart-python.md, quickstart-nodejs.md -->
+<!-- Source: get-started/develop/quickstart-dotnet.md, get-started/develop/quickstart-python.md, get-started/develop/quickstart-nodejs.md -->
 
 Notice that all three examples use `DefaultAzureCredential` from Azure Identity rather than connection strings or master keys. This is the recommended approach — it supports managed identities in Azure, service principals in CI/CD, and your developer credentials locally. We'll cover the security implications in detail in Chapter 17; for now, just adopt the pattern.
 
@@ -155,7 +155,7 @@ const { resource, headers } = await container.items.upsert(product);
 console.log(`Upsert cost: ${headers["x-ms-request-charge"]} RUs`);
 ```
 
-<!-- Source: quickstart-dotnet.md, quickstart-python.md, quickstart-nodejs.md -->
+<!-- Source: get-started/develop/quickstart-dotnet.md, get-started/develop/quickstart-python.md, get-started/develop/quickstart-nodejs.md -->
 
 A few things to notice:
 
@@ -165,7 +165,7 @@ A few things to notice:
 
 ### Reading Items (Point Read)
 
-The cheapest operation in Cosmos DB is the **point read**: fetch a single item by its `id` and partition key. No query engine, no index scan — just a direct lookup to the correct physical partition. About 1 RU for a 1 KB document. Chapter 10 will quantify exactly how RU costs scale with document size.
+The cheapest operation in Cosmos DB is the **point read**: fetch a single item by its `id` and partition key. No query engine, no index scan — just a direct lookup to the correct physical partition. About 1 RU for a 1 KB document. <!-- Source: throughput-request-units/request-units.md, develop-modern-applications/performance/key-value-store-cost.md --> Chapter 10 will quantify exactly how RU costs scale with document size.
 
 **C#**
 ```csharp
@@ -193,7 +193,7 @@ const { resource: product } = await container
     .read();
 ```
 
-<!-- Source: quickstart-dotnet.md, quickstart-python.md, quickstart-nodejs.md -->
+<!-- Source: get-started/develop/quickstart-dotnet.md, get-started/develop/quickstart-python.md, get-started/develop/quickstart-nodejs.md -->
 
 This is the operation you should reach for whenever you know the `id` and partition key. If your most frequent access pattern can't be served by a point read, that's a signal to reconsider your data model (Chapter 4) or your partition key (Chapter 5).
 
@@ -215,11 +215,11 @@ ItemResponse<Product> response = await container.PatchItemAsync<Product>(
 );
 ```
 
-<!-- Source: partial-document-update-getting-started.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/partial-document-update/partial-document-update-getting-started.md -->
 
-You can combine up to 10 patch operations in a single call. The supported operations are **Add**, **Set**, **Replace**, **Remove**, **Increment**, and **Move**. You can also apply a conditional predicate so the patch only executes if the item matches a filter.
+You can combine up to 10 patch operations in a single call. <!-- Source: develop-modern-applications/operations-on-containers-and-items/partial-document-update/partial-document-update.md --> The supported operations are **Add**, **Set**, **Replace**, **Remove**, **Increment**, and **Move**. You can also apply a conditional predicate so the patch only executes if the item matches a filter.
 
-<!-- Source: partial-document-update.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/partial-document-update/partial-document-update.md -->
 
 This is just a taste — Chapter 6 is the canonical home for the Patch API, covering all six operations, conditional patching, RU savings, and transactional batch integration. If you're deciding between Patch and a full Replace, start there.
 
@@ -273,7 +273,7 @@ const { resources: items } = await container.items
     .fetchAll();
 ```
 
-<!-- Source: how-to-dotnet-query-items.md, quickstart-python.md, quickstart-nodejs.md -->
+<!-- Source: develop-modern-applications/developer-guide/net/work-with-items/how-to-dotnet-query-items.md, get-started/develop/quickstart-python.md, get-started/develop/quickstart-nodejs.md -->
 
 A few things to highlight:
 
@@ -317,7 +317,7 @@ This is the single most impactful performance decision in your SDK usage, and it
 
 **Use a single `CosmosClient` instance for the lifetime of your application.** One client per Cosmos DB account, shared across all requests. Do not create a new client per request, per controller, or per function invocation.
 
-<!-- Source: performance-tips-dotnet-sdk-v3.md, best-practice-dotnet.md, best-practice-python.md -->
+<!-- Source: develop-modern-applications/performance/net/performance-tips-dotnet-sdk-v3.md, develop-modern-applications/performance/net/best-practice-dotnet.md, develop-modern-applications/performance/python/best-practice-python.md -->
 
 Why does this matter so much? The `CosmosClient` is thread-safe and manages its own internal connection pool. When you create one, it:
 
@@ -376,7 +376,7 @@ const client = new CosmosClient({
 module.exports = client;
 ```
 
-<!-- Source: performance-tips-dotnet-sdk-v3.md, best-practice-python.md, best-practices-javascript.md -->
+<!-- Source: develop-modern-applications/performance/net/performance-tips-dotnet-sdk-v3.md, develop-modern-applications/performance/python/best-practice-python.md, develop-modern-applications/performance/javascript/best-practices-javascript.md -->
 
 > **Gotcha:** In Azure Functions, the same rule applies — but it's easy to violate. Functions on the Consumption plan spin up and tear down instances frequently. Store your `CosmosClient` in a static field (C#) or a module-level variable (Python/JS) so it survives across invocations within the same host instance. Don't create it inside the function handler.
 
@@ -384,7 +384,7 @@ module.exports = client;
 
 When your SDK talks to Cosmos DB, the request travels over one of two **connectivity modes**: **Direct** or **Gateway**. This choice affects latency, connection behavior, and which firewall ports you need open.
 
-<!-- Source: sdk-connection-modes.md -->
+<!-- Source: develop-modern-applications/sdk-connection-modes.md -->
 
 ### Gateway Mode
 
@@ -396,7 +396,7 @@ All SDKs support Gateway mode. It's the *only* mode available for Python, JavaSc
 
 In **Direct mode**, the SDK opens TCP connections directly to the backend replica nodes that store your data. It skips the gateway hop, which means lower latency and higher throughput. The tradeoff: your client needs access to ports in the range **10,000–20,000** (or 0–65,535 when using private endpoints).
 
-<!-- Source: sdk-connection-modes.md -->
+<!-- Source: develop-modern-applications/sdk-connection-modes.md -->
 
 Direct mode is supported only in the **.NET** and **Java** SDKs. The .NET SDK v3 uses Direct mode by default.
 
@@ -425,7 +425,7 @@ var client = new CosmosClient(
 );
 ```
 
-<!-- Source: performance-tips-dotnet-sdk-v3.md -->
+<!-- Source: develop-modern-applications/performance/net/performance-tips-dotnet-sdk-v3.md -->
 
 > **Tip:** If you're deploying .NET or Java in an environment where you control the network (an Azure VM, AKS, App Service with VNet integration), stick with Direct mode. The latency improvement is real and consistent. Switch to Gateway only when network constraints force it.
 
@@ -433,9 +433,9 @@ var client = new CosmosClient(
 
 When the SDK opens in Direct mode, it first hits the gateway via HTTPS to fetch account metadata and a routing map — the physical partition layout and replica TCP addresses. That information is cached locally. From then on, data plane requests (reads, writes, queries) go directly to the correct replica over TCP.
 
-Each physical partition has a replica set of four replicas (one primary, three secondaries). The SDK opens connections to all of them and load-balances reads across the set. Writes always target the primary replica. When replicas move (maintenance, scaling events), the SDK detects stale routes, refreshes from the gateway, and reconnects transparently.
+Each physical partition has a replica set of four replicas (one primary, three secondaries). <!-- Source: develop-modern-applications/sdk-connection-modes.md --> The SDK opens connections to all of them and load-balances reads across the set. Writes always target the primary replica. When replicas move (maintenance, scaling events), the SDK detects stale routes, refreshes from the gateway, and reconnects transparently.
 
-<!-- Source: sdk-connection-modes.md -->
+<!-- Source: develop-modern-applications/sdk-connection-modes.md -->
 
 The result: in steady state, Direct mode produces fewer network hops per operation, which translates directly to lower latency. The cost is more TCP connections from your client, which matters if you have many physical partitions — the steady-state formula is roughly *4 connections × number of physical partitions*.
 
@@ -465,7 +465,7 @@ while (feed.HasMoreResults)
 Console.WriteLine($"Total query cost: {totalRUs} RUs");
 ```
 
-<!-- Source: how-to-dotnet-read-item.md -->
+<!-- Source: develop-modern-applications/developer-guide/net/work-with-items/how-to-dotnet-read-item.md -->
 
 **Python — from the response headers**
 ```python
@@ -487,7 +487,7 @@ The underlying HTTP header is `x-ms-request-charge`, and it's present on *every*
 
 Distributed systems fail in interesting ways. Network blips, brief partition movements, throttling during traffic spikes — these are normal, not exceptional. The Cosmos DB SDKs have built-in retry logic for the most common transient errors, but you need to understand what they do (and don't do) so you can fill the gaps.
 
-<!-- Source: conceptual-resilient-sdk-applications.md -->
+<!-- Source: high-availability/resiliency/conceptual-resilient-sdk-applications.md -->
 
 ### What the SDK Retries Automatically
 
@@ -500,9 +500,9 @@ Distributed systems fail in interesting ways. Network blips, brief partition mov
 | **503** | Service unavailable | SDK retries reads* |
 | **409** | Conflict (duplicate `id`) | Don't retry |
 | **412** | ETag mismatch | Don't retry |
-| **413** | Item > 2 MB | Don't retry |
+| **413** | Item > 2 MB | Don't retry | <!-- Source: manage-your-account/enterprise-readiness/concepts-limits.md -->
 
-<!-- Source: conceptual-resilient-sdk-applications.md -->
+<!-- Source: high-availability/resiliency/conceptual-resilient-sdk-applications.md -->
 
 ### HTTP 429: Rate Limiting
 
@@ -510,11 +510,11 @@ The most common retryable error is **429 Too Many Requests** — you've exceeded
 
 By default, the .NET SDK retries up to **9 times** with a cumulative maximum wait of **30 seconds**. If retries are still failing after that, the SDK surfaces a `CosmosException` with status code 429 to your application code.
 
-<!-- Source: performance-tips-dotnet-sdk-v3.md -->
+<!-- Source: develop-modern-applications/performance/net/performance-tips-dotnet-sdk-v3.md -->
 
 A small percentage of 429s (1–5% of total requests) is actually healthy — it means you're efficiently utilizing your provisioned throughput. If the rate exceeds that, you have a throughput sizing problem (Chapter 11) or a hot partition problem (Chapter 5).
 
-<!-- Source: troubleshoot-request-rate-too-large.md -->
+<!-- Source: reference/troubleshooting/common-errors/troubleshoot-request-rate-too-large.md -->
 
 > **Tip:** You can tune the retry behavior in .NET via `CosmosClientOptions`:
 > ```csharp
@@ -530,7 +530,7 @@ A small percentage of 429s (1–5% of total requests) is actually healthy — it
 
 Network timeouts and service unavailable errors are retried by the SDK automatically for **read operations**. For **write operations**, the SDK does *not* retry by default — because writes aren't idempotent. If a write timed out, the SDK can't know whether the server processed it before the connection dropped.
 
-<!-- Source: conceptual-resilient-sdk-applications.md -->
+<!-- Source: high-availability/resiliency/conceptual-resilient-sdk-applications.md -->
 
 This means your application needs its own retry logic for write timeouts. A common pattern:
 
@@ -547,7 +547,7 @@ A 412 Precondition Failed means you attempted an optimistic concurrency update w
 
 If you're a .NET developer, the SDK offers something Python and JavaScript developers don't get: a **LINQ provider** that translates C# expressions into Cosmos DB SQL queries. You write strongly-typed lambda expressions; the SDK generates the query text and executes it.
 
-<!-- Source: how-to-dotnet-query-items.md -->
+<!-- Source: develop-modern-applications/developer-guide/net/work-with-items/how-to-dotnet-query-items.md -->
 
 ```csharp
 IOrderedQueryable<Product> queryable = container.GetItemLinqQueryable<Product>();
@@ -569,7 +569,7 @@ while (feed.HasMoreResults)
 }
 ```
 
-<!-- Source: how-to-dotnet-query-items.md -->
+<!-- Source: develop-modern-applications/developer-guide/net/work-with-items/how-to-dotnet-query-items.md -->
 
 A few things to know about LINQ with Cosmos DB:
 
@@ -577,7 +577,7 @@ A few things to know about LINQ with Cosmos DB:
 
 **Always call `ToFeedIterator()`.** The `IQueryable` you get from `GetItemLinqQueryable` supports `foreach` directly — but that path is **synchronous**. In production, convert to a `FeedIterator` and use `ReadNextAsync` for async paging. The performance tips documentation explicitly warns against using `ToList()` on a LINQ queryable because it blocks the calling thread.
 
-<!-- Source: performance-tips-dotnet-sdk-v3.md -->
+<!-- Source: develop-modern-applications/performance/net/performance-tips-dotnet-sdk-v3.md -->
 
 **Not every C# expression translates.** The LINQ provider supports the most common operations — `Where`, `Select`, `OrderBy`, `Take`, `Distinct`, aggregate functions — but complex method calls or custom functions may fail at translation time. If you hit a translation error, fall back to a raw SQL string query using `QueryDefinition`.
 
@@ -601,7 +601,7 @@ ItemResponse<Product> response = await container.ReadItemAsync<Product>(
 );
 ```
 
-<!-- Source: how-to-manage-consistency.md -->
+<!-- Source: high-availability/consistency/how-to-manage-consistency.md -->
 
 This lets you weaken consistency for a specific read without changing the account default. You can go from Strong to Eventual on a single request to get lower latency or reduced RU cost. You can only weaken — you can't strengthen beyond your account's default. Chapter 13 covers when and why you'd override consistency per request.
 
@@ -615,7 +615,7 @@ ItemResponse<Product> response = await container.CreateItemAsync(
 // response.Resource is null — but the write succeeded and cost fewer RUs
 ```
 
-<!-- Source: performance-tips-dotnet-sdk-v3.md -->
+<!-- Source: develop-modern-applications/performance/net/performance-tips-dotnet-sdk-v3.md -->
 
 When you already have the object you're writing, there's no reason to deserialize it from the response. Disabling the content response reduces network bandwidth and saves the SDK from allocating memory for serialization. The headers (including RU charge) are still available. This is a small but free optimization for write-heavy workloads.
 

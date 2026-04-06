@@ -8,7 +8,7 @@ Chapter 7 showed you how to execute queries through the SDK — `FeedIterator`, 
 
 The query language for Azure Cosmos DB for NoSQL is a SQL-like language rooted in JavaScript's type system. Microsoft calls it "SQL (Structured Query Language)" in the docs, but don't let the name fool you — it operates on schema-free JSON items within a single container. There are no cross-container joins, no foreign keys, no relational algebra.
 
-<!-- Source: tutorial-query.md -->
+<!-- Source: develop-modern-applications/tutorial-query.md -->
 
 What it *does* give you is a surprisingly expressive way to project, filter, transform, aggregate, and navigate deeply nested JSON. You can flatten arrays, reshape output, call built-in system functions, compute geospatial distances, and score text relevance — all within a single query.
 
@@ -94,7 +94,7 @@ The `WHERE` clause supports the comparison operators you'd expect: `=`, `!=`, `<
 
 > **Tip:** When your `WHERE` clause includes the partition key (`c.category` in this example), the query is routed to a single physical partition. That's an **in-partition query** — the cheapest kind. Leave the partition key out, and Cosmos DB fans the query to every physical partition. We'll dig into the cost implications later in this chapter.
 
-<!-- Source: how-to-query-container.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/how-to-query-container.md -->
 
 ## Keywords: DISTINCT, TOP, BETWEEN, LIKE, IN
 
@@ -157,7 +157,7 @@ WHERE c.category IN ("gear-surf-surfboards", "gear-surf-wetsuits")
 
 When the `IN` list contains partition key values, Cosmos DB intelligently routes the query to only the relevant physical partitions — not all of them. This is a useful middle ground between a single-partition query and a full fan-out.
 
-<!-- Source: how-to-query-container.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/how-to-query-container.md -->
 
 ## Parameterized Queries
 
@@ -179,11 +179,11 @@ var query = new QueryDefinition(
 .WithParameter("@minPrice", 500);
 ```
 
-<!-- Source: how-to-dotnet-query-items.md -->
+<!-- Source: develop-modern-applications/developer-guide/net/work-with-items/how-to-dotnet-query-items.md -->
 
 The Java SDK caches query plans for parameterized single-partition queries, so after the first execution, subsequent calls skip the gateway call entirely. In the .NET SDK, Optimistic Direct Execution (ODE) can bypass client-side query plan generation altogether for qualifying single-partition queries. Both optimizations depend on parameterization — another reason to always use it.
 
-<!-- Source: performance-tips-query-sdk.md -->
+<!-- Source: develop-modern-applications/performance/query/performance-tips-query-sdk.md -->
 
 > **Gotcha:** Parameterized values can be used in `WHERE` clauses, but not in place of property names or aliases. You can't parameterize the `SELECT` list or `ORDER BY` columns.
 
@@ -243,11 +243,11 @@ WHERE c.category = "gear-surf-surfboards"
 
 Aggregates use the index when possible — an equality or range filter on an indexed property lets the engine compute the aggregate without scanning every document. But if your filter forces a scan (like wrapping the property in `UPPER()`), the aggregate has to load every matching document first.
 
-<!-- Source: troubleshoot-query-performance.md -->
+<!-- Source: reference/troubleshooting/common-errors/troubleshoot-query-performance.md -->
 
 > **Tip:** For cross-partition aggregate queries, Cosmos DB computes the aggregate per partition and merges the results client-side. A `COUNT` across 20 physical partitions runs 20 sub-queries and sums the results. The RU cost scales linearly with partition count.
 
-<!-- Source: query-metrics.md -->
+<!-- Source: develop-modern-applications/performance/query/query-metrics.md -->
 
 ## GROUP BY
 
@@ -268,7 +268,7 @@ Some rules to know:
 - `GROUP BY` supports scalar properties, nested properties (like `c.supplier.region`), and system functions.
 - The RU cost increases with the cardinality of the grouped property — more distinct values means more work.
 
-<!-- Source: troubleshoot-query-performance.md -->
+<!-- Source: reference/troubleshooting/common-errors/troubleshoot-query-performance.md -->
 
 You can group by multiple properties:
 
@@ -308,7 +308,7 @@ FeedIterator<Product> feed = container.GetItemQueryIterator<Product>(
 );
 ```
 
-<!-- Source: performance-tips-query-sdk.md, how-to-dotnet-query-items.md -->
+<!-- Source: develop-modern-applications/performance/query/performance-tips-query-sdk.md, develop-modern-applications/developer-guide/net/work-with-items/how-to-dotnet-query-items.md -->
 
 > **Gotcha:** Continuation tokens are opaque and SDK-version-specific. Don't parse them, modify them, or assume they'll work across different SDK versions. The .NET SDK's Optimistic Direct Execution (ODE) can produce a different token format that older SDKs won't recognize.
 
@@ -327,7 +327,7 @@ This skips 20 results and returns the next 10. It looks familiar if you're comin
 
 For small offsets or one-off exploratory queries in the Data Explorer, `OFFSET/LIMIT` is fine. For production API pagination with potentially deep page numbers, use continuation tokens instead. The RU cost of continuation tokens doesn't grow with the page number — page 50 costs the same as page 1.
 
-<!-- Source: performance-tips-query-sdk.md -->
+<!-- Source: develop-modern-applications/performance/query/performance-tips-query-sdk.md -->
 
 | Strategy | Best For | RU Pattern |
 |----------|----------|------------|
@@ -359,7 +359,7 @@ Result:
 ]
 ```
 
-<!-- Source: tutorial-query.md -->
+<!-- Source: develop-modern-applications/tutorial-query.md -->
 
 The `JOIN r IN c.ratings` iterates over each element in the `ratings` array and produces one output row per element. If a product has 5 ratings, the query produces 5 rows for that product.
 
@@ -435,7 +435,7 @@ FROM c
 JOIN (SELECT VALUE r FROM r IN c.ratings WHERE r.score >= 4) AS highRatings
 ```
 
-<!-- Source: troubleshoot-query-performance.md -->
+<!-- Source: reference/troubleshooting/common-errors/troubleshoot-query-performance.md -->
 
 The geospatial query example in the docs uses exactly this pattern — computing `ST_DISTANCE` in a subquery to avoid recalculating it in both `SELECT` and `WHERE`:
 
@@ -448,7 +448,7 @@ JOIN (SELECT VALUE ROUND(ST_DISTANCE(o.location, @compareLocation))) AS distance
 WHERE o.category = @partitionKey AND distanceMeters > @maxDistance
 ```
 
-<!-- Source: how-to-geospatial-index-query.md -->
+<!-- Source: develop-modern-applications/how-to-geospatial-index-query.md -->
 
 ## Built-in System Functions
 
@@ -472,11 +472,11 @@ Cosmos DB ships with a rich library of built-in functions. These are server-side
 
 *Full scan = full index scan; cost scales with data cardinality. "Loads all docs" = bypasses the index entirely, loading every document.
 
-<!-- Source: troubleshoot-query-performance.md -->
+<!-- Source: reference/troubleshooting/common-errors/troubleshoot-query-performance.md -->
 
 The critical detail: **`UPPER()` and `LOWER()` in a `WHERE` clause don't use the index.** If you filter with `WHERE UPPER(c.name) = "YAMBA SURFBOARD"`, the engine loads every document and applies the function. For a container with 60,000+ items, that can cost 4,000+ RUs for a single query. The fix: store a pre-lowered or pre-uppercased copy of the field, or use computed properties (covered later in this chapter).
 
-<!-- Source: troubleshoot-query-performance.md, query-metrics-performance.md -->
+<!-- Source: reference/troubleshooting/common-errors/troubleshoot-query-performance.md, develop-modern-applications/performance/query/query-metrics-performance.md -->
 
 ### Math Functions
 
@@ -521,7 +521,7 @@ Cosmos DB provides functions for working with dates as ISO 8601 strings or Unix 
 
 > **Gotcha:** `GetCurrentDateTime()` and its siblings are evaluated at query execution time, not from the index. Don't use them in `WHERE` clauses — calculate the target timestamp in your application code and pass it as a parameter instead. This lets the query use the index.
 
-<!-- Source: troubleshoot-query-performance.md -->
+<!-- Source: reference/troubleshooting/common-errors/troubleshoot-query-performance.md -->
 
 ### Spatial Functions
 
@@ -535,13 +535,13 @@ These power geospatial queries (covered in more detail later this chapter):
 | `ST_ISVALID(geom)` | Is GeoJSON valid? |
 | `ST_ISVALIDDETAILED(geom)` | Validity + error detail |
 
-<!-- Source: how-to-geospatial-index-query.md, index-overview.md -->
+<!-- Source: develop-modern-applications/how-to-geospatial-index-query.md, manage-your-account/containers-and-items/index-overview.md -->
 
 ### Full-Text Search Functions
 
 These are the newer text search capabilities. They require a **full-text policy** and **full-text index** to be configured on your container (Chapter 9 covers the indexing setup).
 
-<!-- Source: gen-ai-full-text-search.md -->
+<!-- Source: build-ai-applications/full-text-indexing-and-search/full-text-search.md -->
 
 **`FullTextContains(path, term)`** — Returns true if the text at `path` contains the given term. The term goes through the same tokenization and stemming as the indexed text, so searching for "bicycles" will match documents containing "bicycle."
 
@@ -568,7 +568,7 @@ WHERE FullTextContains(c.description, "red")
   AND FullTextContainsAny(c.description, "bicycle", "skateboard")
 ```
 
-<!-- Source: gen-ai-full-text-search.md -->
+<!-- Source: build-ai-applications/full-text-indexing-and-search/full-text-search.md -->
 
 ### Full-Text Scoring: FullTextScore and ORDER BY RANK
 
@@ -582,17 +582,17 @@ FROM c
 ORDER BY RANK FullTextScore(c.description, "bicycle", "mountain")
 ```
 
-<!-- Source: gen-ai-full-text-search.md, gen-ai-full-text-search-faq.md -->
+<!-- Source: build-ai-applications/full-text-indexing-and-search/full-text-search.md -->
 
 The most relevant documents appear first. Keep search terms as individual keywords rather than long phrases — splitting `"mountain bicycle with performance shocks"` into `"mountain", "bicycle", "performance", "shocks"` typically performs better.
 
-<!-- Source: gen-ai-full-text-search-faq.md -->
+<!-- TODO: source needed for "Keep search terms as individual keywords rather than long phrases" — gen-ai-full-text-search-faq.md is not in the local mirror -->
 
 ### Hybrid Search: The RRF Function
 
 **Hybrid search** combines vector similarity search with full-text keyword search to get better relevance than either approach alone. Cosmos DB implements this through the **`RRF` (Reciprocal Rank Fusion)** function, which merges rankings from multiple search methods into a single unified ranking.
 
-<!-- Source: gen-ai-hybrid-search.md -->
+<!-- Source: build-ai-applications/hybrid-search.md -->
 
 ```sql
 SELECT TOP 10 *
@@ -615,7 +615,7 @@ ORDER BY RANK RRF(
 )
 ```
 
-<!-- Source: gen-ai-hybrid-search.md -->
+<!-- Source: build-ai-applications/hybrid-search.md -->
 
 Hybrid search requires both a vector index and a full-text index on your container. The setup details for vector indexing and the AI use cases that drive hybrid search are covered in Chapter 25; the indexing configuration is in Chapter 9.
 
@@ -684,7 +684,7 @@ Store locations as GeoJSON objects within your documents:
 
 Note: GeoJSON uses `[longitude, latitude]` order — the opposite of what Google Maps and most people expect. Get this wrong and your stores end up in the ocean.
 
-<!-- Source: how-to-geospatial-index-query.md -->
+<!-- Source: develop-modern-applications/how-to-geospatial-index-query.md -->
 
 ### Distance Queries
 
@@ -739,7 +739,7 @@ Spatial queries require a **spatial index** on the location property. The defaul
 }
 ```
 
-<!-- Source: how-to-geospatial-index-query.md, index-overview.md -->
+<!-- Source: develop-modern-applications/how-to-geospatial-index-query.md, manage-your-account/containers-and-items/index-overview.md -->
 
 Without a spatial index, `ST_DISTANCE` and `ST_WITHIN` still work — they just scan every document, which is expensive on large containers.
 
@@ -761,7 +761,7 @@ When you run a query that includes the partition key in the `WHERE` clause — l
 
 When your query *doesn't* include the partition key, Cosmos DB has no way to know which partition holds the matching data. So it fans the query out to *every* physical partition, runs it against each partition's index, and merges the results on the client side.
 
-<!-- Source: how-to-query-container.md, query-metrics.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/how-to-query-container.md, develop-modern-applications/performance/query/query-metrics.md -->
 
 Here's the flow:
 
@@ -775,9 +775,10 @@ Here's the flow:
 
 Each physical partition charges a minimum of about **2.5 RUs** just to check its index — even if it returns zero matching items. If your container has 20 physical partitions, a cross-partition query costs at least 50 RUs as a baseline, even for a simple filter that matches items in only one partition.
 
-<!-- Source: how-to-query-container.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/how-to-query-container.md -->
 
 As your container grows, you get more physical partitions (one per ~10,000 RU/s or ~50 GB of data). A container provisioned at 100,000 RU/s has at least 10 physical partitions; one storing 500 GB might have 10 or more. The base cost of cross-partition queries scales linearly with partition count.
+<!-- Source: throughput-request-units/scaling-provisioned-throughput-best-practices.md -->
 
 | Partitions | Min Cross-Partition Cost |
 |------------|---------------------------|
@@ -792,9 +793,10 @@ And that's just the baseline. Add actual index lookups, document loads, and aggr
 
 Cross-partition queries are fine for small containers. If you have one or two physical partitions, the fan-out cost is negligible. The docs call this out explicitly: "if you have only one (or just a few) physical partitions, cross-partition queries don't consume significantly more RUs than in-partition queries."
 
-<!-- Source: how-to-query-container.md -->
+<!-- Source: develop-modern-applications/operations-on-containers-and-items/how-to-query-container.md -->
 
 Start caring when your container exceeds 30,000 provisioned RU/s or 100 GB of storage. At that scale, the partition count makes fan-out expensive.
+<!-- Source: reference/troubleshooting/common-errors/troubleshoot-query-performance.md -->
 
 ### How to Minimize Cross-Partition Queries
 
@@ -807,7 +809,7 @@ Start caring when your container exceeds 30,000 provisioned RU/s or 100 GB of st
 
 The SDKs don't execute cross-partition queries serially — they parallelize across partitions. You can control the degree of parallelism via `MaxConcurrency` (C#) or `setMaxDegreeOfParallelism` (Java). Setting it to `-1` lets the SDK auto-tune.
 
-<!-- Source: performance-tips-query-sdk.md, query-metrics.md -->
+<!-- Source: develop-modern-applications/performance/query/performance-tips-query-sdk.md, develop-modern-applications/performance/query/query-metrics.md -->
 
 ```csharp
 var options = new QueryRequestOptions
@@ -837,7 +839,7 @@ FeedResponse<Product> response = await feed.ReadNextAsync();
 Console.WriteLine(response.IndexMetrics);
 ```
 
-<!-- Source: index-metrics.md -->
+<!-- Source: develop-modern-applications/performance/indexing/index-metrics.md -->
 
 The output shows two categories:
 
@@ -854,7 +856,7 @@ Index Utilization Information
     Index Impact Score: High
 ```
 
-<!-- Source: index-metrics.md -->
+<!-- Source: develop-modern-applications/performance/indexing/index-metrics.md -->
 
 Each recommendation includes an **index impact score** — either *high* or *low*. Focus on the high-impact ones. Here's what the loop looks like in practice.
 
@@ -907,11 +909,11 @@ When a query is slow or expensive, you need to understand *where* the time and R
 | `RuntimeExecutionTime` | Time in filters/functions |
 | `IndexHitRatio` | Matched / loaded [0-1] |
 
-<!-- Source: query-metrics.md -->
+<!-- Source: develop-modern-applications/performance/query/query-metrics.md -->
 
 The single most diagnostic comparison is **`RetrievedDocumentCount` vs. `OutputDocumentCount`**. If you retrieved 60,000 documents but output 7, your query scanned 60,000 documents to find 7 matches. That's a 0.01% index hit ratio — you're almost certainly missing an index or using a function that can't leverage one.
 
-<!-- Source: troubleshoot-query-performance.md -->
+<!-- Source: reference/troubleshooting/common-errors/troubleshoot-query-performance.md -->
 
 ### Accessing Metrics in the SDK
 
@@ -926,7 +928,7 @@ Console.WriteLine($"Retrieved docs: {metrics.CumulativeMetrics.RetrievedDocument
 Console.WriteLine($"Output docs: {metrics.CumulativeMetrics.OutputDocumentCount}");
 ```
 
-<!-- Source: query-metrics-performance.md -->
+<!-- Source: develop-modern-applications/performance/query/query-metrics-performance.md -->
 
 In Python, enable metrics by passing `populate_query_metrics=True` and reading the response headers:
 
@@ -941,7 +943,7 @@ items = [item for item in results]
 print(container.client_connection.last_response_headers['x-ms-documentdb-query-metrics'])
 ```
 
-<!-- Source: query-metrics-performance-python.md -->
+<!-- Source: develop-modern-applications/performance/query/query-metrics-performance-python.md -->
 
 The metrics output in Python gives you `retrievedDocumentCount`, `outputDocumentCount`, `indexUtilizationRatio`, `totalExecutionTimeInMs`, and more — all the same data, just in a different format.
 
@@ -955,7 +957,7 @@ When a query seems expensive:
 4. **Enable `PopulateIndexMetrics`** to see exactly which indexes were (and weren't) used, and what indexes would help.
 5. **Look at the per-partition breakdown.** If one partition's metrics are dramatically worse than others, you may have a hot partition or skewed data.
 
-<!-- Source: query-metrics.md, query-metrics-performance.md -->
+<!-- Source: develop-modern-applications/performance/query/query-metrics.md, develop-modern-applications/performance/query/query-metrics-performance.md -->
 
 Chapter 18 covers setting up monitoring dashboards to track these metrics across all your queries in production. The per-query diagnostics here are your debugging tool; the Chapter 18 dashboards are your operational visibility.
 
